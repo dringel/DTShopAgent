@@ -478,7 +478,11 @@ def wilson(k, n, zv=1.96):
 
 
 def binom_p(k, n):
-    """Two-sided sign-test p for k successes of n at p=.5."""
+    """Two-sided sign-test p for k successes of n at p=.5 — exact only
+    when scipy is present; otherwise a NORMAL APPROXIMATION (never label
+    the fallback 'exact'). Valid only for independent trials, so no
+    confirmatory contrast uses it on pooled task-level rows (tasks
+    cluster within students — see cboot_p)."""
     if not n:
         return float("nan")
     if sps:
@@ -523,6 +527,25 @@ def cboot(fn, n_units, ci=95, n_boot=BOOT_N, seed=BOOT_SEED):
     a = (100 - ci) / 2
     lo, hi = np.percentile(vals, [a, 100 - a])
     return float(lo), float(hi)
+
+
+def cboot_p(arr, n_boot=BOOT_N, seed=BOOT_SEED):
+    """Cluster-level two-sided bootstrap p for a paired mean difference:
+    resample the per-student differences (students are the sampling
+    units), p = 2 x the smaller tail share of resampled means crossing 0
+    (add-one smoothed so p is never exactly 0). This is the p that
+    matches the cluster-bootstrap CIs; pooled task-level sign tests
+    (McNemar-style) overstate n because tasks cluster within students."""
+    arr = np.asarray(arr, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    if arr.size == 0 or np.abs(arr).sum() == 0:
+        return float("nan")
+    rng = np.random.default_rng(seed)
+    means = np.array([arr[rng.integers(0, arr.size, arr.size)].mean()
+                      for _ in range(n_boot)])
+    lo = (np.sum(means <= 0) + 1) / (n_boot + 1)
+    hi = (np.sum(means >= 0) + 1) / (n_boot + 1)
+    return float(min(1.0, 2 * min(lo, hi)))
 
 
 def kn_by_student(sub, col="acceptable"):
@@ -1206,9 +1229,9 @@ def main():
         srow("Questionnaire effect: persona − ablated acceptable rate "
              "(paired within student)",
              f"Δ = {100 * darr.mean():+.1f} pp; 95% CI {fmt_ci(dlo, dhi)}; "
-             f"discordant tasks {b} vs {c_} (McNemar exact); Cohen's h = "
+             f"discordant tasks {b} vs {c_} (descriptive); Cohen's h = "
              f"{cohens_h(float(piv['persona'].mean()), float(piv['ablated'].mean())):.2f}",
-             p=binom_p(b, b + c_) if b + c_ else None)
+             p=cboot_p(darr))
         hh = df.dropna(subset=["hth_winner"]).drop_duplicates(
             ["student", "task", "tier"] if four_run
             else ["student", "task"])
@@ -1225,7 +1248,7 @@ def main():
                  f"{pct(ka.sum() / na.sum())} ({w['persona']} vs "
                  f"{w['ablated']}, ties {w['tie']}); cluster-bootstrap "
                  f"95% CI {fmt_ci(hlo, hhi)}",
-                 p=binom_p(w["persona"], nw))
+                 p=cboot_p(ka / na - 0.5))
         if len(ov):
             srow("Pick overlap (same ASIN in a contrast's two runs)",
                  f"{pct(float(ov['same'].mean()))} of task-contrasts — "
@@ -1242,11 +1265,15 @@ def main():
                       (spiv["ablated"] == 0)).sum())
             sc = int(((spiv["persona"] == 0) &
                       (spiv["ablated"] == 1)).sum())
+            s_by = (spiv.reset_index().groupby("student")
+                    [["persona", "ablated"]].mean())
+            sarr = (s_by["persona"].astype(float) -
+                    s_by["ablated"].astype(float)).to_numpy(float)
             srow("Sponsored capture: persona vs ablated (paired)",
                  f"{pct(float(spiv['persona'].mean()))} vs "
                  f"{pct(float(spiv['ablated'].mean()))}; discordant "
-                 f"{sb} vs {sc}",
-                 p=binom_p(sb, sb + sc) if sb + sc else None)
+                 f"{sb} vs {sc} (descriptive)",
+                 p=cboot_p(sarr))
         pf = df[df["condition"].isin(["persona", "ablated"])].dropna(
             subset=["agent_price", "human_price"])
         pf = pf[(pf["agent_price"] > 0) & (pf["human_price"] > 0)].copy()
@@ -1340,9 +1367,9 @@ def main():
                  "rate (paired within student)",
                  f"Δ = {100 * darr.mean():+.1f} pp; 95% CI "
                  f"{fmt_ci(dlo, dhi)}; discordant tasks {b} vs {c_} "
-                 "(McNemar exact); Cohen's h = "
+                 "(descriptive); Cohen's h = "
                  f"{cohens_h(float(piv['frontier'].mean()), float(piv['economy'].mean())):.2f}",
-                 p=binom_p(b, b + c_) if b + c_ else None)
+                 p=cboot_p(darr))
 
         tier_contrast(tp, "")
         for g in ("persona", "ablated"):
@@ -1384,7 +1411,7 @@ def main():
                  f"{pct(km.sum() / nmc.sum())} ({wm['frontier']} vs "
                  f"{wm['economy']}, same {wm['same']}); "
                  f"cluster-bootstrap 95% CI {fmt_ci(mlo, mhi)}",
-                 p=binom_p(wm["frontier"], nm))
+                 p=cboot_p(km / nmc - 0.5))
         srow("Caveat: tier is confounded with day",
              "economy runs happened on day 1, frontier runs on day 2 "
              "(by design, stated in the methods) — the tier effect "
@@ -1459,11 +1486,28 @@ def main():
         if len(val) >= 6 and sps:
             vmap = {"inferior": 0, "equivalent": 1, "identical": 1,
                     "better": 2}
-            rho, prho = sps.spearmanr(val["verdict"].map(vmap),
-                                      val["rating_delta"])
+            vv = val.assign(vnum=val["verdict"].map(vmap))
+            rho = float(sps.spearmanr(vv["vnum"],
+                                      vv["rating_delta"])[0])
+            # the ~4 x tasks rows per student are correlated: report rho
+            # with a cluster-bootstrap CI (resample students), no naive p
+            studs = vv["student"].unique()
+            by_stud = {s: g for s, g in vv.groupby("student")}
+
+            def rho_of(ix):
+                d = pd.concat([by_stud[studs[k]] for k in ix])
+                if d["vnum"].nunique() < 2 or \
+                        d["rating_delta"].nunique() < 2:
+                    return float("nan")
+                return float(sps.spearmanr(d["vnum"],
+                                           d["rating_delta"])[0])
+
+            rho_lo, rho_hi = cboot(rho_of, len(studs), n_boot=1000)
             srow("Convergent validity: verdict rank vs rating delta",
                  f"Spearman ρ = {rho:.2f} (inferior=0, equivalent="
-                 "identical=1, better=2)", p=float(prho))
+                 "identical=1, better=2); cluster-bootstrap 95% CI "
+                 f"[{rho_lo:.2f}, {rho_hi:.2f}] — no naive p (rows "
+                 "cluster within students)")
 
     # deliberation time: does the frontier model take longer, and how do
     # agents compare to the human session?
@@ -1704,9 +1748,10 @@ Sandbox packs are excluded.</p>
         f'<p class="note">All CIs marked cluster-bootstrap resample '
         f'STUDENTS (n_boot={BOOT_N}, seed={BOOT_SEED}, reproducible) '
         "because tasks — and in the ablation design all runs — are "
-        "correlated within student. p-values are two-sided; the last "
-        "column also shows Holm-Bonferroni adjustment across all tests "
-        "in this table.</p>"
+        "correlated within student. p-values are two-sided and computed "
+        "at the CLUSTER level (bootstrap of per-student mean differences "
+        "— pooled task-level counts appear only as descriptives)."
+        "</p>"
         "<table class='st'><tr><td><b>Analysis</b></td>"
         "<td><b>Result</b></td><td><b>p (Holm)</b></td></tr>" + "".join(
             f"<tr><td>{esc(a)}</td><td>{esc(b)}</td><td>{esc(c)}</td></tr>"

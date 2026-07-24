@@ -90,9 +90,16 @@ def cand_list(asins, task, salt=0):
 
 
 def vfor(a, h, i, j):
-    """ASIN-consistent verdict (identical iff same product)."""
+    """ASIN-consistent verdict (identical iff same product). Students
+    i%5==0 approve everything and i%5==4 reject everything, so task
+    outcomes CLUSTER within students — the shape the cluster-level
+    p-values (B9) exist for."""
     if a == h:
         return "identical"
+    if i % 5 == 0:
+        return "better"
+    if i % 5 == 4:
+        return "inferior"
     v = VERDS[(i + j) % 4]
     return v if v != "identical" else "equivalent"
 
@@ -370,6 +377,16 @@ def main():
             assert marker in html, f"missing section: {marker}"
         assert "nan" not in html.split("Statistics")[1].split(
             "Robustness")[0].lower(), "nan leaked into the stats table"
+        # B9: pooled-count tests are gone from inference; p is cluster-level
+        assert "McNemar" not in html, \
+            "pooled McNemar label must not survive (cluster-level p now)"
+        assert "computed \nat the CLUSTER level".replace("\n", "") in \
+            html.replace("\n", " ").replace("  ", " ") or \
+            "CLUSTER level" in html, "cluster-level p note missing"
+        assert "no naive p" in html, \
+            "Spearman must report a cluster-bootstrap CI, not a naive p"
+        assert "(descriptive)" in html, \
+            "discordant counts must be labeled descriptive"
         assert out.stat().st_size > 100_000, "report suspiciously small"
         print(f"PASS: report generated ({out.stat().st_size >> 10} KB) "
               f"from {n_valid} students (2x2 + legacy + renamed zip; "
