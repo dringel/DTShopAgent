@@ -367,6 +367,9 @@ grep -q 'Verdict: {better|identical|equivalent|inferior}' "$GEN/comparison.md" \
   && grep -q 'Task 5 winner (frontier): {persona|ablated|tie}' "$GEN/comparison_ablation.md" \
   && grep -q 'Task 5 better model (ablated): {frontier|economy|same}' "$GEN/comparison_ablation.md"
 check $? 0 "machine-parsed markers intact in generated templates"
+grep -q '## Task 5 (Run D)' "$GEN/comparison_ablation.md" \
+  && ! grep -q '(persona run,' "$GEN/comparison_ablation.md"
+check $? 0 "2x2 verdict blocks are BLIND (Run A-D, no condition names)"
 grep -q 'IN THE ORDER they appear' "$GEN/tasks.md"
 check $? 0 "standardized prompts instruct in-order shopping"
 for f in tasks.md comparison.md comparison_ablation.md; do
@@ -726,6 +729,236 @@ z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
 m=json.loads(z.read('DT2026-999/manifest.json'))
 assert any('product views' in w for w in m['warnings']), m['warnings']
 assert not any('product views' in i for i in m['validation_issues'])
+sys.exit(0)
+PY
+
+echo "[31] B2: blind A-D verdict capture end-to-end (resolve, no leak, pack)"
+mkenv_4run
+python3 - "$REPO" <<'PY'; check $? 0 "blind capture: labels differ per task; resolved cond/tier correct; no condition leak before reveal"
+import csv, hashlib, os, subprocess, sys
+REPO, HOME, SID = sys.argv[1], os.path.expanduser("~"), "DT2026-999"
+RUNS = ["run1", "run2", "run3", "run4"]
+def blind(t):
+    order = sorted(RUNS, key=lambda rn: hashlib.sha256(
+        f"{SID}|{t}|{rn}|verdictorder".encode()).hexdigest())
+    return dict(zip("ABCD", order))
+condtier, picks = {}, {}
+for rn in RUNS:
+    d = f"{HOME}/dtlab/runs/{rn}"
+    condtier[rn] = (open(f"{d}/condition.txt").read().strip(),
+                    open(f"{d}/tier.txt").read().strip())
+    src = f"{d}/agent_picks.csv"
+    if not os.path.exists(src):        # run-4 artifacts adopted from WS
+        src = f"{HOME}/dtlab/workspace/agent_picks.csv"
+    picks[rn] = {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
+human = {r["task_id"]: r["asin"]
+         for r in csv.DictReader(open(f"{HOME}/dtlab/human/human_picks.csv"))}
+tasks, cycle = ["1", "2", "3"], ["better", "equivalent", "inferior", "better"]
+lines, expected = [], {}
+for t in tasks:
+    lab2run = blind(t)
+    lines.append("7")                                    # rating_self, once
+    for i, label in enumerate("ABCD"):
+        rn = lab2run[label]
+        v = "identical" if picks[rn].get(t) == human.get(t) else cycle[i]
+        expected[(t,) + condtier[rn]] = v
+        lines += [v, "5", "r"]
+    lines += ["tie"] * 4                                 # 4 blind pairwise
+lines += ["x", ""] * 5                                   # Overall Q1-Q5
+p = subprocess.run([sys.executable, f"{REPO}/tools/capture_verdicts.py"],
+                   input="\n".join(lines) + "\n",
+                   capture_output=True, text=True)
+assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
+pre = p.stdout[:p.stdout.index("Reveal")]
+for w in ("persona", "ablated", "economy", "frontier"):
+    assert w not in pre, f"'{w}' leaked before the reveal"
+assert len({tuple(sorted(blind(t).items())) for t in tasks}) > 1
+vd = f"{HOME}/dtlab/verdicts"
+rows = list(csv.DictReader(open(f"{vd}/verdicts.csv")))
+assert len(rows) == 12
+for r in rows:
+    assert expected[(r["task_id"], r["condition"], r["tier"])] == r["verdict"]
+    assert r["rating_self"] == "7" and r["verdict_at_utc"]
+h = list(csv.DictReader(open(f"{vd}/head_to_heads.csv")))
+assert len(h) == 12 and all(r["winner"] in ("tie", "same") for r in h)
+assert os.path.exists(f"{vd}/overall_reflections.md")
+assert not os.path.exists(f"{HOME}/dtlab/workspace/verdicts.csv")
+sys.exit(0)
+PY
+python3 "$PACK" >/dev/null 2>&1; check $? 0 "pack from blind capture exits 0"
+python3 - <<'PY'; check $? 0 "manifest: verdicts_captured_blind, 12 resolved verdicts, hth families"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['verdicts_captured_blind'] is True
+assert m['verdict_source']=='verdicts_csv' and len(m['verdicts'])==12
+assert set(m['ablation']['head_to_head']) == \
+    {'grounding_economy','grounding_frontier','tier_persona','tier_ablated'}
+assert m['ratings']['1_persona_economy']=={'self':7,'agent':5}
+assert 'DT2026-999/verdicts.csv' in z.namelist()
+sys.exit(0)
+PY
+
+echo "[32] B2/B17: Thursday capture resumes Friday; corrupt run never drops rows"
+mkenv_4run
+guard; rm -rf "$HOME/dtlab/runs/run3" "$HOME/dtlab/runs/run4"
+python3 - "$REPO" <<'PY'; check $? 0 "3-phase resume: stored answers survive; corrupt condition.txt carries rows forward"
+import csv, hashlib, os, shutil, subprocess, sys
+REPO, HOME, SID = sys.argv[1], os.path.expanduser("~"), "DT2026-999"
+WS = f"{HOME}/dtlab/workspace"
+def blind(t, runs):
+    order = sorted(runs, key=lambda rn: hashlib.sha256(
+        f"{SID}|{t}|{rn}|verdictorder".encode()).hexdigest())
+    return dict(zip("ABCD", order))
+def condtier(rn):
+    d = f"{HOME}/dtlab/runs/{rn}"
+    return (open(f"{d}/condition.txt").read().strip(),
+            open(f"{d}/tier.txt").read().strip())
+def picks_of(rn, runs):
+    src = f"{HOME}/dtlab/runs/{rn}/agent_picks.csv"
+    if not os.path.exists(src) and rn == runs[-1]:
+        src = f"{WS}/agent_picks.csv"
+    return {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
+human = {r["task_id"]: r["asin"]
+         for r in csv.DictReader(open(f"{HOME}/dtlab/human/human_picks.csv"))}
+tasks = ["1", "2", "3"]
+cap = f"{REPO}/tools/capture_verdicts.py"
+def run_capture(lines):
+    return subprocess.run([sys.executable, cap],
+                          input="\n".join(lines) + "\n",
+                          capture_output=True, text=True)
+# ---- phase 1: Thursday (runs 1-2 only) ----
+runs = ["run1", "run2"]
+ct = {rn: condtier(rn) for rn in runs}
+lines, thur = [], {}
+for t in tasks:
+    lab2run = blind(t, runs)
+    lines.append("8")
+    for i, label in enumerate("AB"):
+        rn = lab2run[label]
+        v = "identical" if picks_of(rn, runs).get(t) == human.get(t) \
+            else ("better" if i == 0 else "equivalent")
+        thur[(t,) + ct[rn]] = v
+        lines += [v, "4", "thu"]
+    # one family (grounding_economy): answer the PERSONA run's label
+    plabel = next(lb for lb, rn in lab2run.items() if ct[rn][0] == "persona")
+    lines.append(plabel.lower())
+p = run_capture(lines)
+assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
+rows = list(csv.DictReader(open(f"{HOME}/dtlab/verdicts/verdicts.csv")))
+assert len(rows) == 6
+h = {(r["task_id"], r["contrast"]): r["winner"] for r in
+     csv.DictReader(open(f"{HOME}/dtlab/verdicts/head_to_heads.csv"))}
+assert all(h[(t, "grounding_economy")] == "persona" for t in tasks)
+# ---- phase 2: Friday (runs 3-4 exist; fresh process keeps Thursday) ----
+for i, cond, tier in ((3, "ablated", "frontier"), (4, "persona", "frontier")):
+    d = f"{HOME}/dtlab/runs/run{i}"
+    os.makedirs(d, exist_ok=True)
+    open(f"{d}/condition.txt", "w").write(cond + "\n")
+    open(f"{d}/tier.txt", "w").write(tier + "\n")
+open(f"{HOME}/dtlab/runs/run3/agent_picks.csv", "w").write(
+    "task_id,title,asin,price_inr,sponsored\n1,Q,B0CCCC3333,310,0\n"
+    "2,X,B0AAAA1111,1200,0\n3,Y,B0BBBB2222,1400,0\n")
+runs = ["run1", "run2", "run3", "run4"]
+ct = {rn: condtier(rn) for rn in runs}
+lines, fri = [], {}
+for t in tasks:
+    lab2run = blind(t, runs)
+    lines.append("")                       # rating_self stored -> Enter
+    for label in "ABCD":
+        rn = lab2run[label]
+        if rn in ("run1", "run2"):
+            lines += ["", "", ""]          # stored -> Enter keeps
+        else:
+            v = "identical" if picks_of(rn, runs).get(t) == human.get(t) \
+                else "inferior"
+            fri[(t,) + ct[rn]] = v
+            lines += [v, "6", "fri"]
+    # families in fixed order: grounding_economy (stored), then
+    # grounding_frontier, tier_persona, tier_ablated (new)
+    lines += ["", "tie", "tie", "tie"]
+lines += ["x", ""] * 5
+p = run_capture(lines)
+assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
+rows = list(csv.DictReader(open(f"{HOME}/dtlab/verdicts/verdicts.csv")))
+assert len(rows) == 12
+got = {(r["task_id"], r["condition"], r["tier"]): r for r in rows}
+for k, v in thur.items():
+    assert got[k]["verdict"] == v and got[k]["rationale"] == "thu", k
+    assert got[k]["rating_self"] == "8" and got[k]["rating_agent"] == "4"
+for k, v in fri.items():
+    assert got[k]["verdict"] == v and got[k]["rationale"] == "fri", k
+# ---- phase 3: corrupt run3's condition -> rows carried, not dropped ----
+open(f"{HOME}/dtlab/runs/run3/condition.txt", "w").write("garbage\n")
+runs3 = ["run1", "run2", "run4"]
+lines = []
+for t in tasks:
+    lines += [""] + [""] * 9 + ["", ""]    # all stored -> Enter
+p = run_capture(lines)                     # 3 runs -> no Overall stage
+assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
+assert "carried forward" in p.stdout
+rows = list(csv.DictReader(open(f"{HOME}/dtlab/verdicts/verdicts.csv")))
+assert len(rows) == 12
+kept = [r for r in rows if (r["condition"], r["tier"]) ==
+        ("ablated", "frontier")]
+assert len(kept) == 3 and all(r["rationale"] == "fri" for r in kept)
+shutil.rmtree(f"{HOME}/dtlab/verdicts")    # leave later cases untouched
+sys.exit(0)
+PY
+
+echo "[33] B2: blind memo fallback parses; labels resolve via shared derivation"
+mkenv_4run
+rm -f "$HOME/dtlab/workspace/comparison.md"
+python3 - <<'PY'
+import csv, hashlib, os
+HOME, SID = os.path.expanduser("~"), "DT2026-999"
+RUNS = ["run1", "run2", "run3", "run4"]
+def blind(t):
+    order = sorted(RUNS, key=lambda rn: hashlib.sha256(
+        f"{SID}|{t}|{rn}|verdictorder".encode()).hexdigest())
+    return dict(zip("ABCD", order))
+condtier, picks = {}, {}
+for rn in RUNS:
+    d = f"{HOME}/dtlab/runs/{rn}"
+    condtier[rn] = (open(f"{d}/condition.txt").read().strip(),
+                    open(f"{d}/tier.txt").read().strip())
+    src = f"{d}/agent_picks.csv"
+    if not os.path.exists(src):
+        src = f"{HOME}/dtlab/workspace/agent_picks.csv"
+    picks[rn] = {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
+human = {r["task_id"]: r["asin"]
+         for r in csv.DictReader(open(f"{HOME}/dtlab/human/human_picks.csv"))}
+L = ["# c"]
+for t in ("1", "2", "3"):
+    lab2run = blind(t)
+    for label in "ABCD":
+        rn = lab2run[label]
+        v = "identical" if picks[rn].get(t) == human.get(t) else "equivalent"
+        L += [f"## Task {t} (Run {label})", f"Verdict: {v}",
+              "My pick rating (1-10): 7", "Agent pick rating (1-10): 6",
+              "Attribution: real", ""]
+    L += [f"## Task {t} synthesis (across the four runs)",
+          "pattern explained", ""]
+L += ["## Head-to-head"]
+for t in ("1", "2", "3"):
+    L += [f"Task {t} winner (economy): persona",
+          f"Task {t} winner (frontier): tie",
+          f"Task {t} better model (persona): frontier",
+          f"Task {t} better model (ablated): same"]
+L += ["notes", "## Overall", "all answered", ""]
+open(f"{HOME}/dtlab/workspace/comparison.md", "w").write("\n".join(L))
+PY
+python3 "$PACK" >/dev/null 2>&1; check $? 0 "blind memo pack exits 0"
+python3 - <<'PY'; check $? 0 "blind memo: 12 verdicts resolved to condition/tier keys"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['verdict_source']=='comparison_md'
+assert m['verdicts_captured_blind'] is False
+assert len(m['verdicts'])==12
+assert m['verdicts']['1_persona_economy']=='identical'
+assert m['verdicts']['3_ablated_frontier']=='equivalent'
+assert m['ratings']['2_persona_frontier']=={'self':7,'agent':6}
 sys.exit(0)
 PY
 

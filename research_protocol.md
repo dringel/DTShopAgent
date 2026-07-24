@@ -220,13 +220,23 @@ Assembly steps:
   the run's picks file}. Per-task AGENT timing requires the Hermes
   transcript timestamps (dry-run item; the transcripts are packed
   either way).
-- `dtlab-verdicts-v1` (written by the guided `dtlab-verdict` prompt):
-  student_id, task_id, condition {persona|ablated}, tier
-  {economy|frontier}, verdict {better|identical|equivalent|inferior}
-  ('identical' ASIN-verified by the packer), rating_self (1–10),
-  rating_agent (1–10), rationale (one-line free text). Head-to-heads and
-  the Overall reflections are captured in the same session
-  (overall_reflections.md).
+- `dtlab-verdicts-v2` (written by the guided `dtlab-verdict` prompt;
+  supersedes v1 additively): student_id, task_id, condition
+  {persona|ablated}, tier {economy|frontier}, verdict
+  {better|identical|equivalent|inferior} ('identical' ASIN-verified by
+  the packer), rating_self (1–10, one judgment per task), rating_agent
+  (1–10), rationale (one-line free text), verdict_at_utc (capture
+  timestamp per row). **Capture is BLIND:** each task presents the runs'
+  picks in a per-task randomized order labeled Run A–D (order derived
+  from sha256(student|task|run), reproducible); condition and tier are
+  never shown before a verdict is stored and are resolved into the CSV
+  post-hoc — the manifest records `verdicts_captured_blind`. Pairwise
+  head-to-heads are asked against the same blind labels and resolved the
+  same way; the label→run mapping is revealed only after capture, before
+  the Overall reflections (which reference tiers by design).
+  Head-to-heads and the Overall reflections are captured in the same
+  session (overall_reflections.md); all verdict artifacts live in
+  `~/dtlab/verdicts/`, outside the agent workspace.
 - Cart ground truth: `cart_runN.json` per run (asin, title,
   unit price, qty — parsed from the live cart by `dtlab-cart`), cross-
   checked against `agent_picks.csv` at pack time (`cart_verified` per

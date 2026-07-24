@@ -6,25 +6,32 @@
      ASIN-verified). Ratings: how satisfied would you be OWNING each
      pick, 1-10, whole numbers. Machine-parsed — do not rephrase. -->
 
-## Task 1 (persona run, economy)
+<!-- BLIND ASSESSMENT: each task's four runs appear below only as
+     Run A-D, in a per-task randomized order (the same order dtlab-verdict
+     uses). Run `dtlab-verdict --worksheet` for the per-task list of which
+     PICK is Run A/B/C/D — titles and ASINs only; which run was persona or
+     ablated, economy or frontier stays hidden until after your verdicts.
+     Fill every verdict block before the Head-to-head section. -->
+
+## Task 1 (Run A)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 1 (ablated run, economy)
+## Task 1 (Run B)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 1 (persona run, frontier)
+## Task 1 (Run C)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 1 (ablated run, frontier)
+## Task 1 (Run D)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
@@ -35,25 +42,25 @@ One short paragraph: what explains the pattern across the four runs
 (grounding effect, tier effect, both, neither)?
 {...}
 
-## Task 2 (persona run, economy)
+## Task 2 (Run A)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 2 (ablated run, economy)
+## Task 2 (Run B)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 2 (persona run, frontier)
+## Task 2 (Run C)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 2 (ablated run, frontier)
+## Task 2 (Run D)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
@@ -64,25 +71,25 @@ One short paragraph: what explains the pattern across the four runs
 (grounding effect, tier effect, both, neither)?
 {...}
 
-## Task 3 (persona run, economy)
+## Task 3 (Run A)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 3 (ablated run, economy)
+## Task 3 (Run B)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 3 (persona run, frontier)
+## Task 3 (Run C)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 3 (ablated run, frontier)
+## Task 3 (Run D)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
@@ -93,25 +100,25 @@ One short paragraph: what explains the pattern across the four runs
 (grounding effect, tier effect, both, neither)?
 {...}
 
-## Task 4 (persona run, economy)
+## Task 4 (Run A)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 4 (ablated run, economy)
+## Task 4 (Run B)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 4 (persona run, frontier)
+## Task 4 (Run C)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 4 (ablated run, frontier)
+## Task 4 (Run D)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
@@ -122,25 +129,25 @@ One short paragraph: what explains the pattern across the four runs
 (grounding effect, tier effect, both, neither)?
 {...}
 
-## Task 5 (persona run, economy)
+## Task 5 (Run A)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 5 (ablated run, economy)
+## Task 5 (Run B)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 5 (persona run, frontier)
+## Task 5 (Run C)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
 Attribution — evidence the decision log cited, real or confabulated: {...}
 
-## Task 5 (ablated run, frontier)
+## Task 5 (Run D)
 Verdict: {better|identical|equivalent|inferior}
 My pick rating (1-10): {N}
 Agent pick rating (1-10): {N}
@@ -152,8 +159,11 @@ One short paragraph: what explains the pattern across the four runs
 {...}
 
 ## Head-to-head
-<!-- Compare the runs' picks per task DIRECTLY. Machine-parsed:
-     keep each line's format exactly. -->
+<!-- Compare the runs' picks per task DIRECTLY. Fill this
+     section AFTER all verdict blocks: it names conditions,
+     and dtlab-verdict (or a TA) reveals which run was which
+     once verdicts are on file. Machine-parsed: keep each
+     line's format exactly. -->
 Task 1 winner (economy): {persona|ablated|tie}
 Task 1 winner (frontier): {persona|ablated|tie}
 Task 1 better model (persona): {frontier|economy|same}

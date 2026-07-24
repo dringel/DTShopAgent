@@ -260,7 +260,7 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
   # comparison.md is the FALLBACK memo — dtlab-verdict is the primary
   # verdict capture.
   if [ -f "$HOME/dtlab/comparison_ablation.TEMPLATE.md" ] \
-     && ! grep -q "(persona run" "$WS/comparison.md" 2>/dev/null \
+     && ! grep -q "(Run A)" "$WS/comparison.md" 2>/dev/null \
      && grep -q "{better|" "$WS/comparison.md" 2>/dev/null; then
     cp "$WS/comparison.md" "$WS/comparison.md.bak"
     cp "$HOME/dtlab/comparison_ablation.TEMPLATE.md" "$WS/comparison.md"

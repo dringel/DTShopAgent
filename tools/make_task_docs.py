@@ -177,24 +177,36 @@ OVERALL_ABLATION = """## Overall (answer all five)
 """
 
 
+BLIND_NOTE = """<!-- BLIND ASSESSMENT: each task's four runs appear below only as
+     Run A-D, in a per-task randomized order (the same order dtlab-verdict
+     uses). Run `dtlab-verdict --worksheet` for the per-task list of which
+     PICK is Run A/B/C/D — titles and ASINs only; which run was persona or
+     ablated, economy or frontier stays hidden until after your verdicts.
+     Fill every verdict block before the Head-to-head section. -->
+"""
+
+
 def gen_comparison_ablation(tasks):
     """Four-run 2x2 fallback memo (dtlab-verdict is the primary capture):
-    per task, four compact blocks — one per grounding x tier cell — then
-    ONE prose synthesis, then the machine-parsed head-to-head lines."""
+    per task, four compact BLIND blocks (Run A-D; pack_evidence.py
+    resolves the labels), then ONE prose synthesis, then the
+    machine-parsed head-to-head lines (filled after the reveal)."""
     out = [HEAD.replace("— participant",
-                        "(four-run 2x2 design) — participant")]
+                        "(four-run 2x2 design) — participant"), BLIND_NOTE]
     for r in tasks:
         t = r["task_id"]
-        for tier in ("economy", "frontier"):
-            for cond in ("persona", "ablated"):
-                out.append(f"## Task {t} ({cond} run, {tier})\n{BLOCK_2X2}")
+        for run_label in ("A", "B", "C", "D"):
+            out.append(f"## Task {t} (Run {run_label})\n{BLOCK_2X2}")
         out.append(f"## Task {t} synthesis (across the four runs)\n"
                    "One short paragraph: what explains the pattern across "
                    "the four runs\n(grounding effect, tier effect, both, "
                    "neither)?\n{...}\n")
     hh = ["## Head-to-head",
-          "<!-- Compare the runs' picks per task DIRECTLY. Machine-parsed:",
-          "     keep each line's format exactly. -->"]
+          "<!-- Compare the runs' picks per task DIRECTLY. Fill this",
+          "     section AFTER all verdict blocks: it names conditions,",
+          "     and dtlab-verdict (or a TA) reveals which run was which",
+          "     once verdicts are on file. Machine-parsed: keep each",
+          "     line's format exactly. -->"]
     for r in tasks:
         t = r["task_id"]
         hh += [f"Task {t} winner (economy): {{persona|ablated|tie}}",

@@ -93,7 +93,14 @@ concrete machinery, so you recognize it when you see it:
   file timestamps at packing.
 - **Verdict integrity:** `verdicts.csv` from `dtlab-verdict` is the
   primary verdict record (`comparison.md` memo parsing is the fallback),
-  cross-checked against the picks files' ASINs.
+  cross-checked against the picks files' ASINs. Capture is BLIND: each
+  task's picks appear as Run A–D in a per-task randomized order, with
+  condition and tier resolved into the CSV only after the verdicts are
+  stored (`verdicts_captured_blind` in the manifest) — never tell a
+  student mid-capture which run was which; the tool reveals the mapping
+  itself once verdicts are on file. The artifacts live in
+  `~/dtlab/verdicts/`, outside the agent workspace, so a Friday agent
+  cannot read Thursday's judgments.
 - **Secrets:** the API key is collected hidden, lives only in a
   600-permission `~/.dtlab_env`, and `dtlab-pack` content-redacts key
   patterns from every packed text file (see `redaction_report` in each

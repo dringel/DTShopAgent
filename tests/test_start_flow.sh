@@ -88,8 +88,8 @@ grep -q 'MARK-STANDARD' "$HOME/dtlab/workspace/SOUL.md"
 check $? 0 "standard SOUL in workspace"
 [ -f "$HOME/dtlab/workspace/persona_survey.md" ]
 check $? 0 "persona stays in workspace for the persona run"
-grep -q '(persona run' "$HOME/dtlab/workspace/comparison.md"
-check $? 0 "comparison swapped to the ablation template"
+grep -q '(Run A)' "$HOME/dtlab/workspace/comparison.md"
+check $? 0 "comparison swapped to the ablation template (blind labels)"
 [ -f "$HOME/dtlab/workspace/comparison.md.bak" ]
 check $? 0 ".bak of the original comparison kept"
 [ -f "$HOME/dtlab/runs/run1/started_at.txt" ]

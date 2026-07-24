@@ -59,7 +59,18 @@ SANDBOX_MARKER = HOME / "dtlab" / "sandbox.txt"   # smoke test / fallback run
 # persona files sit while an ablated run is in progress
 RUNS = HOME / "dtlab" / "runs"
 HOLD = HOME / "dtlab" / "persona_hold"
+VD = HOME / "dtlab" / "verdicts"   # dtlab-verdict output (agent-quarantined)
 RUN_NAMES = ("run1", "run2", "run3", "run4")
+
+
+def blind_labels(student_id, task_id, run_names):
+    """Blind label -> run name for one task (verdict capture is BLIND:
+    runs appear as Run A-D in per-task randomized order). LOCKSTEP with
+    capture_verdicts.py::blind_labels — the memo fallback's
+    'Task N (Run X)' blocks resolve through this same derivation."""
+    ordered = sorted(run_names, key=lambda rn: hashlib.sha256(
+        f"{student_id}|{task_id}|{rn}|verdictorder".encode()).hexdigest())
+    return dict(zip("ABCD", ordered))
 
 
 def load_config():
@@ -466,8 +477,19 @@ def main():
     expected_runs = RUN_NAMES if four_run else ("run1", "run2")
 
     # ---- #1, #2, #3, #4(decision log), #5(picks), #7: copy from WS ----
-    verdicts_csv = WS / "verdicts.csv"          # dtlab-verdict (primary)
+    # dtlab-verdict artifacts live in ~/dtlab/verdicts/ (quarantined from
+    # the agent workspace); the workspace location is the legacy fallback
+    verdict_dir = VD if (VD / "verdicts.csv").exists() else WS
+    verdicts_csv = verdict_dir / "verdicts.csv"  # dtlab-verdict (primary)
     use_verdicts_csv = verdicts_csv.exists()
+    blind_meta = VD / "capture_meta.json"
+    verdicts_captured_blind = False
+    if use_verdicts_csv and blind_meta.exists():
+        try:
+            verdicts_captured_blind = bool(json.loads(
+                blind_meta.read_text(encoding="utf-8")).get("blind"))
+        except (json.JSONDecodeError, OSError):
+            pass
     required = ["persona_survey.csv", "persona_survey.md",
                 "purchase_profile.md", "tasks.md", "decision_log.md",
                 "agent_picks.csv", "comparison.md"]
@@ -494,8 +516,11 @@ def main():
     # a filled comparison.md is still staged as supporting material
     for name in ("verdicts.csv", "head_to_heads.csv",
                  "overall_reflections.md"):
-        if (WS / name).exists():
-            shutil.copy2(WS / name, staging / name)
+        src = verdict_dir / name
+        if not src.exists() and (WS / name).exists():
+            src = WS / name          # mixed legacy layout
+        if src.exists():
+            shutil.copy2(src, staging / name)
     if use_verdicts_csv and (WS / "comparison.md").exists() \
             and "{" not in (WS / "comparison.md").read_text(encoding="utf-8"):
         shutil.copy2(WS / "comparison.md", staging / "comparison.md")
@@ -708,26 +733,43 @@ def main():
         # also carry the tier, and verdicts are keyed
         # "<task>_<condition>_<tier>".
         heads = list(re.finditer(r"(?m)^##\s.*$", text))
+        # (match, task, key, label) per verdict block. The shipped 2x2
+        # template is BLIND ("## Task N (Run A)"; labels resolved via the
+        # shared derivation); the pre-blind header styles keep parsing
+        # for legacy packs.
+        blocks = []
         if four_run:
-            task_pat = (r"(?m)^##\s*Task\s*(\d+)\s*\((persona|ablated)\s+"
-                        r"run,\s*(economy|frontier)\).*$")
+            for m in re.finditer(
+                    r"(?m)^##\s*Task\s*(\d+)\s*\((persona|ablated)\s+"
+                    r"run,\s*(economy|frontier)\).*$", text):
+                blocks.append((m, m.group(1),
+                               f"{m.group(1)}_{m.group(2)}_{m.group(3)}",
+                               f" ({m.group(2)} run, {m.group(3)})"))
+            run_names = sorted(conds)
+            for m in re.finditer(
+                    r"(?m)^##\s*Task\s*(\d+)\s*\(Run\s*([A-D])\).*$", text):
+                t = m.group(1)
+                rn = blind_labels(student_id, t,
+                                  run_names).get(m.group(2))
+                if not rn:
+                    continue
+                blocks.append((m, t,
+                               f"{t}_{conds[rn]}_{tiers.get(rn, '')}",
+                               f" (Run {m.group(2)})"))
         elif ablation:
-            task_pat = r"(?m)^##\s*Task\s*(\d+)\s*\((persona|ablated)\s+run\).*$"
+            for m in re.finditer(
+                    r"(?m)^##\s*Task\s*(\d+)\s*\((persona|ablated)\s+"
+                    r"run\).*$", text):
+                blocks.append((m, m.group(1),
+                               f"{m.group(1)}_{m.group(2)}",
+                               f" ({m.group(2)} run)"))
         else:
-            task_pat = r"(?m)^##\s*Task\s*(\d+)\b.*$"
-        for m in re.finditer(task_pat, text):
+            for m in re.finditer(r"(?m)^##\s*Task\s*(\d+)\b.*$", text):
+                blocks.append((m, m.group(1), m.group(1), ""))
+        for m, task, key, label in blocks:
             end = min((h.start() for h in heads if h.start() > m.start()),
                       default=len(text))
             sec = text[m.end():end]
-            if four_run:
-                key = f"{m.group(1)}_{m.group(2)}_{m.group(3)}"
-                label = f" ({m.group(2)} run, {m.group(3)})"
-            elif ablation:
-                key = f"{m.group(1)}_{m.group(2)}"
-                label = f" ({m.group(2)} run)"
-            else:
-                key = m.group(1)
-                label = ""
             vm = re.search(r"Verdict:\s*(\w+)", sec)
             if vm:
                 verdicts[key] = vm.group(1).lower()
@@ -741,7 +783,7 @@ def main():
                 if rm:
                     val = int(rm.group(1))
                     need(1 <= val <= 10,
-                         f"comparison.md Task {m.group(1)}{label}: "
+                         f"comparison.md Task {task}{label}: "
                          f"{rkey} rating {val} out of range (1-10)")
                     entry[rkey] = val
             if entry:
@@ -1251,6 +1293,7 @@ def main():
         "rationales": rationales,
         "verdict_source": ("verdicts_csv" if use_verdicts_csv
                            else "comparison_md"),
+        "verdicts_captured_blind": verdicts_captured_blind,
         "candidates": candidates,
         "searches": searches,
         "warnings": warnings_,

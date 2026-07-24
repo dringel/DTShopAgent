@@ -1,37 +1,63 @@
 #!/usr/bin/env python3
 """
-capture_verdicts.py — `dtlab-verdict`: guided, structured verdict capture
-(replaces hand-editing the comparison memo — format errors at N=161 were
-the failure mode).
+capture_verdicts.py — `dtlab-verdict`: guided, structured, BLIND verdict
+capture (replaces hand-editing the comparison memo — format errors at
+N=161 were the failure mode).
 
-For every task x started agent run it prompts, input-validated:
+BLIND ASSESSMENT: for every task the started runs' picks are presented in
+a per-task randomized order labeled Run A-D — condition (persona/ablated)
+and tier (economy/frontier) are never shown before a verdict is stored.
+The label order derives from sha256(student|task|run|"verdictorder"), so
+it is reproducible, differs across tasks, and pack_evidence.py resolves
+the same mapping when parsing the memo fallback (LOCKSTEP). The
+label->run mapping is revealed only in the post-capture summary and the
+Overall-reflections stage (whose questions reference tiers by design and
+run after all verdicts).
+
+For every task x started run it prompts, input-validated:
   - verdict: better | identical | equivalent | inferior
     ('identical' is ASIN-checked live against your pick and the agent's,
     and re-verified by the packer)
-  - your own-pick rating and the agent-pick rating (1-10)
+  - the agent-pick rating (1-10); your OWN pick's rating is asked once
+    per task (it does not vary by run)
   - a one-line rationale
-then the per-task head-to-heads (grounding winner per tier, tier winner
-per grounding — only for contrasts whose two runs both exist) and, once
-all four runs are captured, the Overall reflection questions.
+then the per-task head-to-heads as pairwise Run-X-vs-Run-Y questions
+(only for contrasts whose two runs both exist) and, once all four runs
+are captured, the Overall reflection questions.
 
-Writes (schema dtlab-verdicts-v1, research_protocol.md §6):
-  ~/dtlab/workspace/verdicts.csv           student_id, task_id, condition,
-                                           tier, verdict, rating_self,
-                                           rating_agent, rationale
-  ~/dtlab/workspace/head_to_heads.csv      task_id, contrast, winner
-  ~/dtlab/workspace/overall_reflections.md free text
+Writes (schema dtlab-verdicts-v2, research_protocol.md §6) into
+~/dtlab/verdicts/ — OUTSIDE the agent workspace, so a Friday agent can
+never read Thursday's judgments:
+  verdicts.csv             student_id, task_id, condition, tier, verdict,
+                           rating_self, rating_agent, rationale,
+                           verdict_at_utc  (condition/tier resolved
+                           post-capture from the blind labels)
+  head_to_heads.csv        task_id, contrast, winner (resolved)
+  overall_reflections.md   free text
+  capture_meta.json        blind-capture stamp for the manifest
 
 Idempotent and resumable: Thursday fills the economy rows, Friday the
-rest; re-running shows the stored answer and Enter keeps it.
+rest; re-running shows the stored answer and Enter keeps it (stored rows
+are keyed by the RESOLVED condition/tier, so answers survive fresh
+processes and re-randomized labels). Stored rows for runs that are no
+longer readable are carried forward, never dropped.
+
+`dtlab-verdict --worksheet` prints each task's blind label -> pick list
+(titles + ASINs only) for the memo fallback path, without capturing.
 """
 
 import csv
+import hashlib
+import json
 import re
+import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 HOME = Path.home()
 WS = HOME / "dtlab" / "workspace"
+VD = HOME / "dtlab" / "verdicts"     # agent-quarantined verdict store
 HU = HOME / "dtlab" / "human"
 HOLD = HOME / "dtlab" / "persona_hold"
 RUNSDIR = HOME / "dtlab" / "runs"
@@ -55,6 +81,18 @@ OVERALL_QUESTIONS = (
     "authority with a cap, and for which categories?",
     "5. The one change that would most improve your twin:",
 )
+VFIELDS = ["student_id", "task_id", "condition", "tier", "verdict",
+           "rating_self", "rating_agent", "rationale", "verdict_at_utc"]
+
+
+def blind_labels(student_id, task_id, run_names):
+    """Blind label -> run name for one task: the runs sorted by
+    sha256(student|task|run|"verdictorder"), labeled A, B, C, D.
+    Reproducible, differs across tasks. LOCKSTEP with
+    pack_evidence.py::blind_labels (memo-fallback resolution)."""
+    ordered = sorted(run_names, key=lambda rn: hashlib.sha256(
+        f"{student_id}|{task_id}|{rn}|verdictorder".encode()).hexdigest())
+    return dict(zip("ABCD", ordered))
 
 
 def read_csv_rows(p):
@@ -149,6 +187,60 @@ def ask_block(prompt, current=None):
     return "\n".join(lines) or (current or "")
 
 
+def migrate_legacy_locations():
+    """Verdict artifacts written before the quarantine move lived in the
+    agent workspace; pull them into ~/dtlab/verdicts/ once."""
+    VD.mkdir(parents=True, exist_ok=True)
+    for name in ("verdicts.csv", "head_to_heads.csv",
+                 "overall_reflections.md"):
+        src = WS / name
+        if not src.exists():
+            continue
+        dest = VD / name if not (VD / name).exists() \
+            else VD / f"workspace_{name}.bak"
+        shutil.move(str(src), str(dest))
+        print(f"  [..] moved {name} out of the agent workspace -> {dest}")
+
+
+def contrast_families(cells):
+    """The pairwise contrast families whose two cells both ran.
+    Each entry: (family, cell_hi, cell_lo, tie_word) where the winner
+    vocabulary is the two cells' differing dimension + tie_word."""
+    fams = []
+    for tier in ("economy", "frontier"):
+        if {("persona", tier), ("ablated", tier)} <= cells:
+            fams.append((f"grounding_{tier}", ("persona", tier),
+                         ("ablated", tier), "tie"))
+    for cond in ("persona", "ablated"):
+        if {(cond, "economy"), (cond, "frontier")} <= cells:
+            fams.append((f"tier_{cond}", (cond, "frontier"),
+                         (cond, "economy"), "same"))
+    return fams
+
+
+def resolved_winner(fam, cell_a, cell_b, ans, label_a, label_b, tie_word):
+    """Blind answer (label or 'tie') -> stored winner vocabulary."""
+    if ans == "tie":
+        return tie_word
+    cell = cell_a if ans == label_a.lower() else cell_b
+    return cell[0] if fam.startswith("grounding_") else cell[1]
+
+
+def print_worksheet(student_id, task_ids, runs, rundata):
+    print(f"\nBlind worksheet — {student_id} ({len(runs)} runs on file).")
+    print("Per task, the runs' picks in their blind order (conditions stay")
+    print("hidden until after verdicts). Use these labels in the fallback")
+    print("memo's 'Task N (Run X)' blocks.")
+    run_names = [rn for rn, _, _ in runs]
+    for t in task_ids:
+        lab2run = blind_labels(student_id, t, run_names)
+        print(f"\n  Task {t}:")
+        for label in "ABCD"[:len(run_names)]:
+            a = rundata[lab2run[label]].get(t, {})
+            print(f"    Run {label}: {(a.get('title') or '?')[:60]} "
+                  f"({(a.get('asin') or '?').strip()})")
+
+
 def main():
     student_id = find_student_id()
     if "--student-id" in sys.argv:
@@ -161,35 +253,76 @@ def main():
     if not runs:
         sys.exit("no agent runs found under ~/dtlab/runs — dtlab-verdict "
                  "runs AFTER the day's agent runs.")
+    run_names = [rn for rn, _, _ in runs]
+    condtier = {rn: (c, t) for rn, c, t in runs}
+    cells = {(c, t) for _, c, t in runs}
+    cell2run = {(c, t): rn for rn, c, t in runs}
+
+    def picks_for_run(rn):
+        # the FINAL run's artifacts still sit in the workspace until the
+        # next dtlab-start archives them — adopt them into the
+        # highest-numbered run, same rule as pack_evidence.py
+        p = RUNSDIR / rn / "agent_picks.csv"
+        if not p.exists() and rn == run_names[-1] \
+                and (WS / "agent_picks.csv").exists():
+            p = WS / "agent_picks.csv"
+        return picks_by_task(p)
+
+    rundata = {rn: picks_for_run(rn) for rn in run_names}
+    if "--worksheet" in sys.argv:
+        print_worksheet(student_id, task_ids, runs, rundata)
+        return 0
     human = picks_by_task(HU / "human_picks.csv")
 
-    # ---- per task x run: verdict + ratings + rationale ----
-    vpath = WS / "verdicts.csv"
+    migrate_legacy_locations()
+    vpath = VD / "verdicts.csv"
     stored = {(r.get("task_id", "").strip(), r.get("condition", "").strip(),
                r.get("tier", "").strip()): r for r in read_csv_rows(vpath)}
+    hpath = VD / "head_to_heads.csv"
+    hstored = {(r.get("task_id", "").strip(), r.get("contrast", "").strip()):
+               (r.get("winner") or "").strip()
+               for r in read_csv_rows(hpath)}
+
     print(f"\ndtlab-verdict — {student_id}. Runs on file: " +
-          ", ".join(f"{rn} ({c}, {t})" for rn, c, t in runs))
+          ", ".join(run_names) + ".")
+    print("BLIND assessment: each task shows the runs' picks in a")
+    print("randomized order as Run A-D. Which run was which is revealed")
+    print("AFTER your verdicts are saved.")
     print("Enter keeps a stored answer; everything is revisable by "
           "re-running dtlab-verdict.\n")
+
     out_rows = []
-    for rn, cond, tier in runs:
-        agent = picks_by_task(RUNSDIR / rn / "agent_picks.csv")
-        print(f"=== {rn}: {cond} run, {tier} tier ===")
-        for t in task_ids:
+    hrows = []
+    fams = contrast_families(cells)
+    for t in task_ids:
+        lab2run = blind_labels(student_id, t, run_names)
+        run2lab = {rn: label for label, rn in lab2run.items()}
+        h = human.get(t, {})
+        h_asin = (h.get("asin") or "").strip()
+        print(f"\n=== Task {t} ===")
+        if h:
+            print(f"    your pick : {h.get('title', '?')[:70]} ({h_asin})")
+        # own-pick satisfaction: one judgment per task (it does not vary
+        # by run); stored per row for schema compatibility
+        cur_rs = next(((stored.get((t,) + condtier[rn], {})
+                        .get("rating_self") or "").strip()
+                       for rn in run_names
+                       if (stored.get((t,) + condtier[rn], {})
+                           .get("rating_self") or "").strip()), None)
+        rs = ask_rating("    YOUR pick — satisfaction owning it (1-10)",
+                        cur_rs)
+        for label in "ABCD"[:len(run_names)]:
+            rn = lab2run[label]
+            cond, tier = condtier[rn]
             cur = stored.get((t, cond, tier), {})
-            a, h = agent.get(t, {}), human.get(t, {})
+            a = rundata[rn].get(t, {})
             a_asin = (a.get("asin") or "").strip()
-            h_asin = (h.get("asin") or "").strip()
-            print(f"\n  Task {t}")
-            if h:
-                print(f"    your pick : {h.get('title', '?')[:70]} "
-                      f"({h_asin})")
-            if a:
-                print(f"    agent pick: {a.get('title', '?')[:70]} "
-                      f"({a_asin})")
+            print(f"\n  Run {label} pick: {(a.get('title') or '?')[:70]} "
+                  f"({a_asin})")
             if a_asin and h_asin:
                 if a_asin == h_asin:
-                    print("    (same ASIN — verdict must be 'identical')")
+                    print("    (same ASIN as your pick — verdict must be "
+                          "'identical')")
                     valid = {"identical"}
                 else:
                     valid = {"better", "equivalent", "inferior"}
@@ -200,62 +333,86 @@ def main():
                 cur_v = None
             v = ask("    verdict (better/identical/equivalent/inferior)",
                     valid, cur_v)
-            rs = ask_rating("    YOUR pick — satisfaction owning it (1-10)",
-                            (cur.get("rating_self") or "").strip() or None)
-            ra = ask_rating("    AGENT pick — satisfaction owning it (1-10)",
+            ra = ask_rating("    this pick — satisfaction owning it (1-10)",
                             (cur.get("rating_agent") or "").strip() or None)
             why = ask_line("    one-line rationale",
                            (cur.get("rationale") or "").strip() or None)
             out_rows.append({
                 "student_id": student_id, "task_id": t,
                 "condition": cond, "tier": tier, "verdict": v,
-                "rating_self": rs, "rating_agent": ra, "rationale": why})
+                "rating_self": rs, "rating_agent": ra, "rationale": why,
+                "verdict_at_utc":
+                    datetime.now(timezone.utc).isoformat()})
+        # pairwise head-to-heads for this task, still blind
+        for fam, fam_cell_a, fam_cell_b, tie_word in fams:
+            # present the pair in label order (A before D, etc.)
+            (la, cell_a), (lb, cell_b) = sorted(
+                [(run2lab[cell2run[fam_cell_a]], fam_cell_a),
+                 (run2lab[cell2run[fam_cell_b]], fam_cell_b)])
+            cur_res = hstored.get((t, fam)) or None
+            cur_lab = None
+            if cur_res in ("tie", "same"):
+                cur_lab = "tie"
+            elif cur_res:
+                for lab, cell in ((la, cell_a), (lb, cell_b)):
+                    if cur_res in cell:
+                        cur_lab = lab.lower()
+            w = ask(f"  head-to-head: Run {la} vs Run {lb} — better pick "
+                    f"for you ({la.lower()}/{lb.lower()}/tie)",
+                    {la.lower(), lb.lower(), "tie"}, cur_lab)
+            hrows.append({"task_id": t, "contrast": fam,
+                          "winner": resolved_winner(
+                              fam, cell_a, cell_b, w, la, lb, tie_word)})
+
+    # ---- carry forward stored rows for runs no longer readable (a
+    #      corrupt condition.txt must never silently drop data) ----
+    covered = {(r["task_id"], r["condition"], r["tier"]) for r in out_rows}
+    carried = [r for k, r in stored.items() if k not in covered]
+    for r in carried:
+        out_rows.append({f: (r.get(f) or "") for f in VFIELDS})
+    if carried:
+        gone = sorted({(r.get("condition", ""), r.get("tier", ""))
+                       for r in carried})
+        print(f"\n  [..] carried forward {len(carried)} stored verdict "
+              f"row(s) for run(s) not currently on file: "
+              f"{', '.join(f'{c}/{t}' for c, t in gone)} — tell a TA if "
+              "that is unexpected.")
+    asked_h = {(r["task_id"], r["contrast"]) for r in hrows}
+    hcarried = [{"task_id": k[0], "contrast": k[1], "winner": w}
+                for k, w in hstored.items() if k not in asked_h]
+    hrows += hcarried
+
     with open(vpath, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=[
-            "student_id", "task_id", "condition", "tier", "verdict",
-            "rating_self", "rating_agent", "rationale"])
+        w = csv.DictWriter(f, fieldnames=VFIELDS)
         w.writeheader()
         w.writerows(out_rows)
-    print(f"\nWrote {vpath} ({len(out_rows)} rows, schema dtlab-verdicts-v1)")
+    print(f"\nWrote {vpath} ({len(out_rows)} rows, schema "
+          "dtlab-verdicts-v2, captured blind)")
+    with open(hpath, "w", newline="", encoding="utf-8") as f:
+        wcsv = csv.DictWriter(f, fieldnames=["task_id", "contrast",
+                                             "winner"])
+        wcsv.writeheader()
+        wcsv.writerows(hrows)
+    print(f"Wrote {hpath}")
+    (VD / "capture_meta.json").write_text(json.dumps({
+        "schema": "dtlab-verdicts-v2",
+        "blind": True,
+        "written_at_utc": datetime.now(timezone.utc).isoformat(),
+    }, indent=2), encoding="utf-8")
 
-    # ---- per-task head-to-heads (only contrasts whose cells both ran) ----
-    cells = {(c, t) for _, c, t in runs}
-    hpath = WS / "head_to_heads.csv"
-    hstored = {(r.get("task_id", "").strip(), r.get("contrast", "").strip()):
-               (r.get("winner") or "").strip()
-               for r in read_csv_rows(hpath)}
-    hrows = []
-    contrasts = []
-    for tier in ("economy", "frontier"):
-        if {("persona", tier), ("ablated", tier)} <= cells:
-            contrasts.append((f"grounding_{tier}",
-                              f"winner ({tier}): which GROUNDING chose "
-                              "better for you", {"persona", "ablated",
-                                                 "tie"}))
-    for cond in ("persona", "ablated"):
-        if {(cond, "economy"), (cond, "frontier")} <= cells:
-            contrasts.append((f"tier_{cond}",
-                              f"better model ({cond} runs): which TIER "
-                              "chose better for you", {"frontier",
-                                                       "economy", "same"}))
-    if contrasts:
-        print("\n=== Head-to-heads (compare the runs' picks directly) ===")
-        for fam, label, valid in contrasts:
-            for t in task_ids:
-                cur = hstored.get((t, fam)) or None
-                if cur not in valid:
-                    cur = None
-                w = ask(f"  Task {t} {label}", valid, cur)
-                hrows.append({"task_id": t, "contrast": fam, "winner": w})
-        with open(hpath, "w", newline="", encoding="utf-8") as f:
-            wcsv = csv.DictWriter(f, fieldnames=["task_id", "contrast",
-                                                 "winner"])
-            wcsv.writeheader()
-            wcsv.writerows(hrows)
-        print(f"Wrote {hpath}")
+    # ---- reveal — only AFTER everything above is on disk ----
+    print("\n=== Reveal — which run was which (hidden until now) ===")
+    for rn, cond, tier in runs:
+        print(f"  {rn}: {cond} grounding, {tier} tier")
+    print("  Blind labels by task:")
+    for t in task_ids:
+        lab2run = blind_labels(student_id, t, run_names)
+        print(f"    Task {t}: " + ", ".join(
+            f"{label}={lab2run[label]}"
+            for label in "ABCD"[:len(run_names)]))
 
     # ---- Overall reflections (after the full 2x2 exists) ----
-    opath = WS / "overall_reflections.md"
+    opath = VD / "overall_reflections.md"
     if len(runs) >= 4:
         print("\n=== Overall reflections (a few sentences each) ===")
         existing = opath.read_text(encoding="utf-8") if opath.exists() \

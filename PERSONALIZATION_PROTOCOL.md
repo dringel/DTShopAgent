@@ -153,7 +153,7 @@ agreement level keeps its three safeguards (Layer 1 pause, Layer 2
 targeted block, Layer 3 per-run index as covariate) and is reported with
 that framing.
 
-### Assessment blinding: nobody watches their own agent
+### Assessment blinding: no one watches their own agent or judges a labeled run
 
 Watching your own agent reason its way to a pick anchors the later
 verdicts and satisfaction ratings — sympathy for a visible process is
@@ -165,7 +165,17 @@ run (automatic cart screenshot + parsed cart contents), and empties the
 cart between runs. Owners first encounter
 their agent's choices as artifacts — picks, logs, screenshots — in
 `dtlab-verdict`'s structured capture (the comparison memo is the
-fallback), exactly the evidence a reader of the study would have. The pairing doubles as the CAPTCHA-resolution staffing
+fallback), exactly the evidence a reader of the study would have.
+
+Blinding covers **condition knowledge at judgment time**, not just run
+execution: `dtlab-verdict` presents each task's picks in a per-task
+randomized order labeled Run A–D and never names condition or tier
+before a verdict is stored — a student cannot favor "the persona run"
+or "the frontier run" because nothing on screen says which one that is.
+Condition and tier are resolved into `verdicts.csv` post-hoc, the
+manifest records `verdicts_captured_blind`, and the label→run mapping is
+revealed only after capture (the Overall reflections reference tiers by
+design and run last). The pairing doubles as the CAPTCHA-resolution staffing
 and is named in the consent sheet (a classmate sees your purchase
 profile and picks during the runs; pairs are self-selected).
 
