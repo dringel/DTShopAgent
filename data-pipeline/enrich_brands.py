@@ -30,6 +30,18 @@ BYLINE_RE = re.compile(
     r"^(?:Visit the (.+?) Store|Brand:\s*(.+))$", re.IGNORECASE)
 
 
+def browser_profile_dir():
+    """The ONE shared lab browser profile (dtlab_config.env is the
+    authority; same resolution as tools/log_human_session.py)."""
+    rel = "dtlab/browser-profile"
+    cfg = Path.home() / "dtlab" / "dtlab_config.env"
+    if cfg.exists():
+        for line in cfg.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("DTLAB_BROWSER_PROFILE="):
+                rel = line.split("=", 1)[1].strip().strip("'\"")
+    return Path.home() / rel
+
+
 def polite_sleep(lo=2.5, hi=5.0):
     time.sleep(random.uniform(lo, hi))
 
@@ -71,7 +83,7 @@ def main():
           f"(~{len(todo_asins) * 4 // 60} min at polite pace)")
 
     resolved = {}
-    profile_dir = Path.home() / ".dtlab-browser-profile"
+    profile_dir = browser_profile_dir()
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(profile_dir), headless=False)

@@ -78,9 +78,10 @@ def load_config():
 
 
 CFG = load_config()
-# same profile the agent uses (see tools/dtlab_browser.sh)
+# same profile the agent uses (see tools/dtlab_browser.sh); lives under
+# the persistent lab root so the logged-in session survives rebuilds
 PROFILE = Path.home() / CFG.get("DTLAB_BROWSER_PROFILE",
-                                ".dtlab-browser-profile")
+                                "dtlab/browser-profile")
 
 # All events flow through this injected script -> dtlabEvent binding.
 # Main frame only; page_load also covers pushState/popstate SPA navigation.

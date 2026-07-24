@@ -51,6 +51,34 @@ fetch_verified "$HERMES_INSTALLER_URL" "$HERMES_INSTALLER_SHA256" \
 bash /tmp/hermes-install.sh && rm -f /tmp/hermes-install.sh
 
 echo "== [3/7] Lab layout =="
+# ---- persistent lab root -----------------------------------------------
+# In Codespaces only /workspaces survives a container rebuild; everything
+# under $HOME is wiped. The lab tree therefore lives at /workspaces/.dtlab
+# (OUTSIDE the repo clone, so student data never sits in the git working
+# tree) and ~/dtlab is a symlink to it — every existing path keeps working
+# and a mid-week "Rebuild Container" no longer erases the week's evidence.
+# On the VM route (no /workspaces) the root falls back to $HOME/dtlab.
+# The API key file ~/.dtlab_env stays in $HOME BY DESIGN: it must not
+# survive into a shared or persisted layer; re-entering the key after a
+# rebuild is correct behavior.
+DTLAB_ROOT="${DTLAB_ROOT:-}"
+if [ -z "$DTLAB_ROOT" ]; then
+  if [ -d /workspaces ] && [ -w /workspaces ]; then
+    DTLAB_ROOT="/workspaces/.dtlab"
+  else
+    DTLAB_ROOT="$HOME/dtlab"
+  fi
+fi
+mkdir -p "$DTLAB_ROOT"
+if [ "$DTLAB_ROOT" != "$HOME/dtlab" ]; then
+  if [ -e "$HOME/dtlab" ] && [ ! -L "$HOME/dtlab" ]; then
+    # pre-symlink layout found: migrate its contents into the root once
+    cp -a "$HOME/dtlab/." "$DTLAB_ROOT/"
+    rm -rf "$HOME/dtlab"
+  fi
+  ln -sfn "$DTLAB_ROOT" "$HOME/dtlab"
+  echo "lab root: $DTLAB_ROOT (~/dtlab is a symlink; survives rebuilds)"
+fi
 mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/evidence" "$HOME/dtlab/tools"
 cp -v "$KIT/agent/SOUL.md"                 "$HOME/dtlab/workspace/SOUL.md"
 # kit-owned SOUL variants for the optional ablation factor (dtlab-start

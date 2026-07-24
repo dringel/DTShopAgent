@@ -14,7 +14,7 @@ set -euo pipefail
 
 # shellcheck source=/dev/null
 [ -f "$HOME/dtlab/dtlab_config.env" ] && . "$HOME/dtlab/dtlab_config.env"
-PROFILE="$HOME/${DTLAB_BROWSER_PROFILE:-.dtlab-browser-profile}"
+PROFILE="$HOME/${DTLAB_BROWSER_PROFILE:-dtlab/browser-profile}"
 PORT="${DTLAB_CDP_PORT:-9222}"
 URL="${1:-https://www.amazon.in}"
 

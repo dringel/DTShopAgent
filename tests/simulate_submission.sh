@@ -697,6 +697,23 @@ assert any('s.jsonl' in n for n in logs), logs
 sys.exit(0)
 PY
 
+echo "[29] B4: pack through the ~/dtlab symlink + rebuild simulation"
+mkenv_4run
+mkdir -p "$HOME/ws"
+mv "$HOME/dtlab" "$HOME/ws/.dtlab"
+ln -s "$HOME/ws/.dtlab" "$HOME/dtlab"
+python3 "$PACK" >/dev/null 2>&1; check $? 0 "pack exits 0 through the symlink"
+[ -f "$HOME/ws/.dtlab/DT2026-999_evidence.zip" ]
+check $? 0 "zip lands under the persistent root"
+# rebuild simulation: $HOME wiped (symlink lost), lab root survives;
+# setup.sh re-creates the symlink on the next container build
+guard; rm -f "$HOME/dtlab" "$HOME/ws/.dtlab/DT2026-999_evidence.zip"
+ln -s "$HOME/ws/.dtlab" "$HOME/dtlab"
+python3 "$PACK" >/dev/null 2>&1; check $? 0 "re-pack after rebuild exits 0"
+[ -f "$HOME/ws/.dtlab/DT2026-999_evidence.zip" ]
+check $? 0 "evidence survives the rebuild (zip rebuilt from the root)"
+guard; rm -rf "$HOME/dtlab" "$HOME/ws"    # leave no symlink for later cases
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

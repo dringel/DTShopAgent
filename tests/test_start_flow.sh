@@ -223,6 +223,28 @@ check "$rc" 0 "re-run exits 0 (re-ordering is idempotent)"
 check "$(grep -m1 '^## Task' "$HOME/dtlab/workspace/tasks.md" | grep -o '[0-9]')" \
       "${DERIVED%%,*}" "order unchanged on re-run"
 
+echo "[12] B4: lab tree behind ~/dtlab symlink (persistent /workspaces root)"
+mkenv 1
+mkdir -p "$HOME/ws"
+mv "$HOME/dtlab" "$HOME/ws/.dtlab"
+ln -s "$HOME/ws/.dtlab" "$HOME/dtlab"
+rc=$(run 'P_FIRST\ny\ny\n\n')
+check "$rc" 0 "pre-flight exits 0 through the symlink"
+check "$(cat "$HOME/ws/.dtlab/runs/run1/condition.txt" 2>/dev/null)" \
+      "persona" "run state lands under the persistent root"
+# rebuild simulation: $HOME is wiped (symlink gone), the root survives;
+# setup.sh re-links on the next build and the week continues
+guard; rm -f "$HOME/dtlab"
+ln -s "$HOME/ws/.dtlab" "$HOME/dtlab"
+printf 'log\n'   > "$HOME/dtlab/workspace/decision_log.md"
+printf 'picks\n' > "$HOME/dtlab/workspace/agent_picks.csv"
+rc=$(run 'y\ny\ny\n\n')
+check "$rc" 0 "after a rebuild (fresh symlink) the next run continues"
+check "$(cat "$HOME/ws/.dtlab/runs/run2/condition.txt" 2>/dev/null)" \
+      "ablated" "run-2 state recorded under the root"
+[ -f "$HOME/ws/.dtlab/runs/run1/decision_log.md" ]
+check $? 0 "run-1 artifacts archived under the root across the rebuild"
+
 guard
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"

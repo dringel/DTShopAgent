@@ -45,6 +45,18 @@ SCHEMA_VERSION = "dtlab-orders-v1"
 TOOL_VERSION = "scrape_orders 1.0 (2026-07)"
 BASE = "https://www.amazon.in"
 
+
+def browser_profile_dir():
+    """The ONE shared lab browser profile (dtlab_config.env is the
+    authority; same resolution as tools/log_human_session.py)."""
+    rel = "dtlab/browser-profile"
+    cfg = Path.home() / "dtlab" / "dtlab_config.env"
+    if cfg.exists():
+        for line in cfg.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("DTLAB_BROWSER_PROFILE="):
+                rel = line.split("=", 1)[1].strip().strip("'\"")
+    return Path.home() / rel
+
 # ---- selectors: single place to patch when Amazon's DOM drifts ---------------
 SELECTORS = {
     "order_card": "div.order-card, div.js-order-card, div.order",
@@ -141,7 +153,7 @@ def main():
     ap.add_argument("--out", default="purchase_history.csv")
     args = ap.parse_args()
 
-    profile_dir = Path.home() / ".dtlab-browser-profile"
+    profile_dir = browser_profile_dir()
     out_path = Path(args.out)
     log = open("scrape_errors.log", "a", encoding="utf-8")
     all_rows, n_orders = [], 0
