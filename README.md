@@ -503,3 +503,9 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
 
   then run `dtlab-start` again. Rebuilding the container also clears the
   key by design — re-entering it is expected, not a fault.
+
+- **Codespace stops mid-run (idle timeout)** — set the idle timeout to
+  240 minutes at [github.com/settings/codespaces](https://github.com/settings/codespaces)
+  **before Thursday**, and keep the VS Code tab active during agent
+  runs: the noVNC Lab-Desktop tab alone does not count as activity, so
+  a codespace can suspend under a running agent.

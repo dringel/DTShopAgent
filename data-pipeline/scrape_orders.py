@@ -30,6 +30,7 @@ CAVEAT (read me, instructor)
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import re
@@ -37,6 +38,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import TimeoutError as PWTimeout
 from playwright.sync_api import sync_playwright
@@ -44,6 +46,15 @@ from playwright.sync_api import sync_playwright
 SCHEMA_VERSION = "dtlab-orders-v1"
 TOOL_VERSION = "scrape_orders 1.0 (2026-07)"
 BASE = "https://www.amazon.in"
+
+
+def log_ref(url):
+    """Loggable reference for an order-detail URL. The docstring promise
+    is that order IDs are transient — and they live in the URL query —
+    so the persistent error log gets only the query-stripped path plus a
+    short hash for correlation within one session."""
+    h = hashlib.sha256((url or "").encode()).hexdigest()[:12]
+    return f"{urlparse(url or '').path}#{h}"
 
 
 def browser_profile_dir():
@@ -138,7 +149,7 @@ def extract_order_items(page, order_url, log):
             "capture_method": "scrape",
         })
     if not items:
-        log.write(f"NO_ITEMS {order_url}\n")
+        log.write(f"NO_ITEMS {log_ref(order_url)}\n")
     return items
 
 
@@ -197,9 +208,9 @@ def main():
                     try:
                         all_rows += extract_order_items(page, du, log)
                     except PWTimeout:
-                        log.write(f"TIMEOUT {du}\n")
+                        log.write(f"TIMEOUT {log_ref(du)}\n")
                     except Exception as e:  # keep going; partial data is data
-                        log.write(f"ERROR {du} :: {e}\n")
+                        log.write(f"ERROR {log_ref(du)} :: {e}\n")
                     n_orders += 1
                     if args.limit and n_orders >= args.limit:
                         break

@@ -45,7 +45,12 @@ How it works for the student:
 5. The packed evidence zip is downloaded via the VS Code file explorer
    (right-click → Download) and uploaded to the LMS.
 6. **Stop the codespace when done** (it also auto-suspends after 30 min
-   idle) — core-hours only burn while running.
+   idle) — core-hours only burn while running. The flip side of that
+   auto-suspend: **set the idle timeout to 240 min at
+   github.com/settings/codespaces before Thursday**, and keep the VS
+   Code tab active during agent runs — the noVNC Lab-Desktop tab alone
+   does not count as activity, so a codespace can suspend under a
+   running agent.
 
 Instructor setup (once): make this kit a **template repo**
 (`.devcontainer/` is at the repo root already), pin the installer

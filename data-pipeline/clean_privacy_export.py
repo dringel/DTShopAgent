@@ -61,9 +61,11 @@ def map_headers(headers):
 
 
 def parse_date(s):
+    # amazon.in exports write day-first dates: %d/%m/%Y must win over
+    # %m/%d/%Y or 04/07/2026 silently becomes April 7th
     s = (s or "").strip()
-    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%Y",
-                "%d/%m/%Y", "%m/%d/%y"):
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y",
+                "%m/%d/%Y", "%m/%d/%y"):
         try:
             return datetime.strptime(s.split("T")[0] if "T" in s else s,
                                      fmt.split("T")[0] if "T" in fmt else fmt

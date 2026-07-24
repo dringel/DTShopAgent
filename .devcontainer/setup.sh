@@ -178,7 +178,12 @@ if [ "$PHASE" = "onCreate" ]; then
     sudo apt-get install -y chromium ffmpeg jq unzip
     pip install --user "playwright$PLAYWRIGHT_PIN"
     python3 -m playwright install chromium
-    sudo python3 -m playwright install-deps chromium || true
+    # NOT `sudo python3 -m playwright ...`: root's python has no
+    # playwright, so that form always failed silently. The user install
+    # invokes sudo apt-get itself; apt chromium above already provides
+    # the shared libraries either way.
+    python3 -m playwright install-deps chromium || \
+      echo "WARNING: playwright install-deps failed — the apt chromium's shared libraries cover the lab flows"
 
     echo "== [4/5] Hermes Agent (network) =="
     fetch_verified "$HERMES_INSTALLER_URL" "$HERMES_INSTALLER_SHA256" \
@@ -205,7 +210,12 @@ ROTATED=0
 if [ -n "$NEWPW" ] && [ "${DTLAB_TEST:-0}" != "1" ]; then
   for f in /usr/local/share/desktop-init.sh /usr/local/etc/desktop-init.sh; do
     if [ -f "$f" ] && sudo grep -q 'dtlab' "$f"; then
-      sudo sed -i "/passw/s/dtlab/$NEWPW/g" "$f" && ROTATED=1
+      sudo sed -i "/passw/s/dtlab/$NEWPW/g" "$f"
+      # verify the edit actually landed before announcing the password
+      # as fact (TODO(dry-run): confirm x11vnc restarts pick it up)
+      if sudo grep -q "$NEWPW" "$f"; then
+        ROTATED=1
+      fi
     fi
   done
 fi
@@ -227,4 +237,5 @@ echo ""
 echo "Setup complete. Open the 'Lab Desktop' forwarded port (6080) in your"
 echo "browser — password printed above (or 'dtlab' if rotation failed)."
 echo "KEEP THE PORT PRIVATE. Then use the VS Code terminal for:"
-echo "  dtlab-shop | dtlab-start | dtlab-record | dtlab-pack"
+echo "  dtlab-shop | dtlab-start | dtlab-cart | dtlab-verdict |"
+echo "  dtlab-record (optional) | dtlab-pack"

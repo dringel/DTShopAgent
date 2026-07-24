@@ -18,8 +18,10 @@ jobs:
         # ruff pinned: 0.16 changed the default rule set mid-course once
         # already. ruff.toml at the repo root makes the rule selection
         # explicit; the pin keeps local and CI byte-identical. Bump both
-        # together, deliberately.
-        run: pip install "ruff==0.16.0" shellcheck-py
+        # together, deliberately. shellcheck-py pinned for the same
+        # reason: a silent lint-rule change must never turn the kit red
+        # (or green) by itself mid-course.
+        run: pip install "ruff==0.16.0" "shellcheck-py==0.11.0.1"
 
       - name: shellcheck (all shell scripts)
         run: |
@@ -47,6 +49,8 @@ jobs:
         run: bash tests/test_start_flow.sh
 
       - name: cohort analysis report (synthetic zips)
+        # pinned like ruff: an analyzer dependency drifting mid-course
+        # must be a deliberate bump, not a surprise on push day
         run: |
-          pip install pandas plotly scipy
+          pip install "pandas==2.3.1" "plotly==6.2.0" "scipy==1.16.0"
           python tests/test_analyze_cohort.py

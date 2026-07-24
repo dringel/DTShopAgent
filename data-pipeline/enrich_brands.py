@@ -72,6 +72,9 @@ def main():
     args = ap.parse_args()
 
     rows = list(csv.DictReader(open(args.inp, newline="", encoding="utf-8")))
+    if not rows:
+        sys.exit(f"{args.inp} has no data rows — run the capture step "
+                 "(scrape_orders.py or clean_privacy_export.py) first.")
     for r in rows:
         r.setdefault("brand", r.get("brand", ""))
         r.setdefault("brand_source", r.get("brand_source", ""))
