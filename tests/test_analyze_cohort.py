@@ -394,6 +394,15 @@ def main():
                        "Minimum detectable tier effect",
                        "legacy arm design"):
             assert marker in html, f"missing B11 row: {marker}"
+        # B12: Holm over exactly {H1,H2,H3}; everything else exploratory
+        for marker in ("H1 — Questionnaire effect", "H2 — Tier effect",
+                       "H3 — Grounding x tier interaction",
+                       "over \nH1–H3".replace("\n", ""),
+                       "(exploratory, unadjusted)",
+                       "Agreement/fidelity rate = identical/equivalent",
+                       "Paired-contrast coverage",
+                       "own deduplicated per task"):
+            assert marker in html, f"missing B12 marker: {marker}"
         assert out.stat().st_size > 100_000, "report suspiciously small"
         print(f"PASS: report generated ({out.stat().st_size >> 10} KB) "
               f"from {n_valid} students (2x2 + legacy + renamed zip; "

@@ -1191,9 +1191,14 @@ def main():
     # ---- statistics (cluster-robust: students are the sampling units;
     #      seeded bootstrap so the report is reproducible) ----
     srows = []
+    pair_cov = []   # per-contrast pair counts + missingness (Data quality)
 
-    def srow(label, result, p=None):
-        srows.append({"label": label, "result": result, "p": p})
+    def srow(label, result, p=None, hyp=None):
+        """hyp marks a member of the pre-registered confirmatory family
+        {H1, H2, H3} (research_protocol §1) — the ONLY rows Holm adjusts;
+        everything else is exploratory and unadjusted."""
+        srows.append({"label": label, "result": result, "p": p,
+                      "hyp": hyp})
 
     vd_ = vd.dropna(subset=["acceptable"]).copy()
     vd_["acceptable"] = vd_["acceptable"].astype(float)
@@ -1217,21 +1222,26 @@ def main():
         # grounding pair up within tier (constant per student in legacy
         # 2-run packs, so those are unaffected).
         pair = vd_[vd_["condition"].isin(["persona", "ablated"])]
-        piv = pair.pivot_table(index=["student", "task", "tier"],
-                               columns="condition", values="acceptable",
-                               aggfunc="first").dropna()
+        piv_all = pair.pivot_table(index=["student", "task", "tier"],
+                                   columns="condition",
+                                   values="acceptable", aggfunc="first")
+        piv = piv_all.dropna()
+        pair_cov.append(
+            f"H1 grounding: {len(piv)}/{len(piv_all)} task-cell pairs "
+            "complete (a pair drops when either run's verdict is missing)")
         by_s = (piv.reset_index().groupby("student")
                 [["persona", "ablated"]].mean())
         darr = (by_s["persona"] - by_s["ablated"]).to_numpy(float)
         dlo, dhi = cboot(lambda ix: darr[ix].mean(), len(darr))
         b = int(((piv["persona"] == 1) & (piv["ablated"] == 0)).sum())
         c_ = int(((piv["persona"] == 0) & (piv["ablated"] == 1)).sum())
-        srow("Questionnaire effect: persona − ablated acceptable rate "
-             "(paired within student)",
+        srow("H1 — Questionnaire effect: persona − ablated "
+             "acceptable-pick rate (paired within student)",
              f"Δ = {100 * darr.mean():+.1f} pp; 95% CI {fmt_ci(dlo, dhi)}; "
+             f"{len(piv)} task-cell pairs from {len(by_s)} students; "
              f"discordant tasks {b} vs {c_} (descriptive); Cohen's h = "
              f"{cohens_h(float(piv['persona'].mean()), float(piv['ablated'].mean())):.2f}",
-             p=cboot_p(darr))
+             p=cboot_p(darr), hyp="H1")
         if len(darr) > 1:
             sd_d = float(np.std(darr, ddof=1))
             if sd_d > 0:
@@ -1367,28 +1377,36 @@ def main():
     if four_run and {"economy", "frontier"} <= set(vd_["tier"].dropna()):
         tp = vd_[vd_["condition"].isin(["persona", "ablated"])]
 
-        def tier_contrast(sub, label):
-            piv = sub.pivot_table(index=["student", "task", "condition"],
-                                  columns="tier", values="acceptable",
-                                  aggfunc="first").dropna()
+        def tier_contrast(sub, label, hyp=None):
+            piv_all_ = sub.pivot_table(
+                index=["student", "task", "condition"],
+                columns="tier", values="acceptable", aggfunc="first")
+            piv = piv_all_.dropna()
             if not len(piv) or not {"economy",
                                     "frontier"} <= set(piv.columns):
                 return
+            if hyp:
+                pair_cov.append(
+                    f"H2 tier: {len(piv)}/{len(piv_all_)} task-cell pairs "
+                    "complete (if economy runs fail more often, the tier "
+                    "contrast gains a selection gradient — check this "
+                    "split)")
             by_s = (piv.reset_index().groupby("student")
                     [["frontier", "economy"]].mean())
             darr = (by_s["frontier"] - by_s["economy"]).to_numpy(float)
             dlo, dhi = cboot(lambda ix: darr[ix].mean(), len(darr))
             b = int(((piv["frontier"] == 1) & (piv["economy"] == 0)).sum())
             c_ = int(((piv["frontier"] == 0) & (piv["economy"] == 1)).sum())
-            srow(f"Tier effect{label}: frontier − economy acceptable "
-                 "rate (paired within student)",
+            srow(f"{'H2 — ' if hyp else ''}Tier effect{label}: frontier "
+                 "− economy acceptable-pick rate (paired within student)",
                  f"Δ = {100 * darr.mean():+.1f} pp; 95% CI "
-                 f"{fmt_ci(dlo, dhi)}; discordant tasks {b} vs {c_} "
+                 f"{fmt_ci(dlo, dhi)}; {len(piv)} task-cell pairs from "
+                 f"{len(by_s)} students; discordant tasks {b} vs {c_} "
                  "(descriptive); Cohen's h = "
                  f"{cohens_h(float(piv['frontier'].mean()), float(piv['economy'].mean())):.2f}",
-                 p=cboot_p(darr))
+                 p=cboot_p(darr), hyp=hyp)
 
-        tier_contrast(tp, "")
+        tier_contrast(tp, "", hyp="H2")
         # paired MDE for the tier contrast (same construction as the
         # questionnaire MDE above)
         tpiv_all = tp.pivot_table(index=["student", "task", "condition"],
@@ -1425,11 +1443,16 @@ def main():
                      cp[("ablated", "economy")])).to_numpy(float)
             if len(iarr):
                 ilo, ihi = cboot(lambda ix: iarr[ix].mean(), len(iarr))
-                srow("Grounding x tier interaction (questionnaire effect "
-                     "under frontier − under economy)",
+                pair_cov.append(
+                    f"H3 interaction: {len(cp)}/{len(cellpiv)} students "
+                    "with all four cells")
+                srow("H3 — Grounding x tier interaction (questionnaire "
+                     "effect under frontier − under economy)",
                      f"Δ = {100 * iarr.mean():+.1f} pp; 95% CI "
-                     f"{fmt_ci(ilo, ihi)} — positive = the questionnaire "
-                     "helps MORE with the stronger model")
+                     f"{fmt_ci(ilo, ihi)}; {len(cp)} students with all "
+                     "four cells — positive = the questionnaire helps "
+                     "MORE with the stronger model",
+                     p=cboot_p(iarr), hyp="H3")
         # tier head-to-heads (which model's pick won, per grounding)
         hm = df.dropna(subset=["hth_model_winner"]).drop_duplicates(
             ["student", "task", "condition"])
@@ -1518,10 +1541,16 @@ def main():
         r_lo, r_hi = cboot(lambda ix: rarr2[ix].mean(), len(rarr2))
         pw = (sps.wilcoxon(rg).pvalue if sps and len(rg) > 5 and
               np.abs(rarr2).sum() > 0 else None)
+        # the OWN-pick rating is one judgment per task (the same
+        # Wednesday pick), so its mean deduplicates to one row per
+        # (student, task) — pooling all runs would quadruple-count it
+        own_mean = (d_r.drop_duplicates(["student", "task"])
+                    ["rating_self"].mean())
         srow("Satisfaction: agent − own rating",
              f"mean Δ = {rarr2.mean():+.2f} points (agent "
              f"{d_r['rating_agent'].mean():.1f} vs own "
-             f"{d_r['rating_self'].mean():.1f}); cluster-bootstrap 95% CI "
+             f"{own_mean:.1f}, own deduplicated per task); "
+             "cluster-bootstrap 95% CI "
              f"[{r_lo:+.2f}, {r_hi:+.2f}]", p=pw)
         if len(val) >= 6 and sps:
             vmap = {"inferior": 0, "equivalent": 1, "identical": 1,
@@ -1639,15 +1668,24 @@ def main():
                      f"{fmt_ci(clo, chi_)} — positive = twins do better "
                      "on utilitarian goods")
 
-    # Holm-Bonferroni across every p in the table (one family; the
-    # confirmatory persona-vs-ablated contrast is row-labeled so readers
-    # can apply a narrower family if pre-registered differently)
-    adj = holm([r["p"] for r in srows])
-    stats_rows = [
-        (r["label"], r["result"],
-         "—" if r["p"] is None or math.isnan(r["p"])
-         else f"{r['p']:.3f} (Holm {pa:.3f})")
-        for r, pa in zip(srows, adj)]
+    # Holm-Bonferroni over EXACTLY the pre-registered confirmatory family
+    # {H1, H2, H3} (research_protocol §1: grounding, tier(+day),
+    # grounding x tier, all on the acceptable-pick rate). Everything else
+    # is exploratory and reported unadjusted — mixing descriptive and
+    # dead-design rows into one family distorts both.
+    conf_idx = [i for i, r in enumerate(srows) if r["hyp"]]
+    conf_adj = holm([srows[i]["p"] for i in conf_idx])
+    adj_map = dict(zip(conf_idx, conf_adj))
+    stats_rows = []
+    for i, r in enumerate(srows):
+        if r["p"] is None or math.isnan(r["p"]):
+            pcell = "—"
+        elif r["hyp"]:
+            pcell = (f"{r['p']:.3f} (Holm {adj_map[i]:.3f} over "
+                     f"H1–H3; {r['hyp']})")
+        else:
+            pcell = f"{r['p']:.3f} (exploratory, unadjusted)"
+        stats_rows.append((r["label"], r["result"], pcell))
 
     # ---- robustness / sensitivity specifications ----
     def rate_of(sub):
@@ -1661,15 +1699,20 @@ def main():
     thick = set(sdf[sdf["n_profile_orders"] >= 3]["student"])
     strict = vd_.assign(
         acceptable=vd_["verdict"].isin(["better", "identical"]))
+    fid = vd_.assign(
+        acceptable=vd_["verdict"].isin(["identical", "equivalent"]))
     robust_rows = [
-        ("Main: acceptable = better/identical/equivalent",
-         spec_rates(vd_)),
+        ("Main: acceptable-pick rate = better/identical/equivalent "
+         "(the quality metric)", spec_rates(vd_)),
         (f"Excl. packs with validation issues (n={len(clean)})",
          spec_rates(vd_[vd_["student"].isin(clean)])),
         (f"Excl. thin purchase profiles <3 parsed orders (n={len(thick)})",
          spec_rates(vd_[vd_["student"].isin(thick)])),
         ("Strict: acceptable = better/identical only",
          spec_rates(strict)),
+        ("Agreement/fidelity rate = identical/equivalent (did the twin "
+         "converge on or substitute the human's choice)",
+         spec_rates(fid)),
     ]
 
     # ---- data quality ----
@@ -1695,6 +1738,10 @@ def main():
          ", ".join(f"{arm_name(k)}: {v}" for k, v in
                    Counter(sdf["arm"].dropna()).items())),
     ]
+    if pair_cov:
+        quality.append(("Paired-contrast coverage (missingness — "
+                        "dropped pairs are runs whose verdict is "
+                        "missing/invalid)", "; ".join(pair_cov)))
     if ablation:
         quality.append((
             "Grounding order day 1 (counterbalanced)" if four_run

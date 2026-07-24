@@ -9,8 +9,8 @@ Per participant (N = cohort size), the design produces a paired-choice dataset:
 | Unit | Variables |
 |---|---|
 | Participant | 115 coded questionnaire items (dtlab-persona-v1; authoritative source: `questionnaire_instrument_source.md` — 15 demographics, 57 validated-scale items from 12 published scales per the Toubia et al. 2025 Twin-2K-500 battery selections, 22 amazon.in shopping-behavior items, 12 values/constraints of which VC01–VC05 are CONSTRAINT items, 9 predictive items); purchase profile as agent-extracted `purchase_profile.md` (traceable-claims rule in SOUL.md; precise dtlab-orders-v1 CSV only for the optional post-course export add-on subgroup); demographics |
-| Participant × session | human shopping-process clickstream (dtlab-humanlog-v1.3): search queries, product views (ASIN + dwell sequence), cart-add clicks, filters/sorts — captured passively by log_human_session.py BEFORE the agent runs |
-| Task × participant (5 per participant; categories + count from tasks_config.csv) | human pick made first (uncontaminated: the student never sees the agent before choosing) (title, ASIN, price, stated reasoning), agent pick (title, ASIN, price), agent decision log with item-code citations, sponsored-listing flag, human intervention count, student's better/identical/equivalent/inferior verdict (dtlab-verdicts-v1) |
+| Participant × session | human shopping-process clickstream (dtlab-humanlog-v1.4): search queries, product views (ASIN + dwell sequence), cart-add clicks, filters/sorts — captured passively by log_human_session.py BEFORE the agent runs |
+| Task × participant (5 per participant; categories + count from tasks_config.csv) | human pick made first (uncontaminated: the student never sees the agent before choosing) (title, ASIN, price, stated reasoning), agent pick (title, ASIN, price), agent decision log with item-code citations, sponsored-listing flag, human intervention count, student's better/identical/equivalent/inferior verdict (dtlab-verdicts-v2, captured blind) |
 
 **Design (plan of record): a within-participant 2×2 across four agent
 runs.** The task set is five self-purchase categories from the
@@ -54,6 +54,29 @@ profile and picks during runs; ablated runs are blind to CONSTRAINT
 items (harmless under add-to-cart-only; violations become a measured
 outcome). All Anthropic model settings remain at defaults (agent runs
 are interactive tool-use sessions, not elicitation calls).
+
+### Hypotheses and primary endpoints
+
+The confirmatory family is exactly three within-participant contrasts,
+all on the primary DV, the **acceptable-pick rate** — the share of
+tasks whose verdict is better/identical/equivalent (the quality
+metric):
+
+- **H1 — grounding:** persona vs. ablated acceptable-pick rate.
+- **H2 — tier (carries the day):** frontier vs. economy acceptable-pick
+  rate; tier is confounded with day by design and always reported as
+  tier+day.
+- **H3 — grounding × tier:** the questionnaire effect differs between
+  tiers.
+
+Holm-Bonferroni adjustment applies to exactly this family {H1, H2, H3}
+and to nothing else; every other quantity the analyzer reports —
+head-to-heads, sponsored capture, price fidelity, satisfaction, order
+and position effects, subgroup splits — is exploratory, unadjusted,
+and labeled as such in the report. The secondary descriptive metric is
+the **agreement/fidelity rate** — identical/equivalent verdicts only
+(did the twin converge on or substitute the human's choice) — reported
+alongside the quality metric, never adjusted.
 
 The agent-side treatment is the **Evidence-Citation Protocol (ECP)**,
 implemented in `agent/SOUL.md`: every candidate rejection and selection
@@ -173,7 +196,10 @@ Assembly steps:
    task and agent type, CIs, head-to-head, overlap, ratings, price/brand
    alignment, contamination, data quality). It is a reporting view over
    the same machine-parsed fields; the frozen dataset above remains the
-   analysis-of-record.
+   analysis-of-record. Metric names are fixed: **acceptable-pick rate**
+   = better/identical/equivalent (quality, the primary DV of H1–H3);
+   **agreement/fidelity rate** = identical/equivalent only (secondary,
+   descriptive) — the analyzer and this protocol use them identically.
 
 ## 6. Schema registry
 
@@ -185,7 +211,7 @@ Assembly steps:
 - `dtlab-orders-v1`: student_id, order_date, brand_guess[/brand,
   brand_source], product_title, asin, unit_price_inr, quantity,
   capture_method.
-- `dtlab-humanlog-v1.3` (JSONL events): ts, student_id, type
+- `dtlab-humanlog-v1.4` (JSONL events): ts, student_id, type
   {session_start|search|product_view|cart_add|filter_sort|nav|session_end},
   plus type-specific fields (query/page/sort; asin/title). v1.1 adds
   `category` (the product page's breadcrumb) to product_view; v1.2 adds
