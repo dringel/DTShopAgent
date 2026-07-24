@@ -300,19 +300,27 @@ def main():
     log.emit("session_start", schema=SCHEMA)
 
     # Same binary the agent session uses, so the shared profile never sees
-    # version skew (see tools/dtlab_browser.sh). Fall back to Playwright's
-    # bundled Chromium only if no system chromium exists.
-    exe = shutil.which("chromium") or shutil.which("chromium-browser")
+    # version skew (see tools/dtlab_browser.sh — same search order): the
+    # fixed-path bundled Chromium (VM route) first, then system chromium.
+    fixed = Path.home() / "dtlab" / "bin" / "chromium"
+    exe = (str(fixed) if fixed.exists() else None) \
+        or shutil.which("chromium") or shutil.which("chromium-browser")
     if not exe:
         print("WARNING: no system chromium found — using Playwright's "
               "bundled Chromium. Profile version skew with the agent "
               "session is possible; flag this to a TA.", file=sys.stderr)
 
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            str(PROFILE), headless=False,
-            executable_path=exe or None,
-            viewport={"width": 1280, "height": 900})
+        try:
+            ctx = p.chromium.launch_persistent_context(
+                str(PROFILE), headless=False,
+                executable_path=exe or None,
+                viewport={"width": 1280, "height": 900})
+        except Exception:
+            sys.exit("Could not open the shared lab browser profile — "
+                     "another window is holding its lock.\n"
+                     "Close ALL open lab-browser windows (including the "
+                     "shopping session), then re-run dtlab-shop.")
         ctx.expose_binding("dtlabEvent", log.on_binding)
         ctx.add_init_script(PAGE_JS)
 

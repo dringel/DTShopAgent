@@ -18,10 +18,13 @@ PROFILE="$HOME/${DTLAB_BROWSER_PROFILE:-dtlab/browser-profile}"
 PORT="${DTLAB_CDP_PORT:-9222}"
 URL="${1:-https://www.amazon.in}"
 
-# One binary for both sessions: prefer system chromium (log_human_session.py
-# points Playwright at the same executable so profile versions never skew).
+# One binary for both sessions (log_human_session.py points Playwright at
+# the same executable so profile versions never skew). The fixed-path
+# ~/dtlab/bin/chromium (Playwright's bundled build, VM route) wins over
+# system chromium; snap builds are never used (confinement breaks the
+# shared profile and executable_path).
 BIN=""
-for c in chromium chromium-browser; do
+for c in "$HOME/dtlab/bin/chromium" chromium chromium-browser; do
   if command -v "$c" >/dev/null 2>&1; then BIN="$c"; break; fi
 done
 if [ -z "$BIN" ]; then

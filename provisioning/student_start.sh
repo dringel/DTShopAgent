@@ -40,6 +40,26 @@ bad()  { echo -e "${RED}  [!!]${NC} $1"; FAIL=1; }
 note() { echo -e "${YEL}  [..]${NC} $1"; }
 FAIL=0
 
+# The most likely lab-day fire: a leftover lab-browser window (usually the
+# shopping session) still holds the shared profile lock, so the CDP launch
+# silently no-ops into a tab of the old, CDP-less instance and Hermes
+# /browser connect has nothing to attach to. Poll the CDP endpoint for ~5s
+# after launching; fail LOUD with the one action that fixes it.
+wait_cdp() {
+  local port="${DTLAB_CDP_PORT:-9222}" i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsS "http://127.0.0.1:${port}/json/version" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo ""
+  echo -e "${RED}The lab browser did not come up with its automation (CDP) port."
+  echo -e "Close ALL open lab-browser windows (including the shopping session),"
+  echo -e "then re-run dtlab-start.${NC}"
+  return 1
+}
+
 echo "=============================================="
 if [ "$SANDBOX" = "1" ]; then
   echo " Digital Twin Lab — SANDBOX pre-flight"
@@ -113,7 +133,7 @@ if [ "$SANDBOX" = "1" ]; then
   [ "${DTLAB_TEST:-0}" = "1" ] && exit 0
   bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://books.toscrape.com" \
     >/dev/null 2>&1 &
-  sleep 2
+  wait_cdp || exit 1
   cd "$WS" && exec hermes
 fi
 # a stale sandbox marker must never leak into a real run's manifest
@@ -401,5 +421,5 @@ fi
 echo "(After the day's runs: dtlab-verdict, and on the final day dtlab-pack.)"
 # Same profile + CDP port as dtlab-shop, via the one shared launcher.
 bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://www.amazon.in" >/dev/null 2>&1 &
-sleep 2
+wait_cdp || exit 1
 cd "$WS" && exec hermes

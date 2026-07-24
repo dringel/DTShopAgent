@@ -271,6 +271,32 @@ check $? 0 "postCreate phase exits 0 with DTLAB_TEST=1"
 check $? 0 "kit stamp written per codespace (postCreate)"
 guard; rm -rf "$HOME/dtlab" "$HOME/wsroot"
 
+echo "[14] B7: CDP liveness check fails loud before Hermes ever starts"
+mkenv 0
+mkdir -p "$HOME/bin" "$HOME/dtlab/tools"
+printf '#!/usr/bin/env bash\nexit 7\n' > "$HOME/bin/curl"       # CDP dead
+# shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
+printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
+         "$HOME/dtlab/tools/dtlab_browser.sh"
+printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
+  > "$HOME/last_out.txt" 2>&1
+rc=$?
+check "$rc" 1 "exit nonzero when the CDP port never comes up"
+grep -q "Close ALL open lab-browser windows" "$HOME/last_out.txt"
+check $? 0 "prints the one action that fixes the profile lock"
+[ ! -f "$HOME/hermes_ran" ]
+check $? 0 "Hermes never started on a dead CDP port"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/bin/curl"       # CDP alive
+printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
+  > "$HOME/last_out.txt" 2>&1
+rc=$?
+check "$rc" 0 "live CDP port proceeds to Hermes"
+[ -f "$HOME/hermes_ran" ]
+check $? 0 "Hermes started once the port answered"
+guard; rm -rf "${HOME:?}/bin" "$HOME/hermes_ran"
+
 guard
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"

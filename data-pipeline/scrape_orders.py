@@ -159,10 +159,16 @@ def main():
     all_rows, n_orders = [], 0
 
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            str(profile_dir), headless=False,
-            viewport={"width": 1280, "height": 900},
-        )
+        try:
+            ctx = p.chromium.launch_persistent_context(
+                str(profile_dir), headless=False,
+                viewport={"width": 1280, "height": 900},
+            )
+        except Exception:
+            sys.exit("Could not open the shared lab browser profile — "
+                     "another window is holding its lock.\n"
+                     "Close ALL open lab-browser windows (including the "
+                     "shopping session), then re-run this script.")
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(f"{BASE}/your-orders/orders", wait_until="domcontentloaded")
 

@@ -20,6 +20,7 @@ import argparse
 import csv
 import random
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -85,8 +86,14 @@ def main():
     resolved = {}
     profile_dir = browser_profile_dir()
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            str(profile_dir), headless=False)
+        try:
+            ctx = p.chromium.launch_persistent_context(
+                str(profile_dir), headless=False)
+        except Exception:
+            sys.exit("Could not open the shared lab browser profile — "
+                     "another window is holding its lock.\n"
+                     "Close ALL open lab-browser windows (including the "
+                     "shopping session), then re-run this script.")
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         for i, asin in enumerate(sorted(todo_asins), 1):
             try:

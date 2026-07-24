@@ -45,9 +45,15 @@ fetch_verified() {  # url sha256 dest
 }
 
 echo "== [1/7] System packages =="
+# NO chromium-browser here: on Ubuntu 24.04 that package is a snap, and
+# snap confinement can neither use the lab's --user-data-dir profile nor
+# be driven via Playwright's executable_path. Both sessions (human and
+# agent) use Playwright's bundled Chromium instead, exposed at the fixed
+# path ~/dtlab/bin/chromium in step 2 (dtlab_browser.sh and
+# log_human_session.py look there first).
 sudo apt-get update
 sudo apt-get install -y git curl python3 python3-pip python3-venv \
-    ffmpeg chromium-browser jq unzip
+    ffmpeg jq unzip
 
 echo "== [2/7] uv + Playwright (for the capture scripts) =="
 fetch_verified "$UV_INSTALLER_URL" "$UV_INSTALLER_SHA256" /tmp/uv-install.sh
@@ -56,6 +62,16 @@ export PATH="$HOME/.local/bin:$PATH"
 uv venv --seed "$HOME/dtlab/.venv"        # --seed: venv WITH pip
 "$HOME/dtlab/.venv/bin/pip" install "playwright$PLAYWRIGHT_PIN"
 "$HOME/dtlab/.venv/bin/playwright" install chromium
+"$HOME/dtlab/.venv/bin/playwright" install-deps chromium || true
+# Fixed-path symlink to the bundled Chromium: the ONE binary both the
+# human session and the agent session launch (validate on the golden
+# image at the dry run).
+PW_CHROME="$("$HOME/dtlab/.venv/bin/python" -c \
+  'from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    print(p.chromium.executable_path)')"
+mkdir -p "$HOME/dtlab/bin"
+ln -sf "$PW_CHROME" "$HOME/dtlab/bin/chromium"
 
 echo "== [3/7] Hermes Agent =="
 fetch_verified "$HERMES_INSTALLER_URL" "$HERMES_INSTALLER_SHA256" \

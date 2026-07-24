@@ -155,8 +155,11 @@ def main():
             browser = p.chromium.connect_over_cdp(
                 f"http://127.0.0.1:{port}")
         except Exception:
-            sys.exit(f"cannot attach to the lab browser on CDP port {port} "
-                     "— is the browser from dtlab-start still open?")
+            sys.exit(f"cannot attach to the lab browser on CDP port {port}.\n"
+                     "Close ALL open lab-browser windows (including the "
+                     "shopping session), then re-run dtlab-start — the "
+                     "agent's browser must still be open when dtlab-cart "
+                     "runs.")
         ctx = browser.contexts[0] if browser.contexts else \
             browser.new_context()
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
