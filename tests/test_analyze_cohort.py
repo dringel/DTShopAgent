@@ -394,6 +394,11 @@ def main():
                        "Minimum detectable tier effect",
                        "legacy arm design"):
             assert marker in html, f"missing B11 row: {marker}"
+        # B15: occasion/price-drift caveats + stock-out flag
+        for marker in ("verdict occasion tracks tier",
+                       "captured on different days",
+                       "Likely stock-outs"):
+            assert marker in html, f"missing B15 marker: {marker}"
         # B14: contamination read against a null, used as a subgroup
         for marker in ("permutation baseline",
                        "top-quartile contamination",

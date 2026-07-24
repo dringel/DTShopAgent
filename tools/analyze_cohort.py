@@ -454,10 +454,21 @@ def read_submission(path):
         for t, lst in (by_t or {}).items():
             cand_by_task.setdefault(t, set()).update(
                 c.get("asin") for c in lst if c.get("asin"))
+    # likely stock-outs: a human pick appearing in NO run's candidate
+    # set makes 'identical' impossible for that task (human prices are
+    # frozen Wednesday; listings move) — countable only where CAND
+    # coverage exists
+    stockout = 0
+    for t_ in TASK_IDS:
+        h_asin = (human.get(t_, {}).get("asin") or "").strip()
+        pool = cand_by_task.get(t_)
+        if h_asin and pool and h_asin not in pool:
+            stockout += 1
     meta = {
         "student": sid, "arm": man.get("arm"), "tier": man.get("model_tier"),
         "cand_by_task": {t: sorted(s) for t, s in cand_by_task.items()},
         "viewed_asins": sorted(hviewed),
+        "stockout_suspect_n": stockout if cand_by_task else None,
         "ablation": ablation, "design": design,
         "persona_order": order_d1,
         "persona_order_day2": order_d2,
@@ -969,7 +980,9 @@ def main():
         add(style_fig(fig, ytitle="agent price (₹)"),
             "Price: agent vs human, per task",
             "Dotted line = same price. Above it, the agent spent more "
-            "than you did. " + budget_note)
+            "than you did. Prices were captured on different days "
+            "(human Wednesday, agents Thursday/Friday) — day-to-day "
+            "price drift contributes to the scatter. " + budget_note)
 
     # 6 — alignment & compliance summary bars (the human's own picks
     # join as the reference series; sponsored is agent-only — the human
@@ -1326,7 +1339,9 @@ def main():
                      "persona − ablated (paired)",
                      f"Δ = {garr.mean():+.3f} (negative = questionnaire "
                      "brings prices closer to the human's); 95% CI "
-                     f"[{glo:+.3f}, {ghi:+.3f}]", p=pw)
+                     f"[{glo:+.3f}, {ghi:+.3f}]. Human prices are "
+                     "Wednesday's, agent prices Thursday's/Friday's — "
+                     "drift adds noise common to both conditions", p=pw)
         if four_run:
             # within-day run order: which condition ran first that day
             # comes from the per-day counterbalanced grounding order
@@ -1488,6 +1503,13 @@ def main():
              "(by design, stated in the methods) — the tier effect "
              "carries any day effect; the within-day run-order estimate "
              "above bounds plausible order effects")
+        srow("Caveat: verdict occasion tracks tier",
+             "economy runs are judged in Thursday's dtlab-verdict "
+             "session and frontier runs in Friday's, so the tier "
+             "contrast also carries any judgment-occasion effect "
+             "(mood, fatigue, day-2 experience); verdicts.csv v2 "
+             "records verdict_at_utc per row, so the actual occasions "
+             "are auditable")
 
     arms = sorted(a for a in set(vd_["arm"].dropna()) if a != "UNKNOWN")
     if len(arms) == 2:
@@ -1796,6 +1818,13 @@ def main():
         quality.append(("Paired-contrast coverage (missingness — "
                         "dropped pairs are runs whose verdict is "
                         "missing/invalid)", "; ".join(pair_cov)))
+    so = sdf["stockout_suspect_n"].dropna()
+    if len(so):
+        quality.append((
+            "Likely stock-outs (human pick in NO run's candidate set)",
+            f"{int(so.sum())} task(s) across {int((so > 0).sum())} "
+            "student(s) — 'identical' was impossible there (human picks "
+            "are frozen Wednesday; listings move)"))
     if ablation:
         quality.append((
             "Grounding order day 1 (counterbalanced)" if four_run
