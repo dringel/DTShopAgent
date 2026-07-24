@@ -277,7 +277,12 @@ def confirm_picks(log: Logger, student_id):
                 break
             print("  That is not a valid ASIN (10 characters A-Z/0-9, from "
                   "the product URL after /dp/). Try again.")
-        price = input("  Price in Rs. (number only): ").strip()
+        while True:
+            price = input("  Price in Rs. (number only): ").strip()
+            if re.fullmatch(r"\d[\d,]*(?:\.\d{1,2})?", price):
+                break
+            print("  Digits (and commas) only, e.g. 1499 — no currency "
+                  "symbols or text.")
         why = input("  Why this one (2-3 sentences): ").strip()
         rows.append({"task_id": task, "title": title, "asin": asin,
                      "url": f"https://www.amazon.in/dp/{asin}",

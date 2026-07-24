@@ -39,8 +39,9 @@ from pathlib import Path
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:
-    sys.exit("playwright missing — run this via the dtlab-cart alias "
-             "(it uses the provisioned environment).")
+    # deferred to main() so the module stays importable (unit tests
+    # exercise parse_price/capture_screenshot without a browser stack)
+    sync_playwright = None
 
 HOME = Path.home()
 EV = HOME / "dtlab" / "evidence"
@@ -89,9 +90,15 @@ def detect_run():
 
 
 def parse_price(s):
-    d = re.sub(r"[^\d.]", "", s or "")
+    """First number in the string, commas stripped (Indian grouping
+    included): 'Rs.1499' -> 1499, '₹1,499' -> 1499, '1,20,000' -> 120000.
+    Character-class stripping is NOT safe here — it kept the dot of
+    'Rs.' and turned Rs.1499 into 0.1499."""
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", str(s or ""))
+    if not m:
+        return None
     try:
-        return float(d) if d else None
+        return float(m.group(0).replace(",", ""))
     except ValueError:
         return None
 
@@ -158,6 +165,9 @@ def main():
     ap.add_argument("--run", type=int, choices=(1, 2, 3, 4),
                     help="run number (default: auto-detect from run state)")
     args = ap.parse_args()
+    if sync_playwright is None:
+        sys.exit("playwright missing — run this via the dtlab-cart alias "
+                 "(it uses the provisioned environment).")
     run = args.run or detect_run()
     if not run:
         sys.exit("no run detected under ~/dtlab/runs — pass --run N")

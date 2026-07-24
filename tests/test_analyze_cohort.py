@@ -305,7 +305,32 @@ def fabricate_cohort(td, mixed=True):
     return n
 
 
+def _load_module(relpath):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        Path(relpath).stem, REPO / relpath)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_parse_price():
+    """B13: 'Rs.1499' must parse as 1499, never 0.1499 — in the analyzer
+    AND the cart parser (same function, kept in lockstep)."""
+    cases = {"Rs.1499": 1499.0, "₹1,499": 1499.0, "1499.00": 1499.0,
+             "1,20,000": 120000.0, "Rs. 2,349.50": 2349.5,
+             "": None, "n/a": None}
+    for mod_path in ("tools/analyze_cohort.py", "tools/capture_cart.py"):
+        mod = _load_module(mod_path)
+        for raw, want in cases.items():
+            got = mod.parse_price(raw)
+            assert got == want, f"{mod_path} parse_price({raw!r}) = " \
+                                f"{got}, want {want}"
+    print("PASS: parse_price handles Rs./₹/Indian grouping in both tools")
+
+
 def main():
+    test_parse_price()
     with tempfile.TemporaryDirectory() as tmp:
         td = Path(tmp)
         n_valid = fabricate_cohort(td)

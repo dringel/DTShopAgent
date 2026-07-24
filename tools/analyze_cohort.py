@@ -152,9 +152,15 @@ INK, INK2, GRID = "#0b0b0b", "#52514e", "#e1e0d9"
 
 # ---- parsing ----------------------------------------------------------
 def parse_price(s):
-    d = re.sub(r"[^\d.]", "", str(s or ""))
+    """First number in the string, commas stripped (Indian grouping
+    included): 'Rs.1499' -> 1499, '₹1,499' -> 1499, '1,20,000' -> 120000.
+    Character-class stripping is NOT safe here — it kept the dot of
+    'Rs.' and turned Rs.1499 into 0.1499."""
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", str(s or ""))
+    if not m:
+        return None
     try:
-        return float(d) if d else None
+        return float(m.group(0).replace(",", ""))
     except ValueError:
         return None
 
