@@ -109,7 +109,11 @@ concrete machinery, so you recognize it when you see it:
   the packer's manipulation check fails any ablated log (either day)
   that cites persona item codes. Per-run condition + tier land in the
   manifest; `dtlab-cart`'s parsed cart JSON is cross-checked against
-  the agent's self-reported picks (`cart_verified` per run).
+  the agent's self-reported picks (`cart_verified` per run). Its parser
+  reads the ACTIVE cart only, and it warns when it sees items parked in
+  "Saved for later" — teach partners to empty the cart with **Delete**,
+  never "Save for later" (the most discoverable button, and the one that
+  silently corrupts every later run's cart evidence).
 - **Issues vs warnings:** the packer HARD-FAILS on anything the student
   can fix (missing files, placeholder verdicts, bad ASINs — exit
   non-zero with a fix list) and records the rest as non-blocking

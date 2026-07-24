@@ -309,7 +309,10 @@ hard-coded anywhere.
    for every run; the partner handles CAPTCHAs, runs `dtlab-cart` after
    each run (automatic cart screenshot + parsed cart contents into
    `~/dtlab/evidence/`, cross-checked against the agent's picks at pack
-   time), and empties the cart between runs. `dtlab-start` walks each run (pre-flight, history re-pause
+   time), and empties the cart between runs — always with **Delete**,
+   never "Save for later" (saved items stay parked on the account and
+   corrupt later runs' cart evidence; `dtlab-cart` warns if it sees
+   them). `dtlab-start` walks each run (pre-flight, history re-pause
    gate, payment check, SOUL/persona swaps); `dtlab-record` captures the
    screen (start it only after login).
 6. After each day's runs: open your agent's artifacts for the first

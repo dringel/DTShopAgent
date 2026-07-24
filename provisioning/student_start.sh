@@ -372,7 +372,8 @@ echo "     (note every intervention). If the agent asks a question, do NOT"
 echo "     answer it — its SOUL requires deciding alone; tell it to decide"
 echo "     itself and note the exchange as an intervention."
 echo "  6. Afterwards: partner runs  dtlab-cart  (screenshot + parsed cart),"
-echo "     then EMPTIES the cart before the next run."
+echo "     then EMPTIES the cart before the next run — with DELETE, never"
+echo "     'Save for later' (saved items stay parked on the account)."
 echo "  7. Evidence auto-collects from ~/dtlab/workspace + evidence folder."
 echo ""
 echo -e "${YEL}Codespaces users: NEVER set the forwarded desktop port (6080) to"
@@ -402,7 +403,7 @@ if [ -n "$COND" ]; then
   echo -e "${YEL}2x2 DESIGN ACTIVE — this is agent run $RUN of 4 ($TIER tier, $COND grounding).${NC}"
   echo "After THIS run: the partner runs  dtlab-cart  (saves cart_run$RUN.png"
   echo "+ parsed cart contents into ~/dtlab/evidence/), then EMPTIES the"
-  echo "cart before the next run."
+  echo "cart before the next run (DELETE each item — never 'Save for later')."
 fi
 read -rp "Press Enter to open the browser and start Hermes... "
 # marker = FIRST REAL agent-run start (log collection and the ordering

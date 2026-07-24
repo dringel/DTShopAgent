@@ -52,7 +52,11 @@ ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
 # SELECTORS). TODO(dry-run): validate on live amazon.in during the T-21
 # dry run; parsing failure degrades to screenshot-only, never an error.
 SELECTORS = {
-    "item":  "div.sc-list-item[data-asin]",       # one cart line item
+    # scoped to the ACTIVE cart: unscoped div.sc-list-item also matches
+    # "Saved for later" rows, which silently carries prior runs' items
+    # into every later capture
+    "item":  "#sc-active-cart div.sc-list-item[data-asin]",
+    "sfl_item": "#sc-saved-cart div.sc-list-item[data-asin]",
     "asin":  "data-asin",                          # attribute on the item
     "title": ".sc-product-title, .a-truncate-full",
     "price": ".sc-product-price, .sc-badge-price-to-pay .a-price-whole",
@@ -135,6 +139,20 @@ def parse_items(page):
         return None
 
 
+def saved_for_later_asins(page):
+    """ASINs parked in the 'Saved for later' section — evidence that a
+    cart was 'emptied' with Save for later instead of Delete."""
+    try:
+        out = []
+        for el in page.query_selector_all(SELECTORS["sfl_item"]):
+            a = (el.get_attribute(SELECTORS["asin"]) or "").strip()
+            if ASIN_RE.fullmatch(a):
+                out.append(a)
+        return out
+    except Exception:
+        return []
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", type=int, choices=(1, 2, 3, 4),
@@ -169,6 +187,7 @@ def main():
         print(f"  [ok] screenshot -> {png}"
               + ("" if clipped else " (FULL PAGE — clip failed)"))
         items = parse_items(page)
+        sfl = saved_for_later_asins(page)
 
     if not clipped:
         print("  [!!] could not clip the screenshot to the cart region "
@@ -197,9 +216,17 @@ def main():
         print("  [~] no cart JSON written — the packer will note that the "
               "picks/cart cross-check was skipped for this run.")
 
+    if sfl:
+        print(f"  [!!] 'Saved for later' holds {len(sfl)} item(s) "
+              f"({', '.join(sfl[:5])}{'...' if len(sfl) > 5 else ''}).")
+        print("       If the cart was 'emptied' by clicking Save for later,")
+        print("       earlier runs' items are still parked on the account.")
+        print("       Delete those saved items too before the next run.")
+
     print()
-    print("NOW EMPTY THE CART by hand (the kit never deletes anything on")
-    print("the account) so the next run starts clean. Do not log out.")
+    print("NOW EMPTY THE CART by hand — use DELETE, never 'Save for later'")
+    print("(saved items stay on the account and pollute later runs). The")
+    print("kit never deletes anything on the account. Do not log out.")
     return 0
 
 
