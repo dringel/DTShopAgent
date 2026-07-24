@@ -387,6 +387,13 @@ def main():
             "Spearman must report a cluster-bootstrap CI, not a naive p"
         assert "(descriptive)" in html, \
             "discordant counts must be labeled descriptive"
+        # B11: TOST/MDE retargeted at the operative contrasts
+        for marker in ("Run-order equivalence",
+                       "Task-position equivalence",
+                       "Minimum detectable questionnaire effect",
+                       "Minimum detectable tier effect",
+                       "legacy arm design"):
+            assert marker in html, f"missing B11 row: {marker}"
         assert out.stat().st_size > 100_000, "report suspiciously small"
         print(f"PASS: report generated ({out.stat().st_size >> 10} KB) "
               f"from {n_valid} students (2x2 + legacy + renamed zip; "

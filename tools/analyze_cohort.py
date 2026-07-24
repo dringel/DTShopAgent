@@ -1232,6 +1232,15 @@ def main():
              f"discordant tasks {b} vs {c_} (descriptive); Cohen's h = "
              f"{cohens_h(float(piv['persona'].mean()), float(piv['ablated'].mean())):.2f}",
              p=cboot_p(darr))
+        if len(darr) > 1:
+            sd_d = float(np.std(darr, ddof=1))
+            if sd_d > 0:
+                srow("Minimum detectable questionnaire effect "
+                     "(80% power, α=.05, paired design)",
+                     f"≈ {100 * 2.80 * sd_d / math.sqrt(len(darr)):.0f} pp "
+                     f"with {len(darr)} students contributing pairs "
+                     "(2.80 x sd of the per-student Δ / √n) — report "
+                     "MDE, never post-hoc power")
         hh = df.dropna(subset=["hth_winner"]).drop_duplicates(
             ["student", "task", "tier"] if four_run
             else ["student", "task"])
@@ -1319,11 +1328,19 @@ def main():
                 rarr = (rpiv["second_of_day"] -
                         rpiv["first_of_day"]).to_numpy(float)
                 rlo, rhi = cboot(lambda ix: rarr[ix].mean(), len(rarr))
+                r90lo, r90hi = cboot(lambda ix: rarr[ix].mean(),
+                                     len(rarr), ci=90)
+                req = ("EQUIVALENT within ±10 pp"
+                       if -0.10 < r90lo and r90hi < 0.10
+                       else "equivalence NOT established")
                 srow("Within-day run-order effect (2nd − 1st run of the "
                      "day, acceptable rate)",
                      f"Δ = {100 * rarr.mean():+.1f} pp; 95% CI "
                      f"{fmt_ci(rlo, rhi)} — estimable because the "
                      "grounding order is counterbalanced within each day")
+                srow("Run-order equivalence (TOST via 90% CI, "
+                     "pre-registered ±10 pp margin)",
+                     f"90% CI {fmt_ci(r90lo, r90hi)} → {req}")
         elif sdf["persona_order"].notna().any():
             po = sdf.set_index("student")["persona_order"]
             vr = vd_[vd_["condition"].isin(["persona", "ablated"])].copy()
@@ -1372,6 +1389,25 @@ def main():
                  p=cboot_p(darr))
 
         tier_contrast(tp, "")
+        # paired MDE for the tier contrast (same construction as the
+        # questionnaire MDE above)
+        tpiv_all = tp.pivot_table(index=["student", "task", "condition"],
+                                  columns="tier", values="acceptable",
+                                  aggfunc="first").dropna()
+        if len(tpiv_all) and {"economy",
+                              "frontier"} <= set(tpiv_all.columns):
+            t_by = (tpiv_all.reset_index().groupby("student")
+                    [["frontier", "economy"]].mean())
+            t_arr = (t_by["frontier"] - t_by["economy"]).to_numpy(float)
+            if len(t_arr) > 1:
+                sd_t = float(np.std(t_arr, ddof=1))
+                if sd_t > 0:
+                    srow("Minimum detectable tier effect "
+                         "(80% power, α=.05, paired design)",
+                         f"≈ {100 * 2.80 * sd_t / math.sqrt(len(t_arr)):.0f}"
+                         f" pp with {len(t_arr)} students contributing "
+                         "pairs (2.80 x sd of the per-student Δ / √n) — "
+                         "report MDE, never post-hoc power")
         for g in ("persona", "ablated"):
             tier_contrast(tp[tp["condition"] == g], f" — {g} runs")
         # grounding x tier interaction: (P−A under frontier) − (P−A
@@ -1434,18 +1470,22 @@ def main():
                                  k2[i2].sum() / n2[i2].sum())
             alo, ahi = np.percentile(diffs, [2.5, 97.5])
             a90 = np.percentile(diffs, [5, 95])
+            # the arm factor is retired (all 2x2 packs are human-first);
+            # this branch only fires when legacy packs are ingested
             srow(f"Arm effect ({arm_name(arms[0])} − "
-                 f"{arm_name(arms[1])}, acceptable rate)",
+                 f"{arm_name(arms[1])}, acceptable rate) — legacy arm "
+                 "design",
                  f"Δ = {100 * (p1 - p2):+.1f} pp; cluster-bootstrap 95% CI "
                  f"[{100 * alo:+.0f}, {100 * ahi:+.0f}] pp; Cohen's h = "
-                 f"{cohens_h(p1, p2):.2f}",
+                 f"{cohens_h(p1, p2):.2f} (between-student p, clustering "
+                 "ignored — legacy descriptives only)",
                  p=two_prop_p(int(k1.sum()), int(n1.sum()),
                               int(k2.sum()), int(n2.sum())))
             eq = ("EQUIVALENT within ±10 pp"
                   if -0.10 < a90[0] and a90[1] < 0.10
                   else "equivalence NOT established")
-            srow("Order-effect equivalence (TOST via 90% CI, "
-                 "pre-registered ±10 pp margin)",
+            srow("Arm-order equivalence (TOST via 90% CI, ±10 pp margin) "
+                 "— legacy arm design",
                  f"90% CI [{100 * a90[0]:+.0f}, {100 * a90[1]:+.0f}] pp → "
                  f"{eq}")
             sacc = (vd_.groupby("student")
@@ -1455,7 +1495,7 @@ def main():
                            (sacc["arm"] == arms[1]).sum()))
             if nmin > 1 and not math.isnan(sd):
                 srow("Minimum detectable arm effect (80% power, α=.05, "
-                     "student-level)",
+                     "student-level) — legacy arm design",
                      f"≈ {100 * 2.80 * sd * math.sqrt(2 / nmin):.0f} pp "
                      f"with {nmin} students in the smaller arm — report "
                      "MDE, never post-hoc power")
@@ -1554,6 +1594,11 @@ def main():
             parr = (ppiv[True] - ppiv[False]).dropna().to_numpy(float)
             if len(parr):
                 plo, phi = cboot(lambda ix: parr[ix].mean(), len(parr))
+                p90lo, p90hi = cboot(lambda ix: parr[ix].mean(),
+                                     len(parr), ci=90)
+                peq = ("EQUIVALENT within ±10 pp"
+                       if -0.10 < p90lo and p90hi < 0.10
+                       else "equivalence NOT established")
                 srow("Task-position effect (late − early positions, "
                      "acceptable rate)",
                      f"Δ = {100 * parr.mean():+.1f} pp; 95% CI "
@@ -1562,6 +1607,9 @@ def main():
                      "(human session + all runs), so what an agent "
                      "chooses early cannot systematically bias a "
                      "particular category")
+                srow("Task-position equivalence (TOST via 90% CI, "
+                     "pre-registered ±10 pp margin)",
+                     f"90% CI {fmt_ci(p90lo, p90hi)} → {peq}")
 
     # consideration-set overlap (needs CAND lines + humanlog v1.1)
     jd = [(m_["student"], j) for m_ in metas
