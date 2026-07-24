@@ -558,6 +558,22 @@ read -rp "Press Enter to open the browser and start Hermes... "
 # check key off the earliest start, so never re-touch it; sandbox runs
 # stamp .sandbox_run_started instead and never touch this one)
 [ -f "$HOME/dtlab/.run_started" ] || touch "$HOME/dtlab/.run_started"
+# Hermes transcript-dir probe: record where transcripts actually live so
+# dtlab-pack collects from reality, not a guess — a wrong guess must
+# surface on lab day 1, not at Sunday pack time.
+HD_FOUND=""
+for d in $(echo "${DTLAB_HERMES_DIRS:-}" | tr ':' ' ') \
+         "$HOME/.hermes" "$HOME/.config/hermes"; do
+  [ -d "$d" ] && HD_FOUND="${HD_FOUND:+$HD_FOUND:}$d"
+done
+if [ -n "$HD_FOUND" ]; then
+  echo "$HD_FOUND" > "$HOME/dtlab/.hermes_dirs"
+elif [ -n "$RUN" ] && [ "$RUN" -ge 2 ] \
+     && [ ! -f "$HOME/dtlab/.hermes_dirs" ]; then
+  note "no Hermes transcript directory found yet (~/.hermes,
+       ~/.config/hermes) — tell a TA TODAY; dtlab-pack collects the
+       session transcripts from there"
+fi
 # run state is written HERE — every gate above has passed, so a refused
 # gate can never leave a phantom run; started_at/ist_date are guarded so
 # a crash-resume never overwrites the true first start

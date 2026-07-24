@@ -414,6 +414,15 @@ check $? 0 "no GLOBAL sandbox marker when real runs exist"
 [ -f "$HOME/dtlab/runs/run1/decision_log.md" ]
 check $? 0 "real run-1 artifacts parked into run1 before the sandbox agent"
 
+echo "[19] B18: dtlab-start records the probed Hermes transcript dirs"
+mkenv 1
+mkdir -p "$HOME/.hermes/sessions"
+rc=$(run 'P_FIRST\ny\ny\n\n')
+check "$rc" 0 "exit 0"
+[ -f "$HOME/dtlab/.hermes_dirs" ] && \
+  grep -q ".hermes" "$HOME/dtlab/.hermes_dirs"
+check $? 0 ".hermes_dirs records the transcript dir dtlab-pack will read"
+
 guard
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"

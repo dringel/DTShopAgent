@@ -19,6 +19,7 @@ the config either way.
 
 import argparse
 import csv
+import re
 import sys
 from pathlib import Path
 
@@ -38,6 +39,12 @@ def load(path):
     ids = [r["task_id"].strip() for r in rows]
     if len(ids) != len(set(ids)):
         sys.exit("duplicate task_id in config")
+    bad = [i for i in ids if not re.fullmatch(r"\d+", i)]
+    if bad:
+        sys.exit(f"task_id must be numeric (got {bad}) — the packer's "
+                 "memo parsers, the tasks.md reorder step, and "
+                 "dtlab-verdict all assume digit ids; renumber the "
+                 "activated rows 1..N before generating")
     return rows
 
 

@@ -997,6 +997,55 @@ assert 'run4/agent_picks.csv' in m['sha256']
 sys.exit(0)
 PY
 
+echo "[36] B18: log cap keeps newest, warns, dedupes; .hermes_dirs honored"
+mkenv
+python3 - <<'PY'   # three 600KB transcripts newer than the run marker
+import os, time
+home = os.path.expanduser("~")
+os.makedirs(f"{home}/.hermes/sessions", exist_ok=True)
+os.makedirs(f"{home}/.hermes/other/sessions", exist_ok=True)
+now = time.time()
+for name, dt in (("old.jsonl", 10), ("mid.jsonl", 20), ("new.jsonl", 30)):
+    p = f"{home}/.hermes/sessions/{name}"
+    open(p, "w").write("x" * 600_000)
+    os.utime(p, (now + dt, now + dt))
+# same basename in a second same-named dir: dest must deduplicate
+p2 = f"{home}/.hermes/other/sessions/new.jsonl"
+open(p2, "w").write('{"d":1}\n')
+os.utime(p2, (now + 25, now + 25))
+PY
+DTLAB_MAX_LOG_MB=1 python3 "$PACK" >/dev/null 2>&1
+check $? 0 "capped pack exits 0"
+python3 - <<'PY'; check $? 0 "newest kept, oldest dropped with a warning; dedup name present"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+logs=[n.rsplit('/',1)[1] for n in z.namelist() if '/hermes_logs/' in n]
+assert 'sessions__new.jsonl' in logs, logs
+assert 'sessions__new__2.jsonl' in logs, logs      # deduplicated twin
+assert not any('old' in n for n in logs), logs      # oldest dropped first
+assert any('MB cap' in w for w in m['warnings']), m['warnings']
+sys.exit(0)
+PY
+mkenv
+mkdir -p "$HOME/hermes_elsewhere/sessions"
+echo '{"t":2}' > "$HOME/hermes_elsewhere/sessions/moved.jsonl"
+guard; rm -rf "$HOME/.hermes"
+printf '%s\n' "$HOME/hermes_elsewhere" > "$HOME/dtlab/.hermes_dirs"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack collects from the dir dtlab-start recorded"
+python3 -c "
+import zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+assert any('moved.jsonl' in n for n in z.namelist())
+"; check $? 0 "recorded transcript dir wins over the guesses"
+
+echo "[37] B18: non-numeric task_id fails loudly at generation time"
+printf 'task_id,frame,short_name,product_type,category_class,budget_min_inr,budget_max_inr\nA1,Self-purchase,X,item,utilitarian,0,600\n' > "$HOME/badtasks.csv"
+python3 "$REPO/tools/make_task_docs.py" --config "$HOME/badtasks.csv" \
+  --outdir "$HOME/gen_bad" 2>&1 | grep -q "task_id must be numeric"
+check $? 0 "generator refuses a non-numeric catalog row with a clear message"
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

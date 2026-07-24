@@ -195,14 +195,27 @@ def parse_ts(s):
         return datetime.fromisoformat((s or "").replace("Z", "+00:00"))
     except ValueError:
         return None
-# Transcript locations are configurable because they are GUESSED.
-# TODO(dry-run): confirm against the Hermes release pinned for the course;
-# override with DTLAB_HERMES_DIRS=/path/one:/path/two if they moved.
-HERMES_DIRS = ([Path(p).expanduser() for p in
-                os.environ.get("DTLAB_HERMES_DIRS", "").split(":") if p]
-               or [HOME / ".hermes", HOME / ".config" / "hermes"])
+def hermes_dirs():
+    """Transcript locations, best evidence first: the explicit override,
+    then the dirs dtlab-start actually PROBED and recorded at run time
+    (~/dtlab/.hermes_dirs — so a wrong guess surfaces on lab day, not at
+    Sunday pack time), then the historical guesses.
+    TODO(dry-run): confirm against the Hermes release pinned for the
+    course; override with DTLAB_HERMES_DIRS=/path/one:/path/two."""
+    env = os.environ.get("DTLAB_HERMES_DIRS", "")
+    if env:
+        return [Path(p).expanduser() for p in env.split(":") if p]
+    rec = HOME / "dtlab" / ".hermes_dirs"
+    if rec.exists():
+        dirs = [Path(p).expanduser() for p in
+                rec.read_text(encoding="utf-8").strip().split(":") if p]
+        if dirs:
+            return dirs
+    return [HOME / ".hermes", HOME / ".config" / "hermes"]
+
+
 VERDICTS = {"better", "identical", "equivalent", "inferior"}
-MAX_LOG_MB = 50
+MAX_LOG_MB = int(os.environ.get("DTLAB_MAX_LOG_MB", "50"))
 
 # ---- content redaction (P0.4): filenames are not enough; transcripts can
 #      contain the API key or PII seen on amazon.in pages ----
@@ -254,12 +267,16 @@ def find_student_id():
 
 
 def collect_hermes_logs(staging):
-    """Copy session/transcript/log files modified since the run marker."""
+    """Copy session/transcript/log files modified since the run marker.
+    Newest-first, so if the size cap trips it drops the OLDEST files —
+    loudly (warn), never mid-scan in rglob order; destination names are
+    deduplicated so same-named files from different dirs can't silently
+    overwrite each other."""
     out = staging / "hermes_logs"
     out.mkdir(parents=True, exist_ok=True)
     since = MARKER.stat().st_mtime if MARKER.exists() else 0
-    n, total = 0, 0
-    for root in HERMES_DIRS:
+    files = []
+    for root in hermes_dirs():
         if not root.exists():
             continue
         for f in root.rglob("*"):
@@ -274,12 +291,27 @@ def collect_hermes_logs(staging):
             if any(s in f.name.lower() for s in
                    ("key", "secret", "credential", "auth", "env", "config")):
                 continue
-            total += f.stat().st_size
-            if total > MAX_LOG_MB * (1 << 20):
-                break
-            dest = out / f"{f.parent.name}__{f.name}"
-            shutil.copy2(f, dest)
-            n += 1
+            files.append(f)
+    files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    n, total, dropped, seen = 0, 0, 0, set()
+    for f in files:
+        size = f.stat().st_size
+        if total + size > MAX_LOG_MB * (1 << 20):
+            dropped += 1
+            continue
+        total += size
+        dest = f"{f.parent.name}__{f.name}"
+        k = 2
+        while dest in seen:
+            p = Path(f"{f.parent.name}__{f.name}")
+            dest = f"{p.stem}__{k}{p.suffix}"
+            k += 1
+        seen.add(dest)
+        shutil.copy2(f, out / dest)
+        n += 1
+    if dropped:
+        warn(f"Hermes logs exceed the {MAX_LOG_MB} MB cap — kept the "
+             f"{n} newest file(s), dropped {dropped} older one(s)")
     return n
 
 
