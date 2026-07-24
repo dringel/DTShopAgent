@@ -173,15 +173,30 @@ check "$rc" 0 "smoke test passes without persona/tasks/human files"
 [ ! -f "$HOME/dtlab/arm.txt" ]; check $? 0 "no arm file in sandbox mode"
 grep -q 'MARK-SANDBOX' "$HOME/dtlab/workspace/SOUL.md"
 check $? 0 "sandbox SOUL in workspace"
+[ -f "$HOME/dtlab/.sandbox_run_started" ]
+check $? 0 "sandbox stamps its OWN marker (.sandbox_run_started)"
+[ ! -f "$HOME/dtlab/.run_started" ]
+check $? 0 "sandbox NEVER touches .run_started (real-run marker)"
 mkenv 0
 echo sandbox > "$HOME/dtlab/sandbox.txt"     # stale marker from earlier
 cp "$HOME/dtlab/soul/SOUL_sandbox.md" "$HOME/dtlab/workspace/SOUL.md"
+# sandbox-era agent output left in the workspace (SOUL_sandbox appends)
+printf 'CAND | sandbox practice\n' > "$HOME/dtlab/workspace/decision_log.md"
+printf 'task_id,asin\nsbx,SBX0001000\n' > "$HOME/dtlab/workspace/agent_picks.csv"
 rc=$(run 'y\ny\n\n')
 check "$rc" 0 "normal run after sandbox exits 0"
 [ ! -f "$HOME/dtlab/sandbox.txt" ]
 check $? 0 "stale sandbox marker removed by a normal run"
 grep -q 'MARK-STANDARD' "$HOME/dtlab/workspace/SOUL.md"
 check $? 0 "standard SOUL restored after a sandbox run"
+[ ! -f "$HOME/dtlab/workspace/decision_log.md" ] \
+  && [ ! -f "$HOME/dtlab/workspace/agent_picks.csv" ]
+check $? 0 "sandbox-era workspace artifacts cleared before the real run"
+ls "$HOME/dtlab/sandbox_archive/"*decision_log.md >/dev/null 2>&1 \
+  && ls "$HOME/dtlab/sandbox_archive/"*agent_picks.csv >/dev/null 2>&1
+check $? 0 "sandbox-era artifacts archived to ~/dtlab/sandbox_archive/"
+[ -f "$HOME/dtlab/.run_started" ]
+check $? 0 "real run touches .run_started"
 
 echo "[11] pre-flight re-orders tasks.md into the student's randomized order"
 mkenv 0

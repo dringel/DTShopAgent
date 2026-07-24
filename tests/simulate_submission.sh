@@ -594,6 +594,40 @@ assert p['per_task'][order[2]]['minutes']==5.0
 sys.exit(0)
 PY
 
+echo "[26] B1: Tuesday sandbox practice never poisons the real week's pack"
+# realistic multi-day spread (NOT same-second like the other cases):
+# sandbox marker + sandbox transcript T-2 days, human session T-1 day,
+# real .run_started + real transcripts today
+mkenv_4run
+python3 - <<'PY'
+import os, time
+home = os.path.expanduser("~")
+t2, t1 = time.time() - 2 * 86400, time.time() - 1 * 86400
+p = f"{home}/dtlab/.sandbox_run_started"        # Tuesday practice marker
+open(p, "w").close(); os.utime(p, (t2, t2))
+s = f"{home}/.hermes/sessions/sandbox_practice.jsonl"
+open(s, "w").write('{"sandbox": 1}\n'); os.utime(s, (t2, t2))
+hs = f"{home}/dtlab/human/human_session.jsonl"  # Wednesday human session
+os.utime(hs, (t1, t1))
+PY
+python3 "$PACK" >/dev/null 2>&1; RC26=$?
+check "$RC26" 0 "practiced student's pack exits 0 (H_FIRST not violated)"
+python3 - <<'PY'; check $? 0 "no validation_issues; marker = real run; sandbox transcript excluded"
+import json,zipfile,os,sys,time
+from datetime import datetime
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['validation_issues']==[], m['validation_issues']
+assert m['sandbox'] is False and m['arm']=='H_FIRST'
+started=datetime.fromisoformat(m['first_agent_run_started_utc'])
+assert time.time()-started.timestamp() < 3600, \
+    "first_agent_run_started_utc must be the REAL run (today), not the sandbox"
+logs=[n for n in z.namelist() if 'hermes_logs/' in n]
+assert not any('sandbox_practice' in n for n in logs), logs
+assert any('s.jsonl' in n for n in logs), logs
+sys.exit(0)
+PY
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

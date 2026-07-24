@@ -104,7 +104,12 @@ if [ "$SANDBOX" = "1" ]; then
   echo -e "${YEL}SANDBOX RUN — practice store only (books.toscrape.com)."
   echo -e "This run is stamped for EXCLUSION from the research dataset.${NC}"
   read -rp "Press Enter to open the sandbox store and start Hermes... "
-  [ -f "$HOME/dtlab/.run_started" ] || touch "$HOME/dtlab/.run_started"
+  # sandbox runs get their OWN marker: .run_started is reserved for the
+  # first REAL run (pack_evidence.py keys the H_FIRST ordering check and
+  # the Hermes-log collection window off it — a Tuesday practice run must
+  # never predate Wednesday's human session in the manifest)
+  [ -f "$HOME/dtlab/.sandbox_run_started" ] || \
+    touch "$HOME/dtlab/.sandbox_run_started"
   [ "${DTLAB_TEST:-0}" = "1" ] && exit 0
   bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://books.toscrape.com" \
     >/dev/null 2>&1 &
@@ -118,6 +123,18 @@ if [ -f "$HOME/dtlab/sandbox.txt" ]; then
   # SOUL here — ablation runs below re-copy the per-condition SOUL anyway
   [ -f "$HOME/dtlab/soul/SOUL.md" ] && \
     cp "$HOME/dtlab/soul/SOUL.md" "$WS/SOUL.md"
+  # the sandbox agent appends to decision_log.md / agent_picks.csv
+  # (SOUL_sandbox protocol) — archive them so practice output never
+  # contaminates real run 1's evidence
+  SBA="$HOME/dtlab/sandbox_archive"
+  STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+  for f in decision_log.md agent_picks.csv; do
+    if [ -f "$WS/$f" ]; then
+      mkdir -p "$SBA"
+      mv "$WS/$f" "$SBA/${STAMP}_$f"
+      note "sandbox-era $f archived to ~/dtlab/sandbox_archive/"
+    fi
+  done
   note "stale sandbox marker removed (previous run was a sandbox run)"
 fi
 
@@ -368,8 +385,9 @@ if [ -n "$COND" ]; then
   echo "cart before the next run."
 fi
 read -rp "Press Enter to open the browser and start Hermes... "
-# marker = FIRST agent-run start (log collection keys off the earliest
-# start, so never re-touch it)
+# marker = FIRST REAL agent-run start (log collection and the ordering
+# check key off the earliest start, so never re-touch it; sandbox runs
+# stamp .sandbox_run_started instead and never touch this one)
 [ -f "$HOME/dtlab/.run_started" ] || touch "$HOME/dtlab/.run_started"
 [ -n "$RUN" ] && date -u +%FT%TZ > "$RUNSDIR/run$RUN/started_at.txt"
 # per-run tier is authoritative (runs/runN/tier.txt); ~/dtlab/tier.txt is
