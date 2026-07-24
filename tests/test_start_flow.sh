@@ -245,6 +245,32 @@ check "$(cat "$HOME/ws/.dtlab/runs/run2/condition.txt" 2>/dev/null)" \
 [ -f "$HOME/ws/.dtlab/runs/run1/decision_log.md" ]
 check $? 0 "run-1 artifacts archived under the root across the rebuild"
 
+echo "[13] B5: setup.sh — local steps precede network; DTLAB_TEST short-circuits"
+SETUP="$REPO/.devcontainer/setup.sh"
+WRAP_LINE=$(grep -n 'local/bin/dtlab-start' "$SETUP" | head -1 | cut -d: -f1)
+FETCH_LINE=$(grep -n 'fetch_verified "' "$SETUP" | head -1 | cut -d: -f1)
+[ -n "$WRAP_LINE" ] && [ -n "$FETCH_LINE" ] && [ "$WRAP_LINE" -lt "$FETCH_LINE" ]
+check $? 0 "wrapper creation precedes any fetch_verified call in the script"
+grep -q '"onCreateCommand": "bash .devcontainer/setup.sh onCreate"' \
+  "$REPO/.devcontainer/devcontainer.json"
+check $? 0 "heavy installs wired to onCreateCommand (prebuilds bake them)"
+guard; rm -rf "$HOME/dtlab" "$HOME/wsroot" "$HOME/.local" "$HOME/.bashrc"
+DTLAB_TEST=1 DTLAB_ROOT="$HOME/wsroot/.dtlab" bash "$SETUP" onCreate \
+  > "$HOME/setup_out.txt" 2>&1
+check $? 0 "onCreate phase exits 0 with DTLAB_TEST=1 (no network)"
+grep -q "skipping network install steps" "$HOME/setup_out.txt"
+check $? 0 "network steps short-circuited"
+[ -L "$HOME/dtlab" ] && [ -d "$HOME/wsroot/.dtlab/workspace" ]
+check $? 0 "DTLAB_ROOT override honored; ~/dtlab is a symlink to it"
+[ -x "$HOME/.local/bin/dtlab-start" ] && [ -x "$HOME/.local/bin/dtlab-pack" ]
+check $? 0 "dtlab-* wrappers created by the local phase"
+DTLAB_TEST=1 DTLAB_ROOT="$HOME/wsroot/.dtlab" bash "$SETUP" \
+  > "$HOME/setup_out2.txt" 2>&1
+check $? 0 "postCreate phase exits 0 with DTLAB_TEST=1"
+[ -f "$HOME/wsroot/.dtlab/kit_version.txt" ]
+check $? 0 "kit stamp written per codespace (postCreate)"
+guard; rm -rf "$HOME/dtlab" "$HOME/wsroot"
+
 guard
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"

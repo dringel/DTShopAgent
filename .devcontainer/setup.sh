@@ -3,10 +3,27 @@
 # (PRIMARY route, see COURSE_PLAN_1WEEK.md). Mirrors provisioning/provision.sh
 # but for the devcontainer: Debian base (apt chromium works here; on Ubuntu
 # VMs chromium is snap-packaged), desktop-lite provides the noVNC desktop on
-# display :1 / web port 6080. Runs automatically on codespace creation
-# (postCreateCommand) and must stay safe to re-run.
+# display :1 / web port 6080. Safe to re-run at any time.
+#
+# Lifecycle split (devcontainer.json):
+#   onCreateCommand:   bash .devcontainer/setup.sh onCreate
+#     local layout + the heavy network installs (apt, playwright, Hermes).
+#     Prebuilds execute onCreate, so with prebuilds enabled these are baked
+#     into the one frozen image all 161 students share.
+#   postCreateCommand: bash .devcontainer/setup.sh
+#     the per-codespace bits (kit version stamp, desktop password rotation)
+#     plus the same idempotent local layout, so a codespace restored from a
+#     prebuild is complete without any network step.
+#
+# LOCAL STEPS RUN FIRST in both phases: a network failure (e.g. the Hermes
+# installer gate below) still leaves a diagnosable environment with all
+# dtlab-* commands in place.
+#
+# DTLAB_TEST=1 short-circuits every network step (used by tests/).
 set -euo pipefail
+trap 'echo "" >&2; echo "Setup did not finish — tell a TA. Retry with: bash .devcontainer/setup.sh" >&2' ERR
 KIT="$(cd "$(dirname "$0")/.." && pwd)"   # repo root = the dt-lab kit
+PHASE="${1:-postCreate}"
 
 # ---- pinned downloads -------------------------------------------------
 # Remote installers are downloaded to a file, checksum-verified, then
@@ -38,19 +55,7 @@ fetch_verified() {  # url sha256 dest
   fi
 }
 
-echo "== [1/7] Packages =="
-sudo apt-get update
-sudo apt-get install -y chromium ffmpeg jq unzip
-pip install --user "playwright$PLAYWRIGHT_PIN"
-python3 -m playwright install chromium
-sudo python3 -m playwright install-deps chromium || true
-
-echo "== [2/7] Hermes Agent =="
-fetch_verified "$HERMES_INSTALLER_URL" "$HERMES_INSTALLER_SHA256" \
-    /tmp/hermes-install.sh
-bash /tmp/hermes-install.sh && rm -f /tmp/hermes-install.sh
-
-echo "== [3/7] Lab layout =="
+echo "== [1/5] Lab layout (local, runs before anything that needs network) =="
 # ---- persistent lab root -----------------------------------------------
 # In Codespaces only /workspaces survives a container rebuild; everything
 # under $HOME is wiped. The lab tree therefore lives at /workspaces/.dtlab
@@ -111,39 +116,7 @@ cp -v "$KIT/templates/human_picks.csv" \
       "$HOME/dtlab/human/human_picks.TEMPLATE.csv"
 find "$HOME/dtlab/tools" -name '*.sh' -exec chmod +x {} +
 
-echo "== [4/7] Kit version stamp (reproducibility metadata) =="
-printf 'commit=%s built=%s route=codespaces image=%s\n' \
-  "$(git -C "$KIT" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
-  "$(date -u +%Y-%m-%dT%H:%MZ)" \
-  "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm" \
-  > "$HOME/dtlab/kit_version.txt"
-
-echo "== [5/7] Desktop password (per-codespace, replaces the shipped default) =="
-# The desktop-lite feature bakes a fixed password at build time; rotate it
-# to a per-codespace random one so a leaked/public port is not an open door.
-NEWPW="$(tr -dc 'a-z0-9' < /dev/urandom | head -c 10 || true)"
-ROTATED=0
-if [ -n "$NEWPW" ]; then
-  for f in /usr/local/share/desktop-init.sh /usr/local/etc/desktop-init.sh; do
-    if [ -f "$f" ] && sudo grep -q 'dtlab' "$f"; then
-      sudo sed -i "/passw/s/dtlab/$NEWPW/g" "$f" && ROTATED=1
-    fi
-  done
-fi
-if [ "$ROTATED" = "1" ]; then
-  sudo pkill x11vnc 2>/dev/null || true   # supervisor restarts it with the new password
-  echo "*** Your personal Lab Desktop password (write it down): $NEWPW ***"
-else
-  # TODO(dry-run): locate the desktop-lite password store in the built image
-  # and make the rotation stick; until verified, the default applies.
-  echo "WARNING: could not rotate the desktop password automatically —"
-  echo "the shipped default 'dtlab' is in effect."
-fi
-echo ""
-echo "*** NEVER set the forwarded port 6080 to Public. A public port gives"
-echo "*** anyone with the URL a desktop logged into YOUR Amazon account."
-
-echo "== [6/7] Commands =="
+echo "== [2/5] Commands (local) =="
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/dtlab-start" <<'EOF'
 #!/usr/bin/env bash
@@ -190,7 +163,60 @@ export DISPLAY="${DISPLAY:-:1}"
 alias chromium-browser=chromium
 EOF
 
-echo "== [7/7] Done =="
+if [ "$PHASE" = "onCreate" ]; then
+  if [ "${DTLAB_TEST:-0}" = "1" ]; then
+    echo "== [3/5] DTLAB_TEST=1 — skipping network install steps (test build) =="
+  else
+    echo "== [3/5] Packages (network) =="
+    sudo apt-get update
+    sudo apt-get install -y chromium ffmpeg jq unzip
+    pip install --user "playwright$PLAYWRIGHT_PIN"
+    python3 -m playwright install chromium
+    sudo python3 -m playwright install-deps chromium || true
+
+    echo "== [4/5] Hermes Agent (network) =="
+    fetch_verified "$HERMES_INSTALLER_URL" "$HERMES_INSTALLER_SHA256" \
+        /tmp/hermes-install.sh
+    bash /tmp/hermes-install.sh && rm -f /tmp/hermes-install.sh
+  fi
+  echo "onCreate phase done (layout + installs). Per-codespace steps run"
+  echo "at creation via postCreateCommand."
+  exit 0
+fi
+
+echo "== [3/5] Kit version stamp (per-codespace reproducibility metadata) =="
+printf 'commit=%s built=%s route=codespaces image=%s\n' \
+  "$(git -C "$KIT" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+  "$(date -u +%Y-%m-%dT%H:%MZ)" \
+  "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm" \
+  > "$HOME/dtlab/kit_version.txt"
+
+echo "== [4/5] Desktop password (per-codespace, replaces the shipped default) =="
+# The desktop-lite feature bakes a fixed password at build time; rotate it
+# to a per-codespace random one so a leaked/public port is not an open door.
+NEWPW="$(tr -dc 'a-z0-9' < /dev/urandom | head -c 10 || true)"
+ROTATED=0
+if [ -n "$NEWPW" ] && [ "${DTLAB_TEST:-0}" != "1" ]; then
+  for f in /usr/local/share/desktop-init.sh /usr/local/etc/desktop-init.sh; do
+    if [ -f "$f" ] && sudo grep -q 'dtlab' "$f"; then
+      sudo sed -i "/passw/s/dtlab/$NEWPW/g" "$f" && ROTATED=1
+    fi
+  done
+fi
+if [ "$ROTATED" = "1" ]; then
+  sudo pkill x11vnc 2>/dev/null || true   # supervisor restarts it with the new password
+  echo "*** Your personal Lab Desktop password (write it down): $NEWPW ***"
+else
+  # TODO(dry-run): locate the desktop-lite password store in the built image
+  # and make the rotation stick; until verified, the default applies.
+  echo "WARNING: could not rotate the desktop password automatically —"
+  echo "the shipped default 'dtlab' is in effect."
+fi
+echo ""
+echo "*** NEVER set the forwarded port 6080 to Public. A public port gives"
+echo "*** anyone with the URL a desktop logged into YOUR Amazon account."
+
+echo "== [5/5] Done =="
 echo ""
 echo "Setup complete. Open the 'Lab Desktop' forwarded port (6080) in your"
 echo "browser — password printed above (or 'dtlab' if rotation failed)."

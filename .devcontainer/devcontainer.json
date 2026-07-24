@@ -21,6 +21,7 @@
       "visibility": "private"
     }
   },
+  "onCreateCommand": "bash .devcontainer/setup.sh onCreate",
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "remoteUser": "vscode",
   "customizations": {
