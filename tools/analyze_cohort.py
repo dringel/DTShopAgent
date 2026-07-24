@@ -98,21 +98,28 @@ def load_tasks_from_zip(path):
     except (Exception):
         return None
     tasks = []
-    for r in rows:
-        tid = (r.get("task_id") or "").strip()
-        if not tid or tid.startswith("#"):   # '#' rows = inactive catalog
-            continue
-        # short_name (config column) keeps facet axes readable; fall back
-        # to a truncated product_type for configs without the column
-        short = (r.get("short_name") or "").strip() or \
-            (r.get("product_type") or r.get("frame", "") or "?") \
-            .split("(")[0].strip()[:14]
-        tasks.append({
-            "id": tid,
-            "name": f"T{tid} {short}",
-            "cls": (r.get("category_class") or "").strip() or "unclassified",
-            "lo": int(r.get("budget_min_inr") or 0),
-            "hi": int(r.get("budget_max_inr") or 10 ** 9)})
+    try:
+        for r in rows:
+            tid = (r.get("task_id") or "").strip()
+            if not tid or tid.startswith("#"):  # '#' = inactive catalog
+                continue
+            # short_name (config column) keeps facet axes readable; fall
+            # back to a truncated product_type when the column is absent
+            short = (r.get("short_name") or "").strip() or \
+                (r.get("product_type") or r.get("frame", "") or "?") \
+                .split("(")[0].strip()[:14]
+            tasks.append({
+                "id": tid,
+                "name": f"T{tid} {short}",
+                "cls": (r.get("category_class") or "").strip()
+                or "unclassified",
+                "lo": int(r.get("budget_min_inr") or 0),
+                "hi": int(r.get("budget_max_inr") or 10 ** 9)})
+    except (ValueError, KeyError, TypeError) as e:
+        # ONE malformed snapshot must never kill the whole ingest — skip
+        # this zip's config and try the next submission's
+        print(f"  SKIP tasks_config in {path.name}: {e}", file=sys.stderr)
+        return None
     return tasks or None
 
 
@@ -744,6 +751,24 @@ def main():
     # 1 — verdicts by task (and agent type); in the 2x2 the grid facets
     # grounding (columns) x tier (rows)
     vd = df.dropna(subset=["verdict"])
+    if not len(vd):
+        # zero parsed verdicts across the cohort: emit a diagnostic
+        # report instead of crashing mid-chart
+        out = Path(args.out)
+        out.write_text(
+            f"<!doctype html><meta charset=\"utf-8\">"
+            f"<title>{args.title}</title>"
+            f"<h1>{args.title}</h1>"
+            f"<p><b>No analyzable packs:</b> {len(sdf)} submission "
+            f"zip(s) parsed, but none carried a single verdict. Check "
+            "that dtlab-verdict ran and that the zips are real "
+            "dtlab-pack output (validation_issues per student: "
+            + ", ".join(f"{m_['student']}={m_['n_issues']}"
+                        for m_ in metas) + ").</p>",
+            encoding="utf-8")
+        print(f"Report -> {out.resolve()} (no analyzable verdicts in "
+              f"{len(sdf)} submissions)")
+        return
     fig = px.histogram(
         vd, x="task_name", color="verdict", barnorm="fraction",
         facet_col="condition" if ablation else None,

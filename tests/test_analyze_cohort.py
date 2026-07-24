@@ -336,11 +336,44 @@ def test_parse_price():
     print("PASS: parse_price handles Rs./₹/Indian grouping in both tools")
 
 
+def test_robustness():
+    """B20: a malformed tasks_config snapshot must not kill the ingest,
+    and a cohort with zero verdicts must produce a diagnostic report,
+    not a KeyError."""
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        with zipfile.ZipFile(td / "DT2026-500_evidence.zip", "w") as z:
+            z.writestr("DT2026-500/manifest.json", json.dumps(
+                {"student_id": "DT2026-500", "sandbox": False,
+                 "verdicts": {}, "validation_issues": ["missing verdicts"],
+                 "ablation": {"enabled": False}}))
+        out = td / "empty.html"
+        r = subprocess.run(
+            [sys.executable, str(REPO / "tools" / "analyze_cohort.py"),
+             "--zips", str(td), "--out", str(out)],
+            capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        html = out.read_text(encoding="utf-8")
+        assert "No analyzable packs" in html and "DT2026-500" in html
+    print("PASS: zero-verdict cohort emits a diagnostic report (exit 0)")
+
+
 def main():
     test_parse_price()
+    test_robustness()
     with tempfile.TemporaryDirectory() as tmp:
         td = Path(tmp)
         n_valid = fabricate_cohort(td)
+        # sorts FIRST: a sandbox pack whose tasks_config snapshot is
+        # malformed — the task-set loader must skip-and-log it (B20),
+        # never kill the whole ingest
+        with zipfile.ZipFile(td / "DT2026-000_evidence.zip", "w") as z:
+            z.writestr("DT2026-000/manifest.json", json.dumps(
+                {"student_id": "DT2026-000", "sandbox": True}))
+            z.writestr("DT2026-000/config_snapshot/tasks_config.csv",
+                       "task_id,frame,short_name,product_type,"
+                       "category_class,budget_min_inr,budget_max_inr\n"
+                       "1,Self-purchase,X,item,utilitarian,abc,def\n")
         out = td / "report.html"
         r = subprocess.run(
             [sys.executable, str(REPO / "tools" / "analyze_cohort.py"),
