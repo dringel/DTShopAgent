@@ -133,9 +133,16 @@ check "$(cat "$HOME/dtlab/persona_order_day2.txt")" "NP_FIRST" "day-2 order stor
 [ ! -f "$HOME/dtlab/runs/run3/started_at.txt" ]
 check $? 0 "refused run 3 never started"
 
-echo "[7] run 3 passes the gate: ablated (NP_FIRST), frontier"
-rc=$(run 'n\ny\ny\n\n')   # run3 dir exists -> 'run 3 finished?' N = resume
-check "$rc" 0 "exit 0"
+echo "[7] run 3: same-IST-day calendar gate, then EARLY override passes"
+# runs 1-2 were created today, so the day-2 calendar guard fires first
+rc=$(run 'y\ny\ny\nnope\n')
+check "$rc" 1 "run 3 on day-1's IST date without EARLY exits 1"
+grep -q "EARLY" "$HOME/last_out.txt"
+check $? 0 "gate asks for the TA-approved EARLY override"
+[ ! -d "$HOME/dtlab/runs/run3" ]
+check $? 0 "refused calendar gate leaves no phantom run-3 dir"
+rc=$(run 'y\ny\ny\nEARLY\n\n')
+check "$rc" 0 "exit 0 with typed EARLY"
 check "$(cat "$HOME/dtlab/runs/run3/condition.txt")" "ablated" "run3 = ablated (day-2 NP_FIRST)"
 check "$(cat "$HOME/dtlab/runs/run3/tier.txt")" "frontier" "run3 = frontier tier"
 check "$(cat "$HOME/dtlab/tier.txt")" "frontier" "legacy tier.txt now frontier"
@@ -144,10 +151,10 @@ check $? 0 "run-2 log archived before run 3"
 grep -q 'MARK-ABLATED' "$HOME/dtlab/workspace/SOUL.md"
 check $? 0 "ablated SOUL for run 3"
 
-echo "[8] run 4 = persona, frontier; persona files restored"
+echo "[8] run 4 = persona, frontier; persona files restored; EARLY remembered"
 finish_run
 rc=$(run 'y\ny\ny\n\n')
-check "$rc" 0 "exit 0"
+check "$rc" 0 "exit 0 (no second EARLY prompt on the same approved day)"
 check "$(cat "$HOME/dtlab/runs/run4/condition.txt")" "persona" "run4 = persona"
 check "$(cat "$HOME/dtlab/runs/run4/tier.txt")" "frontier" "run4 = frontier tier"
 [ -f "$HOME/dtlab/workspace/persona_survey.md" ]
@@ -297,6 +304,115 @@ check "$rc" 0 "live CDP port proceeds to Hermes"
 [ -f "$HOME/hermes_ran" ]
 check $? 0 "Hermes started once the port answered"
 guard; rm -rf "${HOME:?}/bin" "$HOME/hermes_ran"
+
+echo "[15] B16.1: refused gate leaves no phantom run; never-started dirs resume"
+mkenv 1
+rc=$(run 'P_FIRST\ny\nn\n')             # payment gate refused
+check "$rc" 1 "payment-gate refusal exits 1"
+[ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "no phantom run-1 dir after a refused gate"
+rc=$(run 'y\ny\n\n')                    # order stored; gates pass
+check "$rc" 0 "next start launches run 1 without a 'finished?' prompt"
+check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
+      "run-1 state written only at launch"
+[ -f "$HOME/dtlab/runs/run1/ist_date.txt" ]
+check $? 0 "actual IST date recorded per run"
+finish_run
+mkdir -p "$HOME/dtlab/runs/run2"        # set up but never started
+rc=$(run 'y\ny\n\n')
+check "$rc" 0 "never-started run-2 dir resumes without a y/N prompt"
+grep -q "set up but never started" "$HOME/last_out.txt"
+check $? 0 "silent-resume note printed (no wrong-'y' trap)"
+check "$(cat "$HOME/dtlab/runs/run2/condition.txt")" "ablated" \
+      "resumed run 2 gets its real condition at launch"
+[ -f "$HOME/dtlab/runs/run1/decision_log.md" ]
+check $? 0 "run-1 artifacts still archived on the silent-resume path"
+
+echo "[16] B16.2: counterbalance sheet — generator + lookup/confirmation"
+cat > "$HOME/roster.csv" <<'EOF'
+student_id,section,pair_id
+DT2026-999,A,P01
+DT2026-001,A,P01
+DT2026-002,A,P02
+DT2026-003,A,P02
+DT2026-004,B,P03
+DT2026-005,B,P03
+EOF
+python3 "$REPO/tools/make_counterbalance.py" --roster "$HOME/roster.csv" \
+  --out "$HOME/cb1.csv" --seed 7 >/dev/null
+python3 "$REPO/tools/make_counterbalance.py" --roster "$HOME/roster.csv" \
+  --out "$HOME/cb2.csv" --seed 7 >/dev/null
+cmp -s "$HOME/cb1.csv" "$HOME/cb2.csv"
+check $? 0 "generator is deterministic for the same roster + seed"
+python3 - "$HOME/cb1.csv" <<'PY'
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))
+assert len(rows) == 6
+for day in ("day1_order", "day2_order"):
+    a = [r[day] for r in rows if r["section"] == "A"]
+    assert a.count("P_FIRST") == 2 and a.count("NP_FIRST") == 2, (day, a)
+    b = [r[day] for r in rows if r["section"] == "B"]
+    assert sorted(b) == ["NP_FIRST", "P_FIRST"], (day, b)
+assert rows[0]["pair_id"] == "P01"
+PY
+check $? 0 "balanced P/NP within each section per day; pair carried"
+mkenv 1
+cp "$HOME/cb1.csv" "$HOME/dtlab/counterbalance.csv"
+printf 'student_id,item_code\nDT2026-999,D01\n' \
+  > "$HOME/dtlab/workspace/persona_survey.csv"
+rc=$(run '\ny\ny\n\n')                  # Enter = confirm assigned order
+check "$rc" 0 "sheet lookup + confirmation path exits 0"
+grep -q "counterbalance sheet" "$HOME/last_out.txt"
+check $? 0 "assigned order announced from the sheet"
+EXPECTED=$(python3 - "$HOME/cb1.csv" <<'PY'
+import csv, sys
+for r in csv.DictReader(open(sys.argv[1])):
+    if r["student_id"] == "DT2026-999":
+        print("persona" if r["day1_order"] == "P_FIRST" else "ablated")
+PY
+)
+check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "$EXPECTED" \
+      "run-1 condition matches the SHEET assignment, not typed input"
+
+echo "[17] B16.3: API key — malformed exits at once; live check gates storage"
+mkenv 0
+rm -f "$HOME/.dtlab_env"
+mkdir -p "$HOME/bin"
+printf '#!/usr/bin/env bash\nprintf 200\n' > "$HOME/bin/curl"
+chmod +x "$HOME/bin/curl"
+rc=$(run 'garbage-key\n' PATH="$HOME/bin:$PATH")
+check "$rc" 1 "malformed key exits 1 immediately (never reaches the run flow)"
+grep -q "does not look like" "$HOME/last_out.txt"
+check $? 0 "clear malformed-key message"
+[ ! -f "$HOME/.dtlab_env" ]; check $? 0 "nothing stored on malformed input"
+printf '#!/usr/bin/env bash\nprintf 401\n' > "$HOME/bin/curl"
+rc=$(run 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXX\n' PATH="$HOME/bin:$PATH")
+check "$rc" 1 "API-rejected key exits 1"
+grep -q "rm ~/.dtlab_env" "$HOME/last_out.txt"
+check $? 0 "reset path printed"
+[ ! -f "$HOME/.dtlab_env" ]; check $? 0 "rejected key never stored"
+printf '#!/usr/bin/env bash\nprintf 200\n' > "$HOME/bin/curl"
+rc=$(run 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXX\ny\ny\n\n' PATH="$HOME/bin:$PATH")
+check "$rc" 0 "verified key stores and the flow continues"
+grep -q "key verified" "$HOME/last_out.txt"
+check $? 0 "verification reported"
+grep -q "sk-ant-api03" "$HOME/.dtlab_env"
+check $? 0 "key stored after verification"
+guard; rm -rf "${HOME:?}/bin"
+
+echo "[18] B16.4: mid-week sandbox fallback stamps PER-RUN, not the whole zip"
+mkenv 1
+rc=$(run 'P_FIRST\ny\ny\n\n')           # real run 1
+check "$rc" 0 "real run 1 launches"
+finish_run
+rc=$(run '\n' DTLAB_SANDBOX=1)          # flagged-account fallback
+check "$rc" 0 "sandbox fallback exits 0"
+[ -f "$HOME/dtlab/runs/run2/sandbox.txt" ]
+check $? 0 "sandbox stamped on run2 only"
+[ ! -f "$HOME/dtlab/sandbox.txt" ]
+check $? 0 "no GLOBAL sandbox marker when real runs exist"
+[ -f "$HOME/dtlab/runs/run1/decision_log.md" ]
+check $? 0 "real run-1 artifacts parked into run1 before the sandbox agent"
 
 guard
 rm -rf "$SANDBOX_HOME"

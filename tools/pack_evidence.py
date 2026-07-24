@@ -468,13 +468,26 @@ def main():
     staging.mkdir(parents=True)
 
     # ---- design mode: single / 2run (legacy) / 2x2 (four runs) ----
-    runs_present = [rn for rn in RUN_NAMES if (RUNS / rn).exists()]
+    all_run_dirs = [rn for rn in RUN_NAMES if (RUNS / rn).exists()]
+    # per-run sandbox stamps (flagged-account fallback mid-week): those
+    # runs are excluded from the research dataset INDIVIDUALLY — the
+    # remaining real runs keep validating; only the global marker stamps
+    # the whole zip SANDBOX
+    sandbox_runs = [rn for rn in all_run_dirs
+                    if (RUNS / rn / "sandbox.txt").exists()]
+    for rn in sandbox_runs:
+        warn(f"{rn} is a sandbox run (flagged-account fallback) — "
+             "excluded from the research dataset; the remaining runs "
+             "validate normally")
+    runs_present = [rn for rn in all_run_dirs if rn not in sandbox_runs]
     ablation = bool(runs_present)
     # per-run tier files mark the four-run 2x2; their absence marks a
     # legacy two-run pack (backward compatibility)
     four_run = ablation and any((RUNS / rn / "tier.txt").exists()
                                 for rn in runs_present)
-    expected_runs = RUN_NAMES if four_run else ("run1", "run2")
+    expected_runs = tuple(
+        rn for rn in (RUN_NAMES if four_run else ("run1", "run2"))
+        if rn not in sandbox_runs)
 
     # ---- #1, #2, #3, #4(decision log), #5(picks), #7: copy from WS ----
     # dtlab-verdict artifacts live in ~/dtlab/verdicts/ (quarantined from
@@ -558,7 +571,8 @@ def main():
             sdir = staging / rn
             sdir.mkdir(exist_ok=True)
             for f in ("decision_log.md", "agent_picks.csv",
-                      "condition.txt", "tier.txt", "started_at.txt"):
+                      "condition.txt", "tier.txt", "started_at.txt",
+                      "ist_date.txt"):
                 if (rdir / f).exists():
                     shutil.copy2(rdir / f, sdir / f)
                 elif f in ("decision_log.md", "agent_picks.csv"):
@@ -1289,6 +1303,7 @@ def main():
         "student_id": student_id,
         "packed_at_utc": datetime.now(timezone.utc).isoformat(),
         "sandbox": sandbox,
+        "sandbox_runs": sandbox_runs,
         "deliverables": {
             "1_questionnaire": "persona_survey.csv|md",
             "2_purchase_history": "purchase_profile.md "

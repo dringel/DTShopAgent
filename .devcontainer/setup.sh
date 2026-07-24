@@ -95,6 +95,12 @@ cp -v "$KIT/templates/comparison_ablation.md" \
       "$HOME/dtlab/comparison_ablation.TEMPLATE.md"
 cp -v "$KIT/dtlab_config.env"              "$HOME/dtlab/dtlab_config.env"
 cp -v "$KIT/tasks_config.csv"              "$HOME/dtlab/tasks_config.csv"
+# counterbalance sheet (pseudonyms only): placed at the repo root by the
+# instructor before the freeze (tools/make_counterbalance.py); the
+# pre-flight looks each student's day order up here
+if [ -f "$KIT/counterbalance.csv" ]; then
+  cp -v "$KIT/counterbalance.csv"          "$HOME/dtlab/counterbalance.csv"
+fi
 mkdir -p "$HOME/dtlab/assets"
 cp -v "$KIT/assets/ringelai.png"           "$HOME/dtlab/assets/" 2>/dev/null || true
 cp -v "$KIT/tools/log_human_session.py"    "$HOME/dtlab/tools/"

@@ -979,6 +979,24 @@ assert ci['tasks_missing_verdict']==[], ci
 sys.exit(0)
 PY
 
+echo "[35] B16.4: per-run sandbox stamp excludes THAT run, keeps the rest"
+mkenv_4run
+echo sandbox > "$HOME/dtlab/runs/run3/sandbox.txt"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack exits 0 with runs 1, 2, 4 valid and run 3 sandbox-stamped"
+python3 - <<'PY'; check $? 0 "run3 excluded per-run; zip NOT globally sandbox; others validate"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['sandbox'] is False and m['arm']=='H_FIRST'
+assert m['sandbox_runs']==['run3']
+assert any('run3 is a sandbox run' in w for w in m['warnings'])
+assert set(m['ablation']['run_conditions'])=={'run1','run2','run4'}
+assert not any(n.startswith('DT2026-999/run3/') for n in z.namelist())
+assert 'run4/agent_picks.csv' in m['sha256']
+sys.exit(0)
+PY
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

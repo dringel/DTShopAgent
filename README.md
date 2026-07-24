@@ -489,3 +489,17 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
    from `questionnaire_instrument_source.md`; any edit that touches only one
    of the two creates silent drift — always change the source doc first,
    re-transfer, and keep `EXPECTED_ITEMS=115` in sync.
+
+## Troubleshooting (lab week)
+
+- **Wrong or revoked API key** — `dtlab-start` verifies the key against
+  the Claude API before storing it and refuses rejected keys on the
+  spot. If a stale key is already stored (agent runs fail with auth
+  errors), reset it and re-enter:
+
+  ```bash
+  rm ~/.dtlab_env
+  ```
+
+  then run `dtlab-start` again. Rebuilding the container also clears the
+  key by design — re-entering it is expected, not a fault.

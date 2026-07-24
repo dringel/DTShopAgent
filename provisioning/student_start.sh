@@ -90,6 +90,24 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
   echo "  spend limit (set in the Console per the checklist) is your cap."
   read -rsp "  Key (sk-ant-...): " KEY; echo ""
   if [[ "$KEY" == sk-ant-* ]] && [ "${#KEY}" -ge 30 ]; then
+    # minimal live check BEFORE storing: a typo'd or revoked key must
+    # fail here, not mid-run on lab day
+    CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+      -H "x-api-key: $KEY" -H "anthropic-version: 2023-06-01" \
+      "https://api.anthropic.com/v1/models" 2>/dev/null) || CODE=""
+    case "$CODE" in
+      2*) ok "key verified against the Claude API." ;;
+      401|403)
+        echo -e "${RED}The Claude API rejected this key (HTTP $CODE)."
+        echo -e "Nothing was stored. Check the key in your Anthropic Console"
+        echo -e "and re-run dtlab-start. If a bad key was stored earlier,"
+        echo -e "reset it with:  rm ~/.dtlab_env${NC}"
+        exit 1 ;;
+      *)
+        note "could not reach the Claude API to verify the key — storing it
+       anyway; if agent runs fail with auth errors, reset with
+       rm ~/.dtlab_env and re-enter" ;;
+    esac
     umask 077
     printf 'export ANTHROPIC_API_KEY=%q\n' "$KEY" > "$ENVFILE"
     chmod 600 "$ENVFILE"
@@ -101,7 +119,12 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         >> "$HOME/.bashrc"
     ok "API key stored (600-permission env file; your personal spend limit applies)."
   else
-    bad "That does not look like a Claude API key. Re-run dtlab-start."
+    # a malformed key must stop the flow HERE — never continue into the
+    # run machinery on a bad credential
+    echo -e "${RED}That does not look like a Claude API key (sk-ant-...)."
+    echo -e "Nothing was stored — re-run dtlab-start and paste the key from"
+    echo -e "your Anthropic Console. (Stored-key reset: rm ~/.dtlab_env)${NC}"
+    exit 1
   fi
 else
   ok "Claude API key present."
@@ -109,7 +132,32 @@ fi
 
 # ---- SANDBOX MODE: soft gates, sandbox SOUL, stamped for exclusion ----
 if [ "$SANDBOX" = "1" ]; then
-  echo sandbox > "$HOME/dtlab/sandbox.txt"
+  if [ "$PERSONA_FACTOR" = "1" ] && [ -d "$RUNSDIR/run1" ]; then
+    # mid-week flagged-account fallback: real runs already exist — stamp
+    # ONLY the substituted run as sandbox so the earlier valid runs keep
+    # counting at pack time (a global stamp would nuke the whole zip)
+    SBRUN=""
+    for i in 1 2 3 4; do
+      if [ ! -d "$RUNSDIR/run$i" ]; then SBRUN=$i; break; fi
+    done
+    if [ -n "$SBRUN" ]; then
+      # park any real-run artifacts still in the workspace before the
+      # sandbox agent appends to them
+      PREVR=$((SBRUN - 1))
+      for f in decision_log.md agent_picks.csv; do
+        if [ -f "$WS/$f" ] && [ ! -f "$RUNSDIR/run$PREVR/$f" ]; then
+          mv "$WS/$f" "$RUNSDIR/run$PREVR/$f"
+        fi
+      done
+      mkdir -p "$RUNSDIR/run$SBRUN"
+      echo sandbox > "$RUNSDIR/run$SBRUN/sandbox.txt"
+      note "sandbox stamped PER-RUN (run$SBRUN) — your earlier real runs stay valid research data"
+    else
+      echo sandbox > "$HOME/dtlab/sandbox.txt"
+    fi
+  else
+    echo sandbox > "$HOME/dtlab/sandbox.txt"
+  fi
   if [ -f "$HOME/dtlab/soul/SOUL_sandbox.md" ]; then
     cp "$HOME/dtlab/soul/SOUL_sandbox.md" "$WS/SOUL.md"
     ok "sandbox SOUL in the workspace (books.toscrape.com; Bootstrap skipped)"
@@ -206,45 +254,115 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
     t=$(cat "$d/tier.txt" 2>/dev/null || run_tier "$1")
     echo "$t, $c"
   }
+  # a run dir WITHOUT started_at.txt was set up but never launched (a
+  # gate was refused mid-flight) — resume it silently; asking "fully
+  # finished? [y/N]" about it invites a wrong "y" that would record an
+  # empty run forever
+  never_started() {
+    [ -d "$RUNSDIR/run$1" ] && [ ! -f "$RUNSDIR/run$1/started_at.txt" ]
+  }
+  archive_prev_of() {  # park the LAST STARTED run's workspace artifacts
+    local prev=$(($1 - 1))
+    [ "$prev" -ge 1 ] || return 0
+    for f in decision_log.md agent_picks.csv; do
+      if [ -f "$WS/$f" ] && [ ! -f "$RUNSDIR/run$prev/$f" ]; then
+        mv "$WS/$f" "$RUNSDIR/run$prev/$f"
+      fi
+    done
+  }
   if [ -z "$RUN" ]; then
-    read -rp "All four runs already started. Resume run 4 ($(prev_desc 4))? [y/N] " R4
-    case "$R4" in
-      [yY]*) RUN=4 ;;
-      *) bad "all four agent runs are done — next steps: dtlab-verdict, then dtlab-pack"
-         echo ""
-         echo -e "${RED}Fix the [!!] items above, then run dtlab-start again.${NC}"
-         exit 1 ;;
-    esac
+    if never_started 4; then
+      RUN=4
+      note "run 4 was set up but never started — resuming it"
+      archive_prev_of 4
+    else
+      read -rp "All four runs already started. Resume run 4 ($(prev_desc 4))? [y/N] " R4
+      case "$R4" in
+        [yY]*) RUN=4 ;;
+        *) bad "all four agent runs are done — next steps: dtlab-verdict, then dtlab-pack"
+           echo ""
+           echo -e "${RED}Fix the [!!] items above, then run dtlab-start again.${NC}"
+           exit 1 ;;
+      esac
+    fi
   elif [ "$RUN" -gt 1 ]; then
     PREV=$((RUN - 1))
-    read -rp "Agent run $PREV ($(prev_desc "$PREV")) fully finished (all tasks in the log + picks file)? [y/N] " PDONE
-    case "$PDONE" in
-      [yY]*)
-        # archive the finished run so the next one starts with a clean
-        # log — an ablated agent must never be able to read a
-        # persona-citing decision log (and vice versa across tiers)
-        for f in decision_log.md agent_picks.csv; do
-          [ -f "$WS/$f" ] && mv "$WS/$f" "$RUNSDIR/run$PREV/$f"
-        done ;;
-      *) RUN=$PREV ;;   # crash-resume the previous run
-    esac
+    if never_started "$PREV"; then
+      RUN=$PREV
+      note "run $PREV was set up but never started — resuming it"
+      archive_prev_of "$PREV"
+    else
+      read -rp "Agent run $PREV ($(prev_desc "$PREV")) fully finished (all tasks in the log + picks file)? [y/N] " PDONE
+      case "$PDONE" in
+        [yY]*)
+          # archive the finished run so the next one starts with a clean
+          # log — an ablated agent must never be able to read a
+          # persona-citing decision log (and vice versa across tiers)
+          for f in decision_log.md agent_picks.csv; do
+            [ -f "$WS/$f" ] && mv "$WS/$f" "$RUNSDIR/run$PREV/$f"
+          done ;;
+        *) RUN=$PREV ;;   # crash-resume the previous run
+      esac
+    fi
   fi
   DAY=$(run_day "$RUN")
   TIER=$(run_tier "$RUN")
   ORDERFILE="$HOME/dtlab/persona_order_day$DAY.txt"
   if [ ! -f "$ORDERFILE" ]; then
-    read -rp "Your assigned grounding order for DAY $DAY (from the LMS sheet) [P_FIRST/NP_FIRST]: " PO
-    case "$PO" in
-      P_FIRST|NP_FIRST) echo "$PO" > "$ORDERFILE" ;;
-      *) echo -e "${RED}Enter exactly P_FIRST or NP_FIRST (check the LMS assignment sheet).${NC}"; exit 1 ;;
-    esac
+    # the kit-baked counterbalance sheet (same file as the LMS artifact,
+    # pseudonyms only) is the authority; typed entry is the fallback and
+    # is demoted to confirmation when the sheet has this student
+    SID=$(python3 - <<'PY'
+import csv
+from pathlib import Path
+home = Path.home()
+for p in (home / "dtlab" / "workspace" / "persona_survey.csv",
+          home / "dtlab" / "persona_hold" / "persona_survey.csv"):
+    try:
+        with open(p, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        if rows and (rows[0].get("student_id") or "").strip():
+            print(rows[0]["student_id"].strip())
+            break
+    except OSError:
+        pass
+PY
+)
+    ASSIGNED=""
+    CBFILE="$HOME/dtlab/counterbalance.csv"
+    if [ -n "$SID" ] && [ -f "$CBFILE" ]; then
+      ASSIGNED=$(python3 - "$CBFILE" "$SID" "$DAY" <<'PY'
+import csv
+import sys
+with open(sys.argv[1], newline="", encoding="utf-8-sig") as f:
+    for r in csv.DictReader(f):
+        if (r.get("student_id") or "").strip() == sys.argv[2]:
+            print((r.get(f"day{sys.argv[3]}_order") or "").strip())
+            break
+PY
+)
+    fi
+    if [ "$ASSIGNED" = "P_FIRST" ] || [ "$ASSIGNED" = "NP_FIRST" ]; then
+      echo "  Your assigned DAY-$DAY grounding order (course counterbalance sheet): $ASSIGNED"
+      read -rp "  Confirm [Y/n] " CONF
+      case "$CONF" in
+        [nN]*) echo -e "${RED}The sheet and the LMS carry the SAME assignment — tell a TA before overriding.${NC}"; exit 1 ;;
+        *) echo "$ASSIGNED" > "$ORDERFILE" ;;
+      esac
+    else
+      read -rp "Your assigned grounding order for DAY $DAY (from the LMS sheet) [P_FIRST/NP_FIRST]: " PO
+      case "$PO" in
+        P_FIRST|NP_FIRST) echo "$PO" > "$ORDERFILE" ;;
+        *) echo -e "${RED}Enter exactly P_FIRST or NP_FIRST (check the LMS assignment sheet).${NC}"; exit 1 ;;
+      esac
+    fi
   fi
   PORDER=$(cat "$ORDERFILE")
   COND=$(run_cond "$RUN" "$PORDER")
+  # run-dir creation happens ONLY at launch (after every gate below has
+  # passed) — a refused gate must never leave a phantom "started" run
   [ -d "$RUNSDIR/run$RUN" ] || FRESH_RUN=1
-  mkdir -p "$RUNSDIR/run$RUN" "$HOLD"
-  echo "$COND" > "$RUNSDIR/run$RUN/condition.txt"
-  echo "$TIER" > "$RUNSDIR/run$RUN/tier.txt"
+  mkdir -p "$HOLD"
   if [ "$FRESH_RUN" = "1" ]; then
     ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; day-$DAY order $PORDER)"
   else
@@ -406,6 +524,28 @@ case "$PM" in
   [yY]*) ok "no saved payment methods in the lab browser profile" ;;
   *) echo -e "${RED}Remove them now (amazon.in > Your Account > Payment options; also check the browser's own autofill), then re-run dtlab-start. The agent never touches checkout, but a clean profile is the belt to that suspender.${NC}"; exit 1 ;;
 esac
+# Calendar guard: runs 3-4 are DAY-2 runs; burning all four on day 1
+# breaks the tier-by-day design. Soft gate — a TA-approved early run
+# passes with a typed EARLY (remembered for the rest of the day pair).
+if [ -n "$RUN" ] && [ "$RUN" -ge 3 ] \
+   && [ ! -f "$HOME/dtlab/.day2_early_ok" ]; then
+  TODAY_IST="$(TZ=Asia/Kolkata date +%F)"
+  D1DATE="$(cat "$RUNSDIR/run1/ist_date.txt" 2>/dev/null || true)"
+  if [ -n "$D1DATE" ] && [ "$TODAY_IST" = "$D1DATE" ]; then
+    echo -e "${YEL}Runs 3-4 are DAY-2 (frontier) runs, but today is still"
+    echo -e "day 1's calendar date in IST ($D1DATE). All four runs on one"
+    echo -e "day would break the tier-by-day design. Type EARLY only if a"
+    echo -e "TA approved running day-2 early; anything else aborts.${NC}"
+    read -rp "> " OK3
+    if [ "$OK3" = "EARLY" ]; then
+      echo EARLY > "$HOME/dtlab/.day2_early_ok"
+      note "TA-approved early day-2 start recorded"
+    else
+      echo -e "${RED}Come back on lab day 2 for runs 3-4.${NC}"
+      exit 1
+    fi
+  fi
+fi
 if [ -n "$COND" ]; then
   echo ""
   echo -e "${YEL}2x2 DESIGN ACTIVE — this is agent run $RUN of 4 ($TIER tier, $COND grounding).${NC}"
@@ -418,7 +558,18 @@ read -rp "Press Enter to open the browser and start Hermes... "
 # check key off the earliest start, so never re-touch it; sandbox runs
 # stamp .sandbox_run_started instead and never touch this one)
 [ -f "$HOME/dtlab/.run_started" ] || touch "$HOME/dtlab/.run_started"
-[ -n "$RUN" ] && date -u +%FT%TZ > "$RUNSDIR/run$RUN/started_at.txt"
+# run state is written HERE — every gate above has passed, so a refused
+# gate can never leave a phantom run; started_at/ist_date are guarded so
+# a crash-resume never overwrites the true first start
+if [ -n "$RUN" ]; then
+  mkdir -p "$RUNSDIR/run$RUN"
+  echo "$COND" > "$RUNSDIR/run$RUN/condition.txt"
+  echo "$TIER" > "$RUNSDIR/run$RUN/tier.txt"
+  [ -f "$RUNSDIR/run$RUN/started_at.txt" ] || \
+    date -u +%FT%TZ > "$RUNSDIR/run$RUN/started_at.txt"
+  [ -f "$RUNSDIR/run$RUN/ist_date.txt" ] || \
+    TZ=Asia/Kolkata date +%F > "$RUNSDIR/run$RUN/ist_date.txt"
+fi
 # per-run tier is authoritative (runs/runN/tier.txt); ~/dtlab/tier.txt is
 # kept for manifest backward compatibility only
 if [ -n "$TIER" ]; then
