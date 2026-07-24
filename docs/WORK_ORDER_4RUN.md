@@ -197,7 +197,7 @@ N=161. Replace the editing with a guided prompt:
   transcripts already cover the trail redundantly); RECORDINGS.txt
   notes their absence without failing validation.
 
-## Also still open from REVIEW_2026-07-23 (unchanged)
+## Status at implementation (from REVIEW_2026-07-23) — since closed except N4
 
 Sandbox fallback implementation (C1 — `DTLAB_SANDBOX=1` end-to-end),
 smoke-test SOUL carve-out (C3), `price_in_profile_range` None fix (C4),

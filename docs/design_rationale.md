@@ -66,8 +66,8 @@ key patterns from every artifact.
 **Why.** Agentic browser loops need a frontier-quality model to be
 reliable enough for a *timed classroom session* — a failed run at minute
 70 of a 3-hour session with ~80 people has no retry slack. Sonnet-class
-models deliver that reliability at a cost where a full three-task run is
-well under $2 (the four-run 2×2 lands around $3–6); a ~$20 personal
+models deliver that reliability at a cost where a full five-task run is
+well under $1–2 (the four-run 2×2 lands around $3–6); a ~$20 personal
 spend limit covers retries, making total
 course cost trivial against 15 contact hours. Student-owned accounts
 distribute rate limits — every account has its own request and token
@@ -91,12 +91,12 @@ the central kill switch is bounded by that same limit (~$20/student).
 at defaults** — no temperature or sampling overrides. (Temperature-0
 discipline belongs to survey-elicitation protocols; our agent runs are
 interactive tool-use sessions, a different regime.)
-Optional second between-subjects factor, decided at term start on budget:
-**economy tier** (Claude Haiku class) vs. **frontier tier** (Claude Sonnet
-class), randomized stratified and orthogonal to the order arm, tier
-recorded per student in the manifest — a capability-vs-fidelity
-comparison at near-zero design cost. Default if not adopted: frontier
-tier for all. (See `questionnaire_instrument_source.md` §1.)
+The second factor of the 2×2 is model tier, **within student by day**:
+**economy tier** (Claude Haiku class) on day 1, **frontier tier**
+(Claude Sonnet class) on day 2, tier recorded per run in the manifest —
+a capability-vs-fidelity comparison at near-zero design cost. Tier is
+deliberately confounded with day and stated as such in the methods
+(`COURSE_PLAN_1WEEK.md`). (See `questionnaire_instrument_source.md` §1.)
 
 ## 3. Infrastructure: GitHub Codespaces on free personal accounts
 
@@ -112,7 +112,7 @@ satisfies all three. Every free personal GitHub account includes 120
 core-hours/month (≈60 h runtime on the 2-core machine the config
 requests) against a lab consuming ~8–10 h — no Student Pack, no
 verification latency, no GitHub Classroom dependency. Setup is "create an
-account, click a link, wait four minutes," which fits inside Session 1
+account, click a link, wait four minutes," which fits inside Session 6
 with a triage buffer.
 
 **Rejected.** *Local VMs (VirtualBox/UTM golden images)*: the earlier
@@ -183,7 +183,7 @@ minimalism, green values, social desirability, individualism/
 collectivism, regulatory focus, tightwad–spendthrift, need for
 uniqueness, self-monitoring, maximization), 22 amazon.in
 shopping-behavior items, 12 values/constraints (VC01–VC05 carry the
-CONSTRAINT flag), and 9 predictive items that give the comparison memo
+CONSTRAINT flag), and 9 predictive items that give the verdict capture
 direct stated-preference benchmarks (PR09 was authored for a gift
 task; see §8 on its status under the self-purchase task set). Using
 validated scales makes the persona citable and comparable across
@@ -289,7 +289,8 @@ student watches their own agent, ever. Watching your own agent reason
 anchors the later verdicts and satisfaction ratings, so self-selected
 pairs swap seats for every run — the partner babysits, handles CAPTCHAs,
 screenshots and empties the cart — and owners first meet their agent's
-choices as artifacts when writing the memo. The pairing disclosure is in
+choices as artifacts in `dtlab-verdict`'s structured capture. The
+pairing disclosure is in
 the consent sheet.
 
 **Original two-arm design (retained for the record).** Students are randomized (stratified, pre-assigned) into two
@@ -368,17 +369,19 @@ convergence is the finding). Residual carry-over becomes a covariate,
 not a hand-wave; and it should differ between arms in a predictable
 direction, providing a built-in manipulation check.
 
-**Layer 4 — randomize:** the arm design (§6) turns order effects into an
-estimable quantity. Statistical commitment, stated in advance: "no
-significant arm difference" is *not* automatically evidence of absence.
-The analysis pre-registers an equivalence margin (e.g. ±10 pp on
-task-level agreement) and uses an equivalence test (TOST) or reports the
-CI on the arm difference — with ~80 participants × 5 tasks per arm,
-adequately powered for margins in that range. The claim this design
-supports is:
-net order effects on outcomes are bounded below the margin, with the two
-dominant channels independently closed by Layers 1–2 and residuals
-measured by Layer 3.
+**Layer 4 — order design & assessment blinding:** all students are
+human-first with the human picks physically quarantined, and within each
+day the grounding order is counterbalanced (P_FIRST/NP_FIRST), so the
+within-day run-order effect is directly estimable (see
+PERSONALIZATION_PROTOCOL.md Layer 4). Statistical commitment, stated in
+advance: "no significant order effect" is *not* automatically evidence
+of absence. The analysis reports the CI on the within-day run-order and
+task-position effects against an equivalence margin (±10 pp on
+task-level outcome rates). The claim this design supports is:
+within-day order effects on outcomes are bounded below the margin, with
+the two dominant channels independently closed by Layers 1–2 and
+residuals measured by Layer 3; day-level differences are carried by the
+tier-by-day factor and stated as such in the methods.
 
 ## 8. Tasks, verdict scale, and deliverables
 
@@ -509,7 +512,7 @@ never loop unboundedly at N=161. **Prompt-injection hardening (2026-07):**
 the agent reads arbitrary third-party content (listings, reviews, seller
 text), so SOUL.md declares all webpage text data-never-instructions and
 requires logging any listing that appears to address an AI agent —
-which is itself course content for the SOUL walk-through in Session 1.
+which is itself course content for the SOUL walk-through in Session 8.
 Students remove saved payment methods from the lab browser profile —
 now a pre-flight confirm gate in `dtlab-start`, not just a handout line —
 and carts are emptied after evidence capture.
@@ -530,8 +533,7 @@ port must stay Private.
 separable — consent covers the pseudonymized questionnaire, the
 purchase-profile extract, the clickstream (with its explicit exclusions),
 agent logs, AND the partner-pairing disclosure (a self-selected classmate
-sees your agent narrate your purchase profile; opt-down to H_FIRST is
-free); a synthetic-persona pack provides a no-questions opt-out with no
+sees your agent narrate your purchase profile); a synthetic-persona pack provides a no-questions opt-out with no
 grade impact; pseudonym↔name mapping is held separately by the instructor
 and destroyed post-study; data minimization is implemented in code (the
 pre-flight refuses to launch with PII-shaped files in the workspace; the
@@ -552,21 +554,24 @@ target) with the synthetic persona — graded identically, flagged
 `sandbox`, excluded from the research dataset (see the risk table in
 `COURSE_PLAN_1WEEK.md`).
 
-## 10. Timeline: why 2 × 3 h + one overnight works
+## 10. Timeline: why five 3 h sessions + one overnight work
 
-Session 1 is environment + identity (account, codespace, key, smoke test,
-task setup) with a long triage buffer — at ~80 per section, ~5–8 stuck
-environments are a planning assumption, not a surprise. The questionnaire
-runs overnight; the instructor's batch tool turns the response sheet into
-per-student persona files in minutes and prints a completion roster for
-chasing stragglers. Session 2 runs both arms in mirrored phases (shop /
-agent for one half; agent-babysat / shop-blinded for the other), then
-individual comparison writing, one-command packing, and a live verdict
-poll split by arm — the class watches its own order-effect estimate
-materialize. Everything cut from earlier drafts (data-export lead times,
-VM funnels, host checks as a student-facing step) was cut because it
-could not survive this clock; everything retained is either enforced in
-code or has a pre-decided classroom fallback.
+Monday (Session 6) is environment + identity: consent, accounts, and the
+codespace build in class, with the questionnaire as evening homework —
+the overnight works because the Form needs only a link and a pseudonym,
+and the instructor's batch tool turns the response sheet into
+per-student persona files in minutes, printing a completion roster for
+chasing stragglers. Tuesday completes the build on the student's own key
+and ends with a watched sandbox run — at ~80 per section, ~5–8 stuck
+environments are a planning assumption, not a surprise, and the triage
+buffer absorbs them. Wednesday commits the human baseline before any
+agent runs. Thursday and Friday each fit two ~55-minute agent runs plus
+structured verdict capture inside 3 h, with the partner-swap protocol
+running both days and one-command packing closing Friday. Everything cut
+from earlier drafts (data-export lead times, VM funnels, host checks as
+a student-facing step) was cut because it could not survive this clock;
+everything retained is either enforced in code or has a pre-decided
+classroom fallback.
 
 ## 11. Known limitations, accepted deliberately
 

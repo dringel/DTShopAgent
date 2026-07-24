@@ -55,7 +55,7 @@ review. Full references in the source register below.
 **Category link:** https://www.amazon.in/Sunscreen-Lotions/b?node=10257750031
 **Cohort fit:** sunscreen is among India's fastest-growing personal-care categories, driven by young urban consumers (Grand View Research; CosmeticsDesign-Asia 2025), and skincare actives lead Gen Z beauty search (FlipTrends 2025). Beauty/personal care is a Gen Z over-index category (Bain 2025).
 **Classification:** functional-care products (deodorants, toothpaste) are canonical utilitarian anchors (Batra & Ahtola 1991; Khan, Dhar & Wertenbroch 2004); sun protection is instrumental prevention — the definitional core of utilitarian motivation (Dhar & Wertenbroch 2000).
-**Design note:** exercises the CONSTRAINT chain end-to-end (VC02 allergies, VC06 fragrance sensitivity).
+**Design note:** exercises the CONSTRAINT chain end-to-end (VC02 allergies), plus stated-preference item VC06 (fragrance sensitivity).
 
 ### U2 — Power bank · ₹800–1,500
 **Task frame:** "Add to cart a power bank that fits how you actually use your phone."
@@ -100,7 +100,7 @@ review. Full references in the source register below.
 **Category link:** https://www.amazon.in/perfumes/b?node=1374302031
 **Cohort fit:** India's fragrance market is booming on the back of under-30 consumers and digital-first brands selling precisely in this price band (BeautyMatter/Nykaa size the market at ~$2B; Bella Vita is the case study); beauty is a Gen Z over-index category (Bain 2025).
 **Classification:** perfume is a listed hedonic example in Khan, Dhar & Wertenbroch (2004), and sensory-pleasure consumption is definitional hedonic motivation (Hirschman & Holbrook 1982).
-**Design note:** second live CONSTRAINT exercise (VC06 fragrance sensitivity).
+**Design note:** exercises stated-preference item VC06 (fragrance sensitivity).
 
 ### H3 — Sneakers / casual footwear · ₹1,000–2,500
 **Task frame:** "Add to cart a pair of sneakers or casual shoes that fit your style."

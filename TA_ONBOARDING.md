@@ -4,7 +4,7 @@ Welcome. This repo is the complete kit for the 1-week, 161-student
 (two sections: 80 mornings + 81 afternoons, 3h/day for 5 days)
 digital-twin experiment (Hermes Agent + Claude API + amazon.in). It
 serves three audiences from one commit — see README > "Who uses what"
-for the role map (students: four commands, ignore the repo; you: this
+for the role map (students: six commands, ignore the repo; you: this
 file; instructor: design docs + analysis).
 
 ## First: the mental model (repo ≠ course; nothing "runs" here)
@@ -13,8 +13,8 @@ If you are new to GitHub, fix this picture in your head before touching
 anything (long version: README > "How this actually runs"):
 
 - **This repo is a recipe.** Student environments are BUILT from it;
-  it executes nothing by itself. Students never clone it, never see
-  it, never push to it.
+  it executes nothing by itself. Students never clone it, never work
+  in it, never push to it (the syllabus has them skim it, nothing more).
 - **CI (the green ✓ / red ✗ on each commit) is just the test suite**
   running on a GitHub server after every push: linters + the four
   regression suites. Red means "the kit at this commit is broken —
@@ -34,7 +34,7 @@ anything (long version: README > "How this actually runs"):
   moves anything anywhere.
 
 ## Read in this order (30 minutes)
-1. `COURSE_PLAN_1WEEK.md` — THE operative plan (2×3h sessions, two arms).
+1. `COURSE_PLAN_1WEEK.md` — THE operative plan (Sessions 6–10, 3 h/day per section, the four-run 2×2).
 2. `README.md` — file map + the seven deliverables and how each is captured.
 3. `agent/SOUL.md` — the agent's identity, Bootstrap (it reads the user's
    amazon.in order history itself), the ECP logging protocol (incl. the
@@ -65,7 +65,7 @@ anything (long version: README > "How this actually runs"):
    passes changed.
 
 ## The student-facing surface (all of it)
-Four commands inside a Codespace built from this repo:
+Six commands inside a Codespace built from this repo (`dtlab-record` optional):
 `dtlab-shop` (logged own shopping, Wednesday — picks committed before
 any agent run) · `dtlab-start` (pre-flight + agent; run once per agent
 run — four total across Thursday/Friday, it announces which run and
@@ -91,8 +91,9 @@ concrete machinery, so you recognize it when you see it:
 - **Quarantine + ordering:** `~/dtlab/human/` is agent-barred (SOUL.md
   boundary + pre-flight + packer check); arm ordering is verified against
   file timestamps at packing.
-- **Verdict integrity:** `comparison.md` verdicts are parsed per task
-  section and cross-checked against the two picks files' ASINs.
+- **Verdict integrity:** `verdicts.csv` from `dtlab-verdict` is the
+  primary verdict record (`comparison.md` memo parsing is the fallback),
+  cross-checked against the picks files' ASINs.
 - **Secrets:** the API key is collected hidden, lives only in a
   600-permission `~/.dtlab_env`, and `dtlab-pack` content-redacts key
   patterns from every packed text file (see `redaction_report` in each
@@ -102,7 +103,7 @@ concrete machinery, so you recognize it when you see it:
 - **Agent containment:** add-to-cart only, amazon.in only, CAPTCHA halt,
   per-task effort caps, and webpage-text-is-never-instructions (prompt
   injection). Read the Hard boundaries block of `agent/SOUL.md` verbatim
-  — it is also Session-1 teaching content.
+  — it is also Session 8 teaching content.
 - **Ablation integrity:** an ablated run's persona files are physically
   absent, each run's log is archived before the next run starts, and
   the packer's manipulation check fails any ablated log (either day)
@@ -292,5 +293,5 @@ exists only for throwaway test builds.
   and safe" bar this course promised.
 
 ## License / sharing
-No license file yet — ask the professor before making the repo public or
-reusing outside the course.
+See `LICENSE.md` at the repo root: MIT for the code, CC BY 4.0 for the
+docs, with the third-party scale-item and logo exceptions noted there.

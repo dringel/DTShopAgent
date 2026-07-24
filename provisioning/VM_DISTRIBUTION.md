@@ -29,9 +29,11 @@ If wrangling two images is unattractive, the clean alternative is one
 **cloud VM per student** (a small 2-vCPU/8GB instance with a desktop +
 browser accessed via web VNC) — identical for everyone, nothing installed
 locally, ~$1–3 per student for the lab week on any major cloud's education
-credits. More instructor setup, zero student-side hypervisor support. The
-local-VM path remains the default in this kit; the cloud path is the escape
-hatch if the pilot reveals too much hypervisor friction.
+credits. More instructor setup, zero student-side hypervisor support.
+Within this fallback route the local-VM images are the primary flavor;
+the per-student cloud VM is the escape hatch if the pilot reveals too
+much hypervisor friction. (Kit-wide, Codespaces remains the primary
+route — see the banner above.)
 
 ## Building the two images (instructor, once)
 
@@ -58,7 +60,9 @@ things a student ever types are:
 
     dtlab-shop       # FIRST: the student's own logged shopping + pick confirmation
     dtlab-start      # then the agent run (pre-flight enforces the ordering)
-    dtlab-record     # screen capture during the agent run
+    dtlab-cart       # partner-run cart capture after every agent run
+    dtlab-verdict    # guided verdict/rating capture after each day's runs
+    dtlab-record     # screen capture during the agent run (optional)
     dtlab-pack       # builds the single submission zip at the end
 
 The manual-install route (`provision.sh` on their own machine) remains
@@ -81,7 +85,10 @@ for CAPTCHA-flagged accounts.
 
 Local machines fail in predictable ways; the answer is not hope but a
 staged funnel with a fallback at every stage, so every failure surfaces
-early and lands somewhere soft:
+early and lands somewhere soft. The funnel's student-facing steps
+(T-14 onward) apply only once this fallback route is activated — on the
+primary Codespaces route nothing is assigned to students before
+Session 6:
 
 | Stage | When | What | Failure lands in |
 |---|---|---|---|

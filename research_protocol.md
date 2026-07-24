@@ -10,7 +10,7 @@ Per participant (N = cohort size), the design produces a paired-choice dataset:
 |---|---|
 | Participant | 115 coded questionnaire items (dtlab-persona-v1; authoritative source: `questionnaire_instrument_source.md` — 15 demographics, 57 validated-scale items from 12 published scales per the Toubia et al. 2025 Twin-2K-500 battery selections, 22 amazon.in shopping-behavior items, 12 values/constraints of which VC01–VC05 are CONSTRAINT items, 9 predictive items); purchase profile as agent-extracted `purchase_profile.md` (traceable-claims rule in SOUL.md; precise dtlab-orders-v1 CSV only for the optional post-course export add-on subgroup); demographics |
 | Participant × session | human shopping-process clickstream (dtlab-humanlog-v1.3): search queries, product views (ASIN + dwell sequence), cart-add clicks, filters/sorts — captured passively by log_human_session.py BEFORE the agent runs |
-| Task × participant (5 per participant; categories + count from tasks_config.csv) | human pick made first (uncontaminated: the student never sees the agent before choosing) (title, ASIN, price, stated reasoning), agent pick (title, ASIN, price), agent decision log with item-code citations, sponsored-listing flag, human intervention count, student's better/worse/equal/different verdict |
+| Task × participant (5 per participant; categories + count from tasks_config.csv) | human pick made first (uncontaminated: the student never sees the agent before choosing) (title, ASIN, price, stated reasoning), agent pick (title, ASIN, price), agent decision log with item-code citations, sponsored-listing flag, human intervention count, student's better/identical/equivalent/inferior verdict (dtlab-verdicts-v1) |
 
 **Design (plan of record): a within-participant 2×2 across four agent
 runs.** The task set is five self-purchase categories from the
@@ -142,7 +142,7 @@ GenAI quality-assurance metascience agenda).
   packed artifact by `dtlab-pack`, and the student can delete it from
   their Console the moment the course ends.
 
-## 5. Cohort dataset assembly (instructor, after T + 7)
+## 5. Cohort dataset assembly (instructor, after Friday submissions close)
 
 Students submit ONE zip via the **BITSoM LMS** file-upload assignment:
 `DT2026-###_evidence.zip`, produced and validated by `dtlab-pack`
@@ -242,8 +242,9 @@ Assembly steps:
 - `dtlab-choices-v1` (coded from logs): student_id, task_id, chooser
   {human|agent}, asin, title, price_inr, sponsored {0|1}, n_candidates,
   n_interventions, verdict {better|identical|equivalent|inferior} (agent choice relative to the participant's own pre-registered pick; 'identical' is ASIN-verified by the packer, so it is an objective category while the other three are the participant's judgment), cited_codes
-  (pipe-list), citation_valid_share (0–1). If the questionnaire-ablation
-  factor is adopted, version to `dtlab-choices-v1.1`: add `condition`
+  (pipe-list), citation_valid_share (0–1). The questionnaire-ablation
+  factor is adopted (plan of record); the operative schema is
+  `dtlab-choices-v1.1`, adding `condition`
   {persona|ablated|single} and, per participant × task, `hth_winner`
   {persona|ablated|tie} from the manifest's `ablation.head_to_head`.
 

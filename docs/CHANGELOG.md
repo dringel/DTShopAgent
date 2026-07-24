@@ -1,5 +1,34 @@
 # Kit changelog
 
+## 2026-07-24 — Doc alignment pass (audit Part A)
+
+- **Session topics aligned to the published syllabus:** the Hermes +
+  SOUL.md deep dive moves to Session 8 (Wed), the "When to Specialize"
+  lecture to Session 9 (Thu) as a 30-minute opener; Thursday's run
+  slots are ~55 minutes each and Monday's freed block becomes codespace
+  build + lab-tour time (COURSE_PLAN_1WEEK.md session tables).
+- **Retired-design text removed from current-voice sections:**
+  design_rationale §2/§7/§9/§10 and questionnaire_instrument_source §1
+  now describe the operative within-student tier-by-day 2×2 (no order
+  arms, no between-subjects tier); research_protocol §1 verdict
+  vocabulary updated to better/identical/equivalent/inferior and the
+  ablation factor stated as adopted (dtlab-choices-v1.1 operative).
+- **Command surface corrected to six commands** (dtlab-cart and
+  dtlab-verdict restored) in CLOUD_SETUP, VM_DISTRIBUTION, and
+  TA_ONBOARDING; verdict capture (not the comparison memo) named as the
+  owners' first contact in PERSONALIZATION_PROTOCOL and
+  design_rationale; TA_ONBOARDING's license section now points at
+  LICENSE.md; README build checklist reflects the student-owned-key
+  model and the pseudonym/order/pair LMS sheet.
+- **Capstone wording (recorded):** the capstone is an individual white
+  paper of up to 5 pages (supersedes the earlier 3–5 page essay
+  wording; operative text in COURSE_PLAN_1WEEK.md and
+  docs/SYLLABUS_BLURB.md).
+- Smaller consistency fixes: VC06 labeled a stated-preference item (not
+  CONSTRAINT) in TASK_CATEGORIES; Tuesday-morning straggler
+  regeneration in COURSE_PLAN's risk table; five-task cost figure in
+  design_rationale §2; dry-run wording in root-level files.
+
 ## 2026-07-24 — CI fixed (ruff 0.16 drift) + "how this runs" explainers
 
 - **CI failure root-caused and fixed:** ruff 0.16.0 (installed fresh by

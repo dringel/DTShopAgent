@@ -138,7 +138,7 @@ dt-lab/
 ├── research_protocol.md               ← consent, pseudonyms, schemas, dataset assembly
 ├── agent/
 │   ├── SOUL.md                        ← agent identity + ECP decision-log protocol (CAND lines), hard boundaries, injection hardening
-│   └── SOUL_ablated.md                ← questionnaire-free variant for the optional ablation factor (purchase profile only)
+│   └── SOUL_ablated.md                ← questionnaire-free variant for the ablated runs of the 2×2 (purchase profile only)
 ├── questionnaire/
 │   ├── questionnaire_instrument_source.md ← AUTHORITATIVE instrument source: 115 items + design notes (edit here first, then re-transfer to the CSV)
 │   ├── questionnaire_items.csv        ← THE course instrument: 115 real items generated from the source doc
@@ -148,6 +148,7 @@ dt-lab/
 ├── TA_ONBOARDING.md                   ← start here: reading order + open work items + installer-pin procedure
 ├── tests/
 │   ├── simulate_submission.sh         ← regression harness for the validation chain (sandboxed HOME, no browser needed)
+│   ├── test_start_flow.sh             ← regression suite for the dtlab-start 4-run state machine (sandboxed HOME)
 │   ├── test_instrument_lockstep.py    ← guards CSV ↔ source-doc ↔ config ↔ persona-generator lockstep
 │   └── test_analyze_cohort.py         ← synthetic-cohort test of the report generator
 ├── assets/
@@ -156,7 +157,7 @@ dt-lab/
 │   ├── design_rationale.md            ← the rationale for all design choices, alternatives, accepted risks
 │   ├── CHANGELOG.md                   ← the LIVE T-21 dry-run list + change record
 │   └── sample_report.html             ← SAMPLE cohort report (synthetic data) — what analyze_cohort.py produces
-├── COURSE_PLAN_1WEEK.md               ← THE operative plan (single authority on the route decision): 2×3h sessions per section, N=161
+├── COURSE_PLAN_1WEEK.md               ← THE operative plan (single authority on the route decision): Sessions 6–10, 3 h/day per section, N=161
 ├── data-pipeline/                     ← OPTIONAL research add-on (post-course precise history via official export)
 │   ├── clean_privacy_export.py        ← official Amazon export → schema v1
 │   ├── scrape_orders.py               ← manual-login + Playwright scrape → schema v1
@@ -449,10 +450,10 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
       enable Codespaces prebuilds
 - [ ] **Dry run of the full path yourself from a codespace**, ~3 weeks out
       (T-21): build, persona generation, `dtlab-shop`, `/browser connect`,
-      Bootstrap, one full task, `dtlab-pack` — working the TODO(dry-run)
+      Bootstrap, one full task, `dtlab-pack` — working the T-21 dry-run
       list at the top of `docs/CHANGELOG.md`
-- [ ] Claude workspace + per-student capped keys
-- [ ] LMS: arm (and optional tier) assignment sheet, evidence upload slot
+- [ ] Confirm the student-key model end-to-end: every student's own Anthropic account, one key, ~$20 monthly spend limit (Monday homework); 2–3 course-owned spare keys staged for setup casualties
+- [ ] LMS: assignment sheet (pseudonym + per-day grounding order + pair), evidence upload slot
 - [ ] Synthetic persona pack for opt-outs (fictional Form row — generate
       once, reuse; doubles as the flagged-account sandbox path)
 - [ ] Only if the VM fallback is activated: golden images per

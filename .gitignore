@@ -52,3 +52,6 @@ scrape_errors.log
 *.utm
 *.mkv
 .DS_Store
+
+# ---- Working material (never commit) ----
+CLAUDE_CODE_HANDOVER_*.md

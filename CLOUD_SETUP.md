@@ -10,7 +10,7 @@
 
 ## Can this be done on a free cloud VM? Yes — with one known cost.
 
-**Recommended free path: GitHub Codespaces + GitHub Classroom.** Every
+**Recommended free path: GitHub Codespaces.** Every
 student gets the *bit-identical* container environment defined in
 `.devcontainer/` (at the repo root) — same OS, same Hermes version, same browser, same tools —
 launched from a browser link with zero local installation, on Windows,
@@ -39,8 +39,9 @@ How it works for the student:
    setup log / terminal). **Never set this port to Public** — a public
    port hands a desktop logged into your Amazon account to anyone with
    the URL. Chromium runs there.
-4. Use the VS Code terminal for the four commands, same as the VM route:
-   `dtlab-shop`, `dtlab-start`, `dtlab-record`, `dtlab-pack`.
+4. Use the VS Code terminal for the six commands, same as the VM route:
+   `dtlab-shop`, `dtlab-start`, `dtlab-cart` (partner, after every run),
+   `dtlab-verdict`, `dtlab-record` (optional), `dtlab-pack`.
 5. The packed evidence zip is downloaded via the VS Code file explorer
    (right-click → Download) and uploaded to the LMS.
 6. **Stop the codespace when done** (it also auto-suspends after 30 min

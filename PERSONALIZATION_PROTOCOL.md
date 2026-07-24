@@ -163,9 +163,9 @@ partner babysits the neighbor's run (CAPTCHA handling needs no account
 knowledge; login happens before the swap), runs `dtlab-cart` after the
 run (automatic cart screenshot + parsed cart contents), and empties the
 cart between runs. Owners first encounter
-their agent's choices as artifacts — picks, logs, screenshots — when
-they write the comparison memo, exactly the evidence a reader of the
-study would have. The pairing doubles as the CAPTCHA-resolution staffing
+their agent's choices as artifacts — picks, logs, screenshots — in
+`dtlab-verdict`'s structured capture (the comparison memo is the
+fallback), exactly the evidence a reader of the study would have. The pairing doubles as the CAPTCHA-resolution staffing
 and is named in the consent sheet (a classmate sees your purchase
 profile and picks during the runs; pairs are self-selected).
 

@@ -79,13 +79,13 @@ MBA cohort).
    This lab's agent runs are interactive tool-use sessions — a different
    regime — so **all Anthropic model settings remain at defaults.**
 
-**Model policy.** Anthropic models only, default settings. If token budget
-allows, model tier becomes a second randomized between-subjects factor,
-orthogonal to the order arm: **economy tier** (Claude Haiku class) vs.
-**frontier tier** (Claude Sonnet class) — stratified assignment, tier
-recorded per student alongside the arm in the evidence-pack manifest. This
-gives a clean capability-vs-fidelity comparison at near-zero design cost;
-if budget is tight, run everyone on the frontier tier.
+**Model policy.** Anthropic models only, default settings. Model tier is
+the second factor of the within-student 2×2: **economy tier** (Claude
+Haiku class) on day 1 vs. **frontier tier** (Claude Sonnet class) on
+day 2, tier recorded per run in the evidence-pack manifest. Tier is
+deliberately confounded with day and stated as such in the methods
+(`COURSE_PLAN_1WEEK.md`). This gives a clean capability-vs-fidelity
+comparison at near-zero design cost.
 
 **Evaluation logic.** No model-elicited responses of any kind. Two
 comparison layers, both simple and descriptive: (a) **outcomes** — the
@@ -95,7 +95,7 @@ ASIN-verified by the packer; (b) **process** — comparison of the human
 clickstream (`human_session.jsonl`) against the agent's decision log:
 number and wording of searches, candidate-set size and overlap, sponsored
 share of candidates and picks, price levels considered, session duration.
-Reported with order arm (and model tier, if used) as design factors;
+Reported with grounding condition and model tier as design factors;
 contamination index as covariate. Nothing beyond descriptives is promised.
 
 ---
@@ -269,7 +269,7 @@ single_select, 7-point [Definitely untrue; Not true; Probably not true; Neither 
 - **VC11** Maximum delivery wait you accept for non-urgent items: — single_select [2 days; 5 days; 1 week; 2+ weeks is fine]
 - **VC12** Sizes you buy (clothing/shoe), if applicable: — short_text
 
-### Block PR — Predictive items — 9 items *(project; give the comparison memo direct benchmarks)*
+### Block PR — Predictive items — 9 items *(project; give the verdict capture direct benchmarks)*
 
 - **PR01** You get ₹2,000 guilt-free right now. Which category does it go to? — single_select [Food/snacks; Electronics/accessories; Fashion; Beauty/grooming; Books/hobby; Home/kitchen; Fitness; I'd save it anyway]
 - **PR02** What is the next thing you are actually planning to buy online? — short_text
