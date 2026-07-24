@@ -1046,6 +1046,31 @@ python3 "$REPO/tools/make_task_docs.py" --config "$HOME/badtasks.csv" \
   --outdir "$HOME/gen_bad" 2>&1 | grep -q "task_id must be numeric"
 check $? 0 "generator refuses a non-numeric catalog row with a clear message"
 
+echo "[38] B19: dtlab-shop sid discipline + pack cross-check"
+mkenv
+printf '{"student_id":"DT2026-777","type":"session_start"}\n{"type":"product_view","asin":"B07GYLZ1ZN"}\n' \
+  > "$HOME/dtlab/human/human_session.jsonl"
+python3 "$PACK" 2>&1 | grep -q "logged as DT2026-777"
+check $? 0 "session logged under a different sid is caught at pack time"
+mkenv
+printf '{"student_id":"DT2026-999","type":"session_start"}\n{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asin":"B09YLFGBLL"}\n{"type":"product_view","asin":"B07D75V2GH"}\n' \
+  > "$HOME/dtlab/human/human_session.jsonl"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "matching sid in the session log passes"
+SHOP="$REPO/tools/log_human_session.py"
+mv "$HOME/dtlab/workspace/persona_survey.csv" "$HOME/persona.bak"
+OUT38="$(cd "$HOME" && python3 "$SHOP" 2>&1)"; RC38=$?
+[ "$RC38" -ne 0 ] && [ "$RC38" -ne 2 ] && \
+  echo "$OUT38" | grep -q "cannot determine your student id"
+check $? 0 "flagless dtlab-shop explains the sid, never raw argparse death"
+mv "$HOME/persona.bak" "$HOME/dtlab/workspace/persona_survey.csv"
+OUT38B="$(cd "$HOME" && python3 "$SHOP" --student-id BADID 2>&1)"; RC38B=$?
+[ "$RC38B" -ne 0 ] && echo "$OUT38B" | grep -q "does not match the course pattern"
+check $? 0 "malformed --student-id refused with the desync warning"
+OUT38C="$(cd "$HOME" && python3 "$SHOP" --student-id DT2026-111 2>&1)"; RC38C=$?
+[ "$RC38C" -ne 0 ] && echo "$OUT38C" | grep -q "contradicts persona_survey.csv"
+check $? 0 "sid contradicting the persona refused"
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

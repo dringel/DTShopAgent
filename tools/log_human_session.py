@@ -48,7 +48,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    # deferred to main(): id validation must work (and fail clearly)
+    # even where the browser stack is absent
+    sync_playwright = None
 
 HUMAN_DIR = Path.home() / "dtlab" / "human"
 ASIN_RE = re.compile(r"(?:/dp/|/gp/product/)([A-Z0-9]{10})")
@@ -296,10 +301,56 @@ def confirm_picks(log: Logger, student_id):
     print(f"\nWrote {out}")
 
 
+def find_student_id():
+    """The pseudonym from the persona files — the same source every
+    other tool resolves it from."""
+    for p in (Path.home() / "dtlab" / "workspace" / "persona_survey.csv",
+              Path.home() / "dtlab" / "persona_hold" /
+              "persona_survey.csv"):
+        try:
+            with open(p, newline="", encoding="utf-8-sig") as f:
+                rows = list(csv.DictReader(f))
+            if rows and (rows[0].get("student_id") or "").strip():
+                return rows[0]["student_id"].strip()
+        except OSError:
+            pass
+    return None
+
+
+def resolve_student_id(arg_sid):
+    """Default from persona_survey.csv; validate the pattern; refuse a
+    typed id that contradicts the persona — a silent typo here would
+    desynchronize the human task order from all four agent runs."""
+    persona_sid = find_student_id()
+    sid = (arg_sid or "").strip() or persona_sid
+    if not sid:
+        sys.exit("cannot determine your student id — generate the "
+                 "persona first (persona_survey.csv in the workspace) "
+                 "or pass --student-id DT2026-###")
+    id_re = re.compile(CFG.get("DTLAB_ID_PATTERN", r"DT[0-9]{4}-[0-9]{3}"))
+    if not id_re.fullmatch(sid):
+        sys.exit(f"student id '{sid}' does not match the course pattern "
+                 "— check your pseudonym (a typo would silently "
+                 "desynchronize your task order from every agent run)")
+    if persona_sid and sid != persona_sid:
+        sys.exit(f"--student-id {sid} contradicts persona_survey.csv "
+                 f"({persona_sid}) — the SAME pseudonym must drive the "
+                 "task order everywhere; drop the flag or fix the "
+                 "persona")
+    return sid
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--student-id", required=True)
+    ap.add_argument("--student-id", default=None,
+                    help="course pseudonym; defaults to the one in "
+                         "persona_survey.csv")
     args = ap.parse_args()
+    sid = resolve_student_id(args.student_id)
+    args.student_id = sid
+    if sync_playwright is None:
+        sys.exit("playwright missing — run this via the dtlab-shop alias "
+                 "(it uses the provisioned environment).")
     HUMAN_DIR.mkdir(parents=True, exist_ok=True)
     log = Logger(HUMAN_DIR / "human_session.jsonl", args.student_id)
     log.emit("session_start", schema=SCHEMA)

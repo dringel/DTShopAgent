@@ -637,6 +637,26 @@ def main():
     need(not (WS / "human_picks.csv").exists(),
          "human_picks.csv found INSIDE the agent workspace — bias "
          "quarantine violated; keep human files in ~/dtlab/human/ only")
+    # the sid the human session was LOGGED under must be the sid this
+    # pack belongs to — a typo'd --student-id would silently
+    # desynchronize the human task order from every agent run
+    if (staging / "human_session.jsonl").exists() \
+            and student_id != "UNKNOWN":
+        hs_sid = None
+        for line in (staging / "human_session.jsonl").read_text(
+                encoding="utf-8").splitlines():
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (d.get("student_id") or "").strip():
+                hs_sid = d["student_id"].strip()
+                break
+        if hs_sid:            # older logs carry no sid — nothing to check
+            need(hs_sid == student_id,
+                 f"human_session.jsonl was logged as {hs_sid} but this "
+                 f"pack belongs to {student_id} — the human task order "
+                 "is desynchronized from the agent runs; tell a TA")
     # ordering check against the agent run marker (all students are
     # human-first; A_FIRST branch kept for legacy packs only)
     armfile = HOME / "dtlab" / "arm.txt"
