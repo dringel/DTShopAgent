@@ -33,6 +33,16 @@ from pathlib import Path
 # e.g. "D01.", "PS16.", "RISK07." — see AUTHORING_GUIDE.md column contract.
 CODE_RE = re.compile(r"^([A-Z]{1,4}\d{1,3})\.")
 
+# Research-only items: answered in the Form and kept in the research CSV,
+# but NEVER rendered into the agent-visible persona_survey.md. PR02 (next
+# planned online purchase) and PR08 (item currently in cart/wishlist) name
+# upcoming purchases — leaving them in the persona would hand the agent
+# the answers to the shopping tasks (same confound and remedy as the PR09
+# gift-task story, docs/design_rationale.md §8). The ONE authoritative
+# exclusion set: student_start.sh's rendered-count gate and
+# tests/test_instrument_lockstep.py reference it.
+AGENT_HIDDEN_ITEMS = {"PR02", "PR08"}
+
 
 def load_items(path):
     items = OrderedDict()
@@ -112,7 +122,10 @@ def main():
         "",
     ]
     current = None
+    n_rendered = 0
     for code, item in items.items():
+        if code in AGENT_HIDDEN_ITEMS:
+            continue          # research-only: CSV yes, agent persona no
         if item["construct"] != current:
             current = item["construct"]
             lines += [f"## {current}", ""]
@@ -120,10 +133,12 @@ def main():
         flag = " **[CONSTRAINT]**" if str(
             item.get("constraint", "0")).strip() == "1" else ""
         lines.append(f"- **{code}**{flag} {item['question']}  \n  → {ans}")
+        n_rendered += 1
     (outdir / "persona_survey.md").write_text("\n".join(lines) + "\n",
                                               encoding="utf-8")
 
-    print(f"Wrote persona_survey.md and persona_survey.csv for "
+    print(f"Wrote persona_survey.md ({n_rendered} agent-visible items) and "
+          f"persona_survey.csv (all {len(items)}) for "
           f"{args.student_id} ({len(answers)}/{len(items)} items answered).")
 
 

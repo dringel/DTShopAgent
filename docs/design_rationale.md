@@ -420,7 +420,13 @@ classes, the utilitarian-vs-hedonic fidelity contrast is a
 within-student estimate. (Instrument note: predictive item PR09 was
 authored as the gift task's stated-preference benchmark; with no gift
 task it stays a general stated-preference item — swap or keep at
-instrument freeze, teaching-team call.)
+instrument freeze, teaching-team call.) The same confound gets the same
+remedy inside the active set: PR02 (next planned online purchase) and
+PR08 (item currently in cart/wishlist) name upcoming purchases, so they
+are research-only — answered in the Form and kept in the research CSV as
+stated-preference benchmarks, but never rendered into the agent-visible
+persona (113 of the 115 items reach the agent;
+`make_persona.py::AGENT_HIDDEN_ITEMS` is the authoritative set).
 
 **No asking back (autonomy is the treatment).** All three SOULs (the
 sandbox variant included) forbid the

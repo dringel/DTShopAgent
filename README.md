@@ -235,7 +235,11 @@ count; the count lives ONCE in `dtlab_config.env` (`DTLAB_EXPECTED_ITEMS`,
 currently **115**, with a matching fallback in
 `provisioning/student_start.sh`) and
 `tests/test_instrument_lockstep.py` fails if CSV, config, and fallback
-ever diverge. Constraint semantics travel
+ever diverge. Two predictive items (PR02, PR08) are research-only: they
+name upcoming purchases, so they stay in the research CSV but are never
+rendered into the agent-visible persona — 113 of the 115 items reach the
+agent, and the pre-flight gate checks that rendered count
+(`make_persona.py::AGENT_HIDDEN_ITEMS` is the authoritative set). Constraint semantics travel
 via the CSV's `constraint` column → a `[CONSTRAINT]` flag in the persona
 file → SOUL.md's constraints-always-win rule, so no item codes are ever
 hard-coded anywhere.

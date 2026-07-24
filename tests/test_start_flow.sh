@@ -38,7 +38,8 @@ cp "$REPO/templates/comparison_ablation.md" \
 cp "$REPO/templates/comparison.md" "$HOME/dtlab/workspace/comparison.md"
 printf '## Task 1\nfilled, no placeholders here\n' \
   > "$HOME/dtlab/workspace/tasks.md"
-for i in $(seq 1 115); do echo "- **X$i** q"; done \
+# 113 = 115-item instrument minus the 2 agent-hidden items (PR02/PR08)
+for i in $(seq 1 113); do echo "- **X$i** q"; done \
   > "$HOME/dtlab/workspace/persona_survey.md"
 echo "student_id,answer" > "$HOME/dtlab/workspace/persona_survey.csv"
 touch "$HOME/dtlab/human/human_picks.csv" \

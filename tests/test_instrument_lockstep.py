@@ -23,6 +23,7 @@ Run from repo root:  python3 tests/test_instrument_lockstep.py
 """
 
 import csv
+import importlib.util
 import re
 import subprocess
 import sys
@@ -32,6 +33,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 CSV_PATH = REPO / "questionnaire" / "questionnaire_items.csv"
 CODE_RE = re.compile(r"^[A-Z]{1,4}\d{1,3}$")
+
+
+def _load_agent_hidden_items():
+    """The ONE authoritative exclusion set lives in make_persona.py."""
+    spec = importlib.util.spec_from_file_location(
+        "make_persona", REPO / "questionnaire" / "make_persona.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return set(mod.AGENT_HIDDEN_ITEMS)
 
 failures = []
 
@@ -106,6 +116,20 @@ def main():
                   start_sh)
     check(m is not None and int(m.group(1)) == expected == len(rows),
           "EXPECTED_ITEMS fallback in student_start.sh == config == CSV rows")
+
+    # 6b: agent-hidden exclusion set (B10): exactly {PR02, PR08}, all in
+    # the instrument, and student_start.sh's rendered-count gate subtracts
+    # exactly that many items
+    hidden = _load_agent_hidden_items()
+    check(hidden == {"PR02", "PR08"},
+          f"make_persona.AGENT_HIDDEN_ITEMS is exactly {{PR02, PR08}} "
+          f"(got {sorted(hidden)})")
+    check(hidden <= set(codes),
+          "every agent-hidden item exists in the instrument")
+    hm = re.search(r"AGENT_HIDDEN_COUNT=(\d+)", start_sh)
+    check(hm is not None and int(hm.group(1)) == len(hidden),
+          "student_start.sh AGENT_HIDDEN_COUNT == len(AGENT_HIDDEN_ITEMS)")
+    rendered = expected - len(hidden)
 
     # 7: build_form.gs ID pattern semantically in sync with the config
     gs = (REPO / "questionnaire" / "build_form.gs").read_text()
@@ -225,12 +249,23 @@ def main():
               f"make_persona.py succeeds on fabricated row ({r.stderr.strip()[:200]})")
         persona = td / "persona_survey.md"
         if persona.exists():
-            n = sum(1 for line in persona.read_text().splitlines()
+            ptext = persona.read_text()
+            n = sum(1 for line in ptext.splitlines()
                     if re.match(r"^- \*\*", line))
-            check(n == expected,
-                  f"persona_survey.md has {expected} '- **' item lines "
-                  f"(got {n}) — the count student_start.sh checks")
-            n_ans = sum(1 for line in persona.read_text().splitlines()
+            check(n == rendered,
+                  f"persona_survey.md has {rendered} agent-visible '- **' "
+                  f"item lines ({expected}-item instrument minus "
+                  f"{len(hidden)} research-only; got {n}) — the count "
+                  "student_start.sh checks")
+            leaked = [c for c in hidden if f"**{c}**" in ptext]
+            check(not leaked,
+                  f"agent-hidden items absent from persona_survey.md "
+                  f"(leaked: {leaked})")
+            pcsv = (td / "persona_survey.csv").read_text()
+            kept = [c for c in hidden if f",{c}," in pcsv]
+            check(sorted(kept) == sorted(hidden),
+                  "agent-hidden items still present in the research CSV")
+            n_ans = sum(1 for line in ptext.splitlines()
                         if "(no answer)" in line)
             check(n_ans == 0, f"all fabricated answers mapped ({n_ans} unmapped)")
         else:

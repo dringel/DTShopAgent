@@ -21,6 +21,14 @@ WS="$HOME/dtlab/workspace"
 # Final item count of the course questionnaire (115 per
 # questionnaire_instrument_source.md). Used for the completeness check only.
 EXPECTED_ITEMS="${DTLAB_EXPECTED_ITEMS:-115}"
+# Research-only items (PR02, PR08 — make_persona.py AGENT_HIDDEN_ITEMS):
+# answered in the Form and kept in persona_survey.csv, but never rendered
+# into the agent-visible persona_survey.md (they name upcoming purchases —
+# direct answer leakage into the shopping tasks). The rendered count the
+# gate below checks is therefore two lower than the instrument size;
+# tests/test_instrument_lockstep.py enforces the lockstep.
+AGENT_HIDDEN_COUNT=2
+RENDERED_ITEMS=$(( EXPECTED_ITEMS - AGENT_HIDDEN_COUNT ))
 # Questionnaire-ablation factor (research_protocol.md §1). 0: single agent
 # run, unchanged legacy flow. 1 (plan of record): FOUR runs — the SAME
 # tasks under persona vs ablated grounding on each of the two lab days;
@@ -274,11 +282,11 @@ PSF="$WS/persona_survey.md"
 [ -f "$PSF" ] || PSF="$HOLD/persona_survey.md"
 if [ -f "$PSF" ]; then
   N=$(grep -c '^\- \*\*' "$PSF" || true)
-  MIN=$(( EXPECTED_ITEMS * 95 / 100 ))
+  MIN=$(( RENDERED_ITEMS * 95 / 100 ))
   if [ "$N" -ge "$MIN" ]; then
-    ok "persona_survey.md present ($N/$EXPECTED_ITEMS items)"
+    ok "persona_survey.md present ($N/$RENDERED_ITEMS agent-visible items)"
   elif [ "$N" -gt 0 ]; then
-    bad "persona_survey.md has only $N/$EXPECTED_ITEMS items — regenerate"
+    bad "persona_survey.md has only $N/$RENDERED_ITEMS agent-visible items — regenerate"
   else
     bad "persona_survey.md is empty or malformed — regenerate"
   fi
