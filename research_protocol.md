@@ -44,8 +44,10 @@ are recorded in the manifest. The earlier H_FIRST/A_FIRST order-arm
 factor is retired: the primary estimands (questionnaire effect, tier
 effect) are within-participant contrasts across runs that share the same
 human-perturbed account, so human-session carry-over common to all runs
-cancels in those contrasts; the absolute agreement level carries the
-contamination index (computed per run) as covariate. **Assessment
+cancels in those contrasts; the absolute agreement level is read
+against the per-run contamination index and its cross-student
+permutation baseline (robustness subgroup, never a regression
+covariate). **Assessment
 blinding:** no participant watches their own agent — self-selected pairs
 swap seats for every run (PERSONALIZATION_PROTOCOL.md Layer 4); owners
 first meet their agent's choices as artifacts when writing the
@@ -90,9 +92,9 @@ shopping (consideration-set size and overlap, query formulation, search
 depth, dwell allocation, sponsored exposure) — arguably the most novel
 contribution, since outcome agreement with divergent processes and process
 mimicry with divergent outcomes are entirely different twin properties;
-human–agent agreement rates by task type (with the per-participant
-contamination index from each manifest as a covariate — see
-PERSONALIZATION_PROTOCOL.md); price-delta
+human–agent agreement rates by task type (with the per-run
+contamination index from each manifest read against its permutation
+baseline — see PERSONALIZATION_PROTOCOL.md); price-delta
 analysis; sponsored-capture analysis; the identical-vs-equivalent split (exact
 product convergence vs. functional substitution) as a twin-fidelity
 measure; which questionnaire constructs predict

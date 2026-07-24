@@ -972,7 +972,6 @@ def main():
              "cover the trail).\n")
 
     # ---- contamination index: agent picks that the human had viewed,
-    #      excluding tasks verdicted 'identical' (see PERSONALIZATION_PROTOCOL)
     human_viewed = set()
     hs_path = staging / "human_session.jsonl"
     if hs_path.exists():
@@ -983,23 +982,8 @@ def main():
                 continue
             if d.get("type") == "product_view" and d.get("asin"):
                 human_viewed.add(d["asin"])
-
-    def contam(rows_, vget):
-        ov = [str(r.get("task_id", "")).strip() for r in rows_
-              if r.get("asin", "").strip() in human_viewed
-              and vget(str(r.get("task_id", "")).strip()) != "identical"]
-        den = sum(1 for t in TASK_IDS if vget(t) != "identical")
-        return {"overlapping_nonidentical_tasks": ov,
-                "index": (len(ov) / den) if den else 0.0,
-                "human_viewed_asin_count": len(human_viewed)}
-
-    if ablation:
-        contamination = {
-            label: contam(rows_,
-                          lambda t, lb=label: verdicts.get(key_of(t, lb)))
-            for label, rows_ in pick_sets.items()}
-    else:
-        contamination = contam(agent, verdicts.get)
+    # (contamination itself is computed AFTER the CAND parsing below —
+    #  the index is candidate-set based)
 
     # ---- ablation metadata: pick overlap across runs is the headline
     #      measure of each factor's marginal behavioral effect ----
@@ -1085,6 +1069,43 @@ def main():
              "lines — search-effort analyses will be empty for this "
              "student (agent ignored or predates the SRCH protocol in "
              "SOUL.md)")
+    # ---- contamination diagnostics (descriptive; PERSONALIZATION
+    #      Layer 3): index = share of the run's CANDIDATE set the human
+    #      had viewed. Pick-level overlap is kept as a secondary field.
+    #      Identical-verdict tasks are NOT excluded (that removed exactly
+    #      the cases where carry-over fully succeeded), and tasks with
+    #      missing verdicts are listed explicitly instead of silently
+    #      counting as non-identical. The analyzer reads this against a
+    #      cross-student permutation baseline — never as a covariate.
+    def contam(label, rows_, vget):
+        cbt = candidates.get(label if ablation else "single") or {}
+        per_task = {}
+        for t in TASK_IDS:
+            cl = [c.get("asin", "") for c in (cbt.get(t) or [])
+                  if ASIN_RE.fullmatch(c.get("asin", ""))]
+            if cl:
+                per_task[t] = round(
+                    sum(1 for a in cl if a in human_viewed) / len(cl), 3)
+        pick_ov = [str(r.get("task_id", "")).strip() for r in rows_
+                   if r.get("asin", "").strip() in human_viewed]
+        vals = list(per_task.values())
+        return {"index": (round(sum(vals) / len(vals), 3)
+                          if vals else None),
+                "basis": "candidate_set",
+                "per_task_candidate_viewed_share": per_task,
+                "overlapping_pick_tasks": pick_ov,
+                "tasks_missing_verdict": [t for t in TASK_IDS
+                                          if vget(t) not in VERDICTS],
+                "human_viewed_asin_count": len(human_viewed)}
+
+    if ablation:
+        contamination = {
+            label: contam(label, rows_,
+                          lambda t, lb=label: verdicts.get(key_of(t, lb)))
+            for label, rows_ in pick_sets.items()}
+    else:
+        contamination = contam("", agent, verdicts.get)
+
     if n_cand == 0:
         warn("decision log contains no machine-parsed 'CAND |' lines — "
              "consideration-set analyses will be empty for this student "

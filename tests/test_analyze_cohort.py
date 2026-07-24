@@ -394,6 +394,11 @@ def main():
                        "Minimum detectable tier effect",
                        "legacy arm design"):
             assert marker in html, f"missing B11 row: {marker}"
+        # B14: contamination read against a null, used as a subgroup
+        for marker in ("permutation baseline",
+                       "top-quartile contamination",
+                       "never a regression covariate"):
+            assert marker in html, f"missing B14 marker: {marker}"
         # B12: Holm over exactly {H1,H2,H3}; everything else exploratory
         for marker in ("H1 — Questionnaire effect", "H2 — Tier effect",
                        "H3 — Grounding x tier interaction",

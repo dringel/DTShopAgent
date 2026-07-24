@@ -962,6 +962,23 @@ assert m['ratings']['2_persona_frontier']=={'self':7,'agent':6}
 sys.exit(0)
 PY
 
+echo "[34] B14: contamination index computed on the CAND candidate set"
+mkenv
+printf 'CAND | task=1 | asin=B07GYLZ1ZN | category=H | price=289 | sponsored=0 | source=search#1\nCAND | task=1 | asin=B0ZZZZZZZ9 | category=H | price=340 | sponsored=1 | source=search#3\nCAND | task=2 | asin=B09YLFGBLL | category=E | price=1290 | sponsored=0 | source=search#1\n' >> "$HOME/dtlab/workspace/decision_log.md"
+python3 "$PACK" >/dev/null 2>&1; check $? 0 "pack exits 0"
+python3 - <<'PY'; check $? 0 "index = mean candidate-viewed share; pick overlap + missing verdicts explicit"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+ci=m['contamination_index']
+assert ci['basis']=='candidate_set'
+assert ci['per_task_candidate_viewed_share']=={'1':0.5,'2':1.0}, ci
+assert ci['index']==0.75, ci
+assert ci['overlapping_pick_tasks']==['1'], ci   # agent pick 1 was viewed
+assert ci['tasks_missing_verdict']==[], ci
+sys.exit(0)
+PY
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

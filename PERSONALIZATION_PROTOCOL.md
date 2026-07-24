@@ -107,13 +107,19 @@ instead of hand-waving it:
   `agent_picks.csv`.
 
 `dtlab-pack` computes and writes into the manifest a **contamination
-index**: the overlap between the agent's chosen ASINs and the human's
-viewed set, excluding tasks verdicted `identical` (where convergence is
-the finding, not contamination). At cohort level, regress agreement on
-the index; report it in the paper. If the index is ~0 for non-identical
-tasks, Layers 1–2 worked and the agreement numbers stand clean. If it
-isn't, you have the covariate to control for — either way the experiment
-survives review.
+index** per run: the share of the run's CANDIDATE set (machine-parsed
+CAND lines) that the human had viewed, with pick-level overlap kept as
+a secondary field and tasks with missing verdicts listed explicitly.
+The raw index has no natural zero — two shoppers working the same five
+categories overlap on the same first page even with zero contamination
+— so the analyzer reads it against a **cross-student permutation
+baseline** (student i's candidate sets scored against student j≠i's
+viewed sets, same tasks) and reports the excess. The index is used
+descriptively and as a robustness subgroup (the grounding and tier
+contrasts recomputed excluding the top-quartile-index runs), never as a
+regression covariate: it measures only the human→agent channel, and
+covariate adjustment on a post-treatment measurement would bias the
+within-student contrasts it is meant to protect.
 
 ### Residual timing guidance
 
@@ -132,8 +138,10 @@ by pausing and clearing Amazon browsing history on every lab day,
 (ii) structurally blocked on the agent side by prohibiting only the
 browsing-history-derived surfaces (all item- and purchase-based surfaces
 remained available, with every candidate's provenance logged), and
-(iii) quantified per participant and per run as the overlap between agent
-selections and human-viewed items, which we report and control for. The
+(iii) quantified per participant and per run as the share of each run's
+candidate set the participant had viewed, reported against a
+cross-student permutation baseline and used in robustness subgroup
+analyses. The
 primary estimands — the questionnaire effect and the model-tier effect —
 are within-participant contrasts across agent runs facing the same
 human-perturbed account, so carry-over common to all runs cancels in
@@ -150,7 +158,7 @@ now *within-student contrasts across agent runs* — questionnaire effect
 and model-tier effect — carry-over from the human session is common to
 all four runs and cancels in those contrasts. The absolute human–agent
 agreement level keeps its three safeguards (Layer 1 pause, Layer 2
-targeted block, Layer 3 per-run index as covariate) and is reported with
+targeted block, Layer 3 per-run index vs its permutation baseline) and is reported with
 that framing.
 
 ### Assessment blinding: no one watches their own agent or judges a labeled run
@@ -195,5 +203,7 @@ Run N+1 shops an account perturbed by run N. Handled the same way:
    sentence in the methods; the within-day run-order estimate from the
    counterbalanced grounding order bounds the plausible size of
    day-order effects.
-5. The contamination index is computed per run, so residual carry-over
-   is a covariate at run granularity.
+5. The contamination index is computed per run and measures the
+   human→agent channel only (run N→N+1 carry-over is handled by items
+   1–3 above); it is reported against the cross-student permutation
+   baseline and used as a robustness subgroup, never as a covariate.

@@ -280,9 +280,9 @@ run; the agent then runs the task set four times in the within-student
 H_FIRST/A_FIRST counterbalance is retired: the primary estimands are now
 within-student contrasts across agent runs that share the same
 human-perturbed account, so human-session carry-over common to all runs
-cancels in those contrasts, and the absolute agreement level carries the
-per-run contamination index as covariate (PERSONALIZATION_PROTOCOL
-Layers 1–3). What the arms bought — an experimental order-effect
+cancels in those contrasts, and the absolute agreement level is read
+against the per-run contamination index and its cross-student
+permutation baseline (PERSONALIZATION_PROTOCOL Layers 1–3). What the arms bought — an experimental order-effect
 estimate — is given up for a simpler week and a stronger design where it
 matters. **Blinding is now universal rather than arm-specific:** no
 student watches their own agent, ever. Watching your own agent reason
@@ -362,12 +362,15 @@ autosuggest. Every candidate's provenance is logged in its CAND line
 (`search#rank`, `carousel:<name>`, `buy_again`, `product_page_link`,
 `category_page`), turning surface reliance into a measured variable.
 
-**Layer 3 — measure:** the packer computes a per-participant
-**contamination index** into the manifest — overlap between agent picks
-and human-viewed ASINs, excluding tasks verdicted `identical` (where
-convergence is the finding). Residual carry-over becomes a covariate,
-not a hand-wave; and it should differ between arms in a predictable
-direction, providing a built-in manipulation check.
+**Layer 3 — measure:** the packer computes a per-run **contamination
+index** into the manifest — the share of each run's candidate set (CAND
+lines) the human had viewed, with pick-level overlap as a secondary
+field and missing-verdict tasks listed explicitly. Residual carry-over
+becomes a measured quantity, not a hand-wave: the analyzer reports it
+against a cross-student permutation baseline (same-category shopping
+overlaps naturally even at zero contamination) and re-runs the headline
+rates excluding the top-quartile-index runs as a robustness subgroup —
+never as a regression covariate.
 
 **Layer 4 — order design & assessment blinding:** all students are
 human-first with the human picks physically quarantined, and within each

@@ -446,8 +446,18 @@ def read_submission(path):
         order_d2 = None
         overlap_n = (len(ab.get("agent_pick_overlap_tasks") or [])
                      if ablation else None)
+    # candidate ASINs per task (union over runs) + the human's viewed
+    # set: raw material for the cross-student contamination permutation
+    # baseline (student i's candidates vs student j's viewed sets)
+    cand_by_task = {}
+    for by_t in (cands or {}).values():
+        for t, lst in (by_t or {}).items():
+            cand_by_task.setdefault(t, set()).update(
+                c.get("asin") for c in lst if c.get("asin"))
     meta = {
         "student": sid, "arm": man.get("arm"), "tier": man.get("model_tier"),
+        "cand_by_task": {t: sorted(s) for t, s in cand_by_task.items()},
+        "viewed_asins": sorted(hviewed),
         "ablation": ablation, "design": design,
         "persona_order": order_d1,
         "persona_order_day2": order_d2,
@@ -1183,10 +1193,12 @@ def main():
                                       list(ARM_LBL.values())})
         fig.update_yaxes(title="contamination index")
         fig.update_xaxes(title="")
-        add(style_fig(fig, 380), "Contamination index by arm",
-            "Overlap of agent picks with human-viewed items (identical-"
-            "verdict tasks excluded). Should differ by arm in a "
-            "predictable direction — the built-in manipulation check.")
+        add(style_fig(fig, 380), "Contamination index by run",
+            "Share of each run's candidate set (CAND lines) the human "
+            "had viewed; legacy packs carry the older pick-based index. "
+            "Read against the cross-student permutation baseline in the "
+            "stats table — shopping the same category overlaps naturally "
+            "even with zero contamination.")
 
     # ---- statistics (cluster-robust: students are the sampling units;
     #      seeded bootstrap so the report is reproducible) ----
@@ -1640,6 +1652,38 @@ def main():
                      "pre-registered ±10 pp margin)",
                      f"90% CI {fmt_ci(p90lo, p90hi)} → {peq}")
 
+    # contamination: observed candidate-viewed overlap against a
+    # cross-student permutation baseline. Everyone shops the same five
+    # categories, so candidate/viewed overlap is high under ZERO
+    # contamination (same first page of the same category); the EXCESS
+    # of own-student over other-student overlap is the signal.
+    cw = [(m_["student"],
+           {t: set(a) for t, a in (m_.get("cand_by_task") or {}).items()
+            if a},
+           set(m_.get("viewed_asins") or [])) for m_ in metas]
+    cw = [(s, c, v) for s, c, v in cw if c and v]
+    if len(cw) >= 2:
+        def ov_share(cbt, viewed):
+            shares = [len(a & viewed) / len(a) for a in cbt.values()]
+            return float(np.mean(shares)) if shares else float("nan")
+        obs = [ov_share(c, v) for _, c, v in cw]
+        base = []
+        for i, (_, c, _) in enumerate(cw):
+            vals = [ov_share(c, cw[j][2]) for j in range(len(cw))
+                    if j != i]
+            vals = [x for x in vals if not math.isnan(x)]
+            if vals:
+                base.append(float(np.mean(vals)))
+        obs_m = float(np.nanmean(obs))
+        base_m = float(np.mean(base)) if base else float("nan")
+        srow("Contamination: candidate-viewed overlap vs cross-student "
+             "permutation baseline",
+             f"observed {pct(obs_m)} of a run's candidates were "
+             f"human-viewed by the SAME student vs {pct(base_m)} against "
+             "OTHER students' viewed sets (same tasks) → excess "
+             f"{100 * (obs_m - base_m):+.1f} pp. Descriptive, and a "
+             "robustness subgroup below — never a regression covariate")
+
     # consideration-set overlap (needs CAND lines + humanlog v1.1)
     jd = [(m_["student"], j) for m_ in metas
           for j in (m_.get("jaccard") or {}).values()]
@@ -1714,6 +1758,16 @@ def main():
          "converge on or substitute the human's choice)",
          spec_rates(fid)),
     ]
+    # the contamination robustness subgroup: the grounding/tier story
+    # must survive dropping the runs most exposed to human carry-over
+    contam_vals = vd_["contamination"].dropna()
+    if len(contam_vals) and contam_vals.nunique() > 1:
+        q75 = float(contam_vals.quantile(0.75))
+        lowc = vd_[vd_["contamination"].isna() |
+                   (vd_["contamination"] <= q75)]
+        robust_rows.append(
+            (f"Excl. top-quartile contamination runs (index > {q75:.2f})",
+             spec_rates(lowc)))
 
     # ---- data quality ----
     quality = [
