@@ -714,6 +714,21 @@ python3 "$PACK" >/dev/null 2>&1; check $? 0 "re-pack after rebuild exits 0"
 check $? 0 "evidence survives the rebuild (zip rebuilt from the root)"
 guard; rm -rf "$HOME/dtlab" "$HOME/ws"    # leave no symlink for later cases
 
+echo "[30] B6: low product-view count warns but never fails the pack"
+mkenv
+printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"cart_add","asin":"B09YLFGBLL"}\n' \
+  > "$HOME/dtlab/human/human_session.jsonl"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with 1 view for 3 tasks exits 0 (grid shopping is legitimate)"
+python3 - <<'PY'; check $? 0 "warning recorded in manifest; no validation issue"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert any('product views' in w for w in m['warnings']), m['warnings']
+assert not any('product views' in i for i in m['validation_issues'])
+sys.exit(0)
+PY
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

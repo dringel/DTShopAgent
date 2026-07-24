@@ -59,8 +59,10 @@ BLOCK_PATHS = ("/gp/buy", "/checkout", "/payments", "/ap/")  # never log these
 # task_start/task_end boundary events (the logger walks the student
 # through the tasks ONE AT A TIME in their assigned order, so every
 # event — search, view, filter, time — is attributable to its task
-# exactly). All additive.
-SCHEMA = "dtlab-humanlog-v1.3"
+# exactly); v1.4 also captures listing-page Add-to-Cart clicks (results
+# grid), carrying the ASIN from the nearest data-asin ancestor. All
+# additive.
+SCHEMA = "dtlab-humanlog-v1.4"
 REF_RE = re.compile(r"/ref=([^/?#]+)")
 
 
@@ -105,11 +107,21 @@ PAGE_JS = """
     } catch (e) {}
   };
   document.addEventListener('click', (e) => {
+    // product-page ATC variants PLUS the results-grid (listing) variants
+    // — a pick added straight from the search grid must still log.
+    // TODO(dry-run): validate the listing selectors on live amazon.in
+    // alongside capture_cart.py's SELECTORS.
     const el = e.target.closest(
       '#add-to-cart-button, #buy-now-button,' +
       ' input[name="submit.add-to-cart"],' +
-      ' [data-action="add-to-cart"], #add-to-cart-button-ubb');
-    if (el) emit('cart_add');
+      ' input[name="submit.addToCart"],' +
+      ' [data-action="add-to-cart"], #add-to-cart-button-ubb,' +
+      ' [id^="a-autoid"] .a-button-input');
+    if (el) {
+      const holder = el.closest('[data-asin]');
+      const asin = holder ? (holder.getAttribute('data-asin') || '') : '';
+      emit('cart_add', asin ? {asin: asin} : {});
+    }
   }, true);
   window.addEventListener('load', () => emit('page_load'));
   const wrap = (fn) => function () {
@@ -140,12 +152,14 @@ class Logger:
         self.lock = threading.Lock()
         self.student_id = student_id
         self.viewed = {}   # asin -> latest title (for pick confirmation)
+        self.counts = {}   # type -> count (live end-of-session summary)
         self._last = ("", 0.0)   # (url, monotonic) — dedupe double page_load
 
     def emit(self, type_, **kw):
         rec = {"ts": datetime.now(timezone.utc).isoformat(),
                "student_id": self.student_id, "type": type_, **kw}
         with self.lock:
+            self.counts[type_] = self.counts.get(type_, 0) + 1
             self.f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             self.f.flush()
 
@@ -193,8 +207,13 @@ class Logger:
         if d.get("type") == "page_load":
             self.on_nav(url, d.get("title", ""), d.get("category", ""))
         elif d.get("type") == "cart_add":
-            m = ASIN_RE.search(url)
-            self.emit("cart_add", asin=m.group(1) if m else "",
+            # product pages carry the ASIN in the URL; listing-grid clicks
+            # carry it from the nearest data-asin ancestor instead
+            asin = (d.get("asin") or "").strip().upper()
+            if not ASIN_FULL_RE.fullmatch(asin):
+                m = ASIN_RE.search(url)
+                asin = m.group(1) if m else ""
+            self.emit("cart_add", asin=asin,
                       title=clean_title(d.get("title", "")))
 
 
@@ -314,6 +333,20 @@ def main():
             input(">>> Shop for it now; AFTER adding your pick to the "
                   "cart, press Enter... ")
             log.emit("task_end", task_id=task)
+        # live capture summary WHILE the browser is still open — a
+        # Wednesday problem must be visible Wednesday, not at pack time
+        n_s = log.counts.get("search", 0)
+        n_v = log.counts.get("product_view", 0)
+        n_c = log.counts.get("cart_add", 0)
+        print(f"\n>>> Captured this session: {n_s} searches, {n_v} product"
+              f" views, {n_c} cart-add clicks.")
+        if n_v < len(seq):
+            print(">>> Product views look LOW (fewer than one per task) —")
+            print(">>> picks added straight from the results grid never")
+            print(">>> open a product page. Open each pick's product page")
+            print(">>> NOW (click its title) so the view is on record,")
+            print(">>> then continue.")
+            input(">>> Done browsing your picks? Press Enter... ")
         print("\n>>> All tasks done. Now EMPTY the cart (your picks are")
         print(">>> recorded next; the cart must be clean for the agent).")
         input(">>> Cart emptied? Press Enter to confirm your picks... ")

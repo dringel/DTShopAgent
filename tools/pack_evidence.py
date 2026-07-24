@@ -599,8 +599,14 @@ def main():
         n_search = sum(1 for ln in ev_lines if '"type": "search"' in ln
                        or '"type":"search"' in ln)
         n_views = sum(1 for ln in ev_lines if '"product_view"' in ln)
-        need(n_views >= NT, f"human_session.jsonl has only {n_views} product "
-                           "views — did the logger run during shopping?")
+        if n_views < NT:
+            # legitimate shopping can produce few product views (adding
+            # straight from the results grid never opens a product page)
+            # — record for review, never fail an un-redoable Wednesday
+            # session at Sunday pack time
+            warn(f"human_session.jsonl has only {n_views} product views "
+                 f"for {NT} tasks — picks added straight from the results "
+                 "grid don't open product pages; recorded for review")
     else:
         n_search = n_views = 0
     for label, rows_ in pick_sets.items():
