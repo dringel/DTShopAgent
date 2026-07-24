@@ -199,7 +199,10 @@ KEY_RE = re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}")
 KEYLINE_RE = re.compile(r"(ANTHROPIC_API_KEY\s*[=:]\s*)[^\s\"']+")
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?<!\d)(?:\+91[-\s]?)?[6-9]\d{9}(?!\d)")
-TEXT_SUFFIXES = {".md", ".txt", ".log", ".json", ".jsonl", ".csv", ".html"}
+# .env included so a key pasted into the staged dtlab_config.env copy is
+# scanned (KEYLINE_RE catches it) before the snapshot enters the zip
+TEXT_SUFFIXES = {".md", ".txt", ".log", ".json", ".jsonl", ".csv", ".html",
+                 ".env"}
 
 issues = []
 warnings_ = []   # recorded + printed, but never fail the pack
@@ -270,9 +273,11 @@ def collect_hermes_logs(staging):
 
 
 def redact_staging(staging):
-    """Redact API keys out of every staged text file and flag likely PII
-    markers. Returns the redaction report recorded in manifest.json so the
-    instructor sees exactly what was scrubbed or needs review."""
+    """Redact API keys, email addresses, and Indian mobile numbers out of
+    every staged text file (written back in place, counts kept for the
+    report); "deliver to" occurrences are flagged for review. Returns the
+    redaction report recorded in manifest.json so the instructor sees
+    exactly what was scrubbed or needs review."""
     report = {}
     for p in sorted(staging.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in TEXT_SUFFIXES:
@@ -283,17 +288,17 @@ def redact_staging(staging):
             continue
         text, n_key = KEY_RE.subn("[REDACTED-API-KEY]", text)
         text, n_line = KEYLINE_RE.subn(r"\1[REDACTED]", text)
+        text, n_email = EMAIL_RE.subn("[REDACTED-EMAIL]", text)
+        text, n_phone = PHONE_RE.subn("[REDACTED-PHONE]", text)
         flags = {}
-        n = len(EMAIL_RE.findall(text))
-        if n:
-            flags["email_like"] = n
-        n = len(PHONE_RE.findall(text))
-        if n:
-            flags["phone_like"] = n
+        if n_email:
+            flags["emails_redacted"] = n_email
+        if n_phone:
+            flags["phones_redacted"] = n_phone
         n = text.lower().count("deliver to")
         if n:
             flags["deliver_to"] = n
-        if n_key or n_line:
+        if n_key or n_line or n_email or n_phone:
             p.write_text(text, encoding="utf-8")
         if n_key or n_line or flags:
             report[str(p.relative_to(staging))] = {

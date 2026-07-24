@@ -92,6 +92,24 @@ def parse_price(s):
         return None
 
 
+def capture_screenshot(page, png):
+    """Screenshot CLIPPED to the active-cart region: the amazon.in page
+    header carries account PII ("Hello, <name>", "Deliver to <name> —
+    <city> <PIN>") that must never enter the evidence zip. Returns True
+    when the clip succeeded; on any failure falls back to a full-page
+    capture (the caller shows a blocking warning)."""
+    try:
+        el = page.query_selector("#sc-active-cart")
+        box = el.bounding_box() if el else None
+        if box and box["width"] > 1 and box["height"] > 1:
+            page.screenshot(path=str(png), clip=box)
+            return True
+    except Exception:
+        pass
+    page.screenshot(path=str(png), full_page=True)
+    return False
+
+
 def parse_items(page):
     """Best-effort cart line items via the SELECTORS dict. Any failure
     returns None (caller degrades to screenshot-only)."""
@@ -144,9 +162,21 @@ def main():
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(CART_URL, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(1500)              # let cart rows render
-        page.screenshot(path=str(png), full_page=True)
-        print(f"  [ok] screenshot -> {png}")
+        clipped = capture_screenshot(page, png)
+        print(f"  [ok] screenshot -> {png}"
+              + ("" if clipped else " (FULL PAGE — clip failed)"))
         items = parse_items(page)
+
+    if not clipped:
+        print("  [!!] could not clip the screenshot to the cart region "
+              "(#sc-active-cart)")
+        print("       — the FULL page was captured instead, and the "
+              "amazon.in header")
+        print("       shows the account name and delivery city. Tell a TA "
+              "before packing;")
+        print("       the evidence still counts.")
+        if sys.stdin.isatty():
+            input("  Press Enter to acknowledge... ")
 
     if items is not None:
         out_json.write_text(json.dumps({
