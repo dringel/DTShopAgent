@@ -56,9 +56,11 @@ Sunday:
 
 ## Monday homework (assigned in Session 6 · due Monday 22:00)
 
-- [ ] Consent sheet (research participation separable from the course
-      requirement; names the partner-pairing disclosure and the ablated
-      runs' constraint-blindness; synthetic-persona opt-out available).
+- [ ] Consent & data-use sheet (`docs/CONSENT_AND_DATA_USE.md`:
+      research participation separable from the course requirement;
+      understanding + consent checkboxes repeated in the Form; names the
+      partner-pairing disclosure and the ablated runs'
+      constraint-blindness; synthetic-persona opt-out available).
 - [ ] The 115-item questionnaire (~30 min; phone is fine — only the
       Form link and your pseudonym are needed).
 - [ ] Own Anthropic Console account: billing, small credit purchase,

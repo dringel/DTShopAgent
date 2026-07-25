@@ -546,10 +546,16 @@ sees your agent narrate your purchase profile); a synthetic-persona pack provide
 grade impact; pseudonym↔name mapping is held separately by the instructor
 and destroyed post-study; data minimization is implemented in code (the
 pre-flight refuses to launch with PII-shaped files in the workspace; the
-packer redacts keys and flags PII) rather than promised in prose. The
-cohort sits in India: DPDP Act 2023 is the operative regime and BITSoM's
-ethics process (plus the instructor's home IRB where required) precedes
-the questionnaire; GDPR applies only if EU exchange students enroll.
+packer redacts keys and PII markers) rather than promised in prose. The
+cohort sits in India, so collection runs under the DPDP Act 2023 with
+consent as the lawful basis; the instructor — an independent contracted
+instructor conducting the research in his own academic capacity —
+retains the pseudonymized dataset in the EU, where the GDPR applies to
+that processing. With no institutional ethics board covering a
+contracted course, the governance instruments are the documented consent
+sheet (`docs/CONSENT_AND_DATA_USE.md`, with layered capture: Form
+checkboxes, a typed pre-run acknowledgment in dtlab-start, the LMS
+release) and the code-enforced minimization above.
 
 **Account risk, stated plainly in the syllabus:** automated interaction
 sits in tension with Amazon's conditions of use. Mitigations — manual
