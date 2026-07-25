@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 clean_privacy_export.py — Convert Amazon's official "Request Your Data" export
-into the lab's schema (dtlab-orders-v1). PREFERRED capture path: unlike the
-scraper, the official export contains authoritative unit prices and quantities.
+into the lab's schema (dtlab-orders-v1). The official export is the only
+capture path: authoritative unit prices and quantities, no site automation.
 
 Point it at the Retail.OrderHistory*.csv inside the unzipped export.
 Column names vary across export versions, so matching is fuzzy/case-insensitive.

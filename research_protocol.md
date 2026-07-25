@@ -154,7 +154,7 @@ GenAI quality-assurance metascience agenda).
 
 ## 4. Data-minimization guarantees (implemented in code)
 
-- `clean_privacy_export.py` / `scrape_orders.py` write ONLY:
+- `clean_privacy_export.py` writes ONLY:
   `student_id, order_date, brand, product_title, asin, unit_price_inr,
   quantity, capture_method` (+ provenance sidecar). Order IDs, addresses,
   payment data, and carrier data never reach the workspace or the dataset.
@@ -186,7 +186,7 @@ Assembly steps:
 2. Collect all `purchase_profile.md` files (deliverable #2). Only if the
    optional post-course add-on ran for a validation subsample:
    concatenate those students' `purchase_history.csv` → `cohort_orders.csv`
-   (the provenance sidecars give you capture-method covariates).
+   (with their provenance sidecars).
 3. Build `cohort_choices.csv` by joining each zip's `agent_picks.csv`,
    `human_picks.csv`, and manifest verdicts (all machine-readable); only
    `cited_codes` / `citation_valid_share` require coding from the decision
@@ -210,9 +210,8 @@ Assembly steps:
   instrument (`questionnaire_instrument_source.md` is the authoritative
   source; `questionnaire_items.csv` its machine transfer); the instrument
   is frozen at Form launch and versioned thereafter.
-- `dtlab-orders-v1`: student_id, order_date, brand_guess[/brand,
-  brand_source], product_title, asin, unit_price_inr, quantity,
-  capture_method.
+- `dtlab-orders-v1`: student_id, order_date, brand_guess,
+  product_title, asin, unit_price_inr, quantity, capture_method.
 - `dtlab-humanlog-v1.4` (JSONL events): ts, student_id, type
   {session_start|search|product_view|cart_add|filter_sort|nav|session_end},
   plus type-specific fields (query/page/sort; asin/title). v1.1 adds

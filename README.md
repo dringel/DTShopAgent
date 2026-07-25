@@ -159,9 +159,7 @@ dt-lab/
 │   └── sample_report.html             ← SAMPLE cohort report (synthetic data) — what analyze_cohort.py produces
 ├── COURSE_PLAN_1WEEK.md               ← THE operative plan (single authority on the route decision): Sessions 6–10, 3 h/day per section, N=161
 ├── data-pipeline/                     ← OPTIONAL research add-on (post-course precise history via official export)
-│   ├── clean_privacy_export.py        ← official Amazon export → schema v1
-│   ├── scrape_orders.py               ← manual-login + Playwright scrape → schema v1
-│   └── enrich_brands.py               ← resolves authoritative brand per ASIN
+│   └── clean_privacy_export.py        ← official Amazon export → schema v1
 ├── templates/
 │   ├── tasks.md                       ← deliverable #3: the 5 category tasks (generated from tasks_config.csv; ordered per student at pre-flight)
 │   ├── human_picks.csv                ← deliverable #6: pre-registered student picks (structured)
@@ -187,23 +185,22 @@ dt-lab/
     └── student_start.sh               ← the one command students run (`dtlab-start`) — used on BOTH routes
 ```
 
-## The two-path history capture (OPTIONAL research add-on — why both scripts exist)
+## Precise history capture (OPTIONAL research add-on — official export only)
 
 > Not part of the student flow: deliverable #2 is the agent-written
-> `purchase_profile.md`. The `data-pipeline/` scripts below exist only for
+> `purchase_profile.md`. The `data-pipeline/` cleaner below exists only for
 > the optional post-course validation subsample (research_protocol.md §5).
 
-| | Privacy Central export (preferred) | Scraper (fallback / instant) |
-|---|---|---|
-| Accuracy | Authoritative unit price, qty, ASIN | Best-effort DOM parsing; per-item price occasionally missing |
-| Speed | Request at T−14; usually arrives in hours–days, SLA up to ~1 month | ~4 s per order, immediate |
-| Fragility | Stable file format | Breaks when Amazon changes its DOM — validate on dry run |
-| ToS posture | Fully sanctioned (it's Amazon's own DSAR tool) | Automated access; mitigated by manual login + polite pacing, residual risk disclosed in syllabus |
-
-Both emit the **identical schema (`dtlab-orders-v1`) + a provenance sidecar**,
-so the cohort dataset is uniform regardless of path, with `capture_method` as
-a covariate. Assign the export request at T−14; the scraper exists so nobody
-is blocked on lab day. `enrich_brands.py` runs after either path.
+`clean_privacy_export.py` converts Amazon's official Privacy Central
+("Request Your Data") export into the frozen **`dtlab-orders-v1` schema +
+a provenance sidecar** — authoritative unit prices and quantities from
+Amazon's own DSAR tool, with no automated site access and no DOM
+dependence. Consenting students request the export after the course
+(delivery ranges from hours to about a month, which no longer matters
+once the lab week is over) and the cleaner runs on
+`Retail.OrderHistory*.csv`; privacy minimization is built in — order IDs,
+addresses, payment and carrier data are dropped before the file reaches
+anything else.
 
 ## Questionnaire pipeline (Google Forms → Sheet → VM)
 
@@ -470,8 +467,9 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
 
 1. **Hermes release drift** — commands/paths may shift between now and fall
    2026; the docs are canonical, the handout is best-effort.
-2. **Amazon DOM drift** — affects `scrape_orders.py` and `enrich_brands.py`
-   only; the SELECTORS dict is the single patch point.
+2. **Amazon export format drift** — `clean_privacy_export.py` matches
+   `Retail.OrderHistory*` headers fuzzily across export versions; if
+   Amazon renames columns, its ALIASES map is the single patch point.
 3. **Installer pins** — `provision.sh` and `.devcontainer/setup.sh`
    refuse to build until the Hermes/uv installer URLs and SHA-256s are
    pinned (procedure in TA_ONBOARDING.md); verify against the official

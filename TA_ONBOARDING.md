@@ -218,9 +218,8 @@ concrete machinery, so you recognize it when you see it:
       category links, cart selectors) and tick them off there.
 - [ ] Validate the fragile DOM-dependent code against live amazon.in:
       `tools/log_human_session.py` (cart-click selector, breadcrumb
-      category selector, URL parsing) and, only if the research add-on
-      is used, `data-pipeline/scrape_orders.py` (SELECTORS dict is the
-      single patch point).
+      category selector, URL parsing) and `tools/capture_cart.py`
+      (SELECTORS dict is the single patch point).
 - [ ] **API-account setup checklist (Monday homework — assigned in
       Session 6, due Monday 22:00):** publish the
       LMS checklist — create your own Anthropic Console account, complete

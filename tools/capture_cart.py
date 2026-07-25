@@ -49,9 +49,9 @@ RUNSDIR = HOME / "dtlab" / "runs"
 CART_URL = "https://www.amazon.in/gp/cart/view.html"
 ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
 
-# The ONE patch point for amazon.in cart DOM drift (like scrape_orders.py's
-# SELECTORS). TODO(dry-run): validate on live amazon.in during the T-21
-# dry run; parsing failure degrades to screenshot-only, never an error.
+# The ONE patch point for amazon.in cart DOM drift. Validate on live
+# amazon.in at the T-21 dry run; parsing failure degrades to
+# screenshot-only, never an error.
 SELECTORS = {
     # scoped to the ACTIVE cart: unscoped div.sc-list-item also matches
     # "Saved for later" rows, which silently carries prior runs' items

@@ -1,5 +1,23 @@
 # Kit changelog
 
+## 2026-07-25 — Order-history capture: official export only
+
+- **Amazon scraping dropped from the kit:** `data-pipeline/scrape_orders.py`
+  and `data-pipeline/enrich_brands.py` removed. The in-course design is
+  unchanged — the agent reads the order history itself at Bootstrap, no
+  pre-course data step. The optional post-course validation subsample now
+  has exactly one path: Amazon's official Privacy Central export via
+  `clean_privacy_export.py` (no DOM dependence, no automated site
+  access). Subsample brand analysis uses the cleaner's title-derived
+  `brand_guess`; agent-side brand grounding continues to come from
+  `purchase_profile.md` and the stated-brand questionnaire items.
+- Scrape-first remnants purged: README's two-path capture section
+  replaced with the single-path description (no "assign the export
+  request at T−14", no scraper column), fragility-register entry
+  re-pointed at export header drift, research_protocol §4/§6 updated
+  (cleaner-only; `dtlab-orders-v1` brand field is `brand_guess`),
+  `capture_cart.py` comment updated.
+
 ## 2026-07-24 — Doc alignment pass (audit Part A)
 
 - **Session topics aligned to the published syllabus:** the Hermes +
