@@ -1425,6 +1425,12 @@ def main():
                            else "comparison_md"),
         "verdicts_captured_blind": verdicts_captured_blind,
         "checkout_attempts": checkout_attempts,
+        # the typed pre-run acknowledgment (consent capture layer 2 of 3,
+        # research_protocol §3) — recorded by dtlab-start, audited here
+        "consent_ack_utc": (
+            (HOME / "dtlab" / ".consent_ack").read_text(
+                encoding="utf-8").strip()
+            if (HOME / "dtlab" / ".consent_ack").exists() else None),
         "candidates": candidates,
         "searches": searches,
         "warnings": warnings_,

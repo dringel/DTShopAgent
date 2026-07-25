@@ -133,6 +133,16 @@ def main():
 
     # 7: build_form.gs ID pattern semantically in sync with the config
     gs = (REPO / "questionnaire" / "build_form.gs").read_text()
+
+    # 7a: the two consent checkboxes (docs/CONSENT_AND_DATA_USE.md >
+    # "What you confirm") sit at the top of the Form build — layer 1 of
+    # the layered consent capture (research_protocol §3)
+    check("Understanding — I understand" in gs
+          and "Consent — I consent" in gs,
+          "build_form.gs carries both consent checkboxes (Understanding "
+          "+ Consent)")
+    check("CONSENT_AND_DATA_USE" in gs,
+          "build_form.gs points at the consent & data-use sheet")
     gm = re.search(r"requireTextMatchesPattern\('([^']+)'\)", gs)
     check(gm is not None, "build_form.gs contains an ID validation pattern")
     if gm:

@@ -47,6 +47,8 @@ touch "$HOME/dtlab/human/human_picks.csv" \
 printf 'export ANTHROPIC_API_KEY=sk-ant-test0000000000000000000000\n' \
   > "$HOME/.dtlab_env"
 chmod 600 "$HOME/.dtlab_env"
+# consent acknowledgment already given (the gate has its own case [22])
+date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
 }
 
 run(){  # $1=piped answers, rest = env assignments
@@ -509,6 +511,29 @@ assert "http://" not in blocked and "https://" not in blocked, \
     "blocked.html must load no external resources"
 PY
 check $? 0 "rules cover the five pipelines, spare the cart; manifest minimal; blocked.html self-contained"
+
+echo "[22] consent acknowledgment: one-time typed AGREE before the first run"
+mkenv 1
+rm -f "$HOME/dtlab/.consent_ack"
+rc=$(run 'P_FIRST\nnope\n')
+check "$rc" 1 "refusing the acknowledgment exits 1"
+grep -q "CONSENT_AND_DATA_USE" "$HOME/last_out.txt"
+check $? 0 "gate names the consent sheet"
+grep -q "opt-out path" "$HOME/last_out.txt"
+check $? 0 "refusal points at the opt-out path and a TA"
+[ ! -d "$HOME/dtlab/runs/run1" ] && [ ! -f "$HOME/dtlab/.consent_ack" ]
+check $? 0 "nothing started, nothing recorded on refusal"
+rc=$(run 'AGREE\ny\ny\n\n')
+check "$rc" 0 "typed AGREE proceeds to the run"
+[ -f "$HOME/dtlab/.consent_ack" ]
+check $? 0 "acknowledgment recorded once under the lab root"
+check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
+      "run 1 launches only after the acknowledgment"
+finish_run
+rc=$(run 'y\ny\ny\n\n')
+check "$rc" 0 "run 2 proceeds"
+! grep -q "One-time acknowledgment" "$HOME/last_out.txt"
+check $? 0 "never asked again once recorded"
 
 guard
 rm -rf "$SANDBOX_HOME"

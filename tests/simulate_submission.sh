@@ -59,6 +59,7 @@ printf "# c\n## Task 1\nVerdict: identical\nMy pick rating (1-10): 7\nAgent pick
 printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asin":"B09YLFGBLL"}\n{"type":"product_view","asin":"B07D75V2GH"}\n' > "$HOME/dtlab/human/human_session.jsonl"
 printf "task_id,title,asin,url,price_inr,reasoning\n1,A,B07GYLZ1ZN,u,299,r\n2,S,B09YLFGBLL,u,1490,r\n3,K,B07D75V2GH,u,780,r\n" > "$HOME/dtlab/human/human_picks.csv"
 echo H_FIRST > "$HOME/dtlab/arm.txt"
+date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
 sleep 0.2; touch "$HOME/dtlab/.run_started"; sleep 0.1
 echo '{"t":1}' > "$HOME/.hermes/sessions/s.jsonl"
 python3 - <<'PY'
@@ -245,6 +246,7 @@ entry=[v for k,v in rr.items() if 's2.jsonl' in k][0]
 assert entry['api_keys_redacted']>=1 and entry['pii_flags'].get('emails_redacted',0)>=1
 assert entry['pii_flags'].get('deliver_to',0)>=1
 assert man['model_tier']=='frontier' and 'environment' in man
+assert man['consent_ack_utc'], "typed AGREE must be audited in the manifest"
 assert man['ratings']['1']=={'self':7,'agent':9}
 assert 'config_snapshot/dtlab_config.env' in man['file_inventory']
 assert man['file_inventory']['comparison.md']['mtime_utc']

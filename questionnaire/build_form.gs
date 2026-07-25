@@ -44,9 +44,35 @@ function buildForm() {
   form.setDescription(
     'Answer honestly as yourself, not aspirationally — your agent will only ' +
     'be as accurate as these answers. Takes ~30 minutes. Your responses are ' +
-    'stored under your course pseudonym; see the research information sheet ' +
-    'for data handling and opt-out.');
+    'stored under your course pseudonym; see the consent & data-use sheet ' +
+    '(docs/CONSENT_AND_DATA_USE.md, on the LMS) for data handling and ' +
+    'opt-out.');
   form.setProgressBar(true);
+
+  // Consent capture, layered per research_protocol.md §3: these two
+  // REQUIRED checkboxes at the top of the Form are the first layer
+  // (timestamped with the response). Wording is in lockstep with
+  // docs/CONSENT_AND_DATA_USE.md > "What you confirm" — change it there
+  // first, then here (tests/test_instrument_lockstep.py guards the
+  // presence of both boxes).
+  form.addCheckboxItem()
+      .setTitle('Understanding — I understand that my AI agent will browse ' +
+                'and act (add-to-cart only) on my own logged-in amazon.in ' +
+                'account; that my questionnaire answers, purchase-history ' +
+                'profile, lab-session clickstream, agent logs, and verdicts ' +
+                'are collected under my pseudonym; and that they are ' +
+                'submitted once, as one zip, for anonymized analysis.')
+      .setChoiceValues(['I understand'])
+      .setRequired(true);
+  form.addCheckboxItem()
+      .setTitle('Consent — I consent to my pseudonymized data being used ' +
+                'in this research that we conduct together in class, where ' +
+                'the final anonymized cohort report is shared with the ' +
+                'class, no other student receives access to my data, and ' +
+                'the instructor retains the anonymized dataset for ' +
+                'scientific research and potential aggregate publication.')
+      .setChoiceValues(['I consent'])
+      .setRequired(true);
 
   // Pseudonym ID (validated pattern DT2026-###). Apps Script cannot read
   // dtlab_config.env — keep this pattern in sync with DTLAB_ID_PATTERN by

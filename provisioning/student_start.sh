@@ -566,6 +566,33 @@ echo -e "${YEL}Codespaces users: NEVER set the forwarded desktop port (6080) to"
 echo -e "Public — a public port hands your desktop (and your logged-in Amazon"
 echo -e "session) to anyone with the URL. Leave it Private.${NC}"
 echo ""
+# One-time consent acknowledgment (docs/CONSENT_AND_DATA_USE.md; the
+# capture is layered per research_protocol.md §3: Form checkboxes, THIS
+# typed acknowledgment, the LMS release). The understanding is confirmed
+# at the moment it becomes real — right before the first real agent run;
+# recorded once under the persistent lab root and written into the
+# manifest by dtlab-pack.
+ACKFILE="$HOME/dtlab/.consent_ack"
+if [ ! -f "$ACKFILE" ]; then
+  echo -e "${YEL}One-time acknowledgment (consent sheet:"
+  echo -e "docs/CONSENT_AND_DATA_USE.md, on the LMS): your agent is about"
+  echo -e "to browse and act — add-to-cart only — on your own logged-in"
+  echo -e "amazon.in account. Its logs, picks, and your verdicts are"
+  echo -e "collected under your pseudonym and leave this environment"
+  echo -e "exactly once, as the zip you upload to the LMS.${NC}"
+  read -rp "Type AGREE to confirm and continue: " ACK
+  if [ "$ACK" = "AGREE" ]; then
+    date -u +%FT%TZ > "$ACKFILE"
+    ok "acknowledgment recorded — you will not be asked again"
+    echo ""
+  else
+    echo -e "${RED}Not confirmed — nothing was started. Read the consent"
+    echo -e "sheet on the LMS, then re-run dtlab-start. Questions, or the"
+    echo -e "opt-out path (synthetic persona, no grade impact): talk to a"
+    echo -e "TA.${NC}"
+    exit 1
+  fi
+fi
 # Friday gate: the 1-day browsing-history pause set on day 1 has LAPSED
 # by day 2 — require a fresh self-attest before the first frontier run.
 if [ -n "$RUN" ] && [ "$RUN" -ge 3 ]; then
