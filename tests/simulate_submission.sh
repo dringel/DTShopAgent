@@ -1071,6 +1071,41 @@ OUT38C="$(cd "$HOME" && python3 "$SHOP" --student-id DT2026-111 2>&1)"; RC38C=$?
 [ "$RC38C" -ne 0 ] && echo "$OUT38C" | grep -q "contradicts persona_survey.csv"
 check $? 0 "sid contradicting the persona refused"
 
+echo "[39] B22: checkout-shaped URL in a log blocks; guard-fire is recorded"
+mkenv_4run
+printf 'navigation attempt: https://www.amazon.in/gp/buy/spc/handlers/display.html?token=SECRET123 was refused\n' \
+  >> "$HOME/dtlab/runs/run2/decision_log.md"
+OUT39="$(python3 "$PACK" 2>&1)"; RC39=$?
+check "$([ "$RC39" -ne 0 ]; echo $?)" 0 "pack with a checkout URL exits non-zero"
+echo "$OUT39" | grep -q "checkout-shaped URL in run2/decision_log.md"
+check $? 0 "blocking issue names the run and demands review"
+python3 - <<'PY'; check $? 0 "manifest checkout_attempts: query-stripped URL, no token"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+ca=m['checkout_attempts']
+e=ca['run2/decision_log.md']
+assert e['checkout_urls']==['amazon.in/gp/buy/spc/handlers/display.html'], e
+assert 'SECRET123' not in json.dumps(ca)
+assert e['guard_fired']==0
+assert any('checkout-shaped URL' in i for i in m['validation_issues'])
+sys.exit(0)
+PY
+mkenv_4run
+printf 'blocked navigation landed on chrome-extension://abcdefghij/blocked.html — logged as obstacle, returning to task\n' \
+  >> "$HOME/dtlab/runs/run1/decision_log.md"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "guard-fired sighting alone never blocks the pack"
+python3 - <<'PY'; check $? 0 "guard fire recorded in checkout_attempts, no issue raised"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+e=m['checkout_attempts']['run1/decision_log.md']
+assert e['guard_fired']==1 and e['checkout_urls']==[], e
+assert m['validation_issues']==[], m['validation_issues']
+sys.exit(0)
+PY
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

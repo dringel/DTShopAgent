@@ -366,11 +366,17 @@ def main():
               "bundled Chromium. Profile version skew with the agent "
               "session is possible; flag this to a TA.", file=sys.stderr)
 
+    # checkout-guard extension: the Wednesday human session is
+    # add-to-cart-only by protocol, so checkout is network-blocked here
+    # exactly like in the agent session (same dir dtlab_browser.sh loads)
+    ext_dir = Path(__file__).resolve().parent / "checkout_guard_extension"
     with sync_playwright() as p:
         try:
             ctx = p.chromium.launch_persistent_context(
                 str(PROFILE), headless=False,
                 executable_path=exe or None,
+                args=[f"--load-extension={ext_dir}",
+                      f"--disable-extensions-except={ext_dir}"],
                 viewport={"width": 1280, "height": 900})
         except Exception:
             sys.exit("Could not open the shared lab browser profile — "

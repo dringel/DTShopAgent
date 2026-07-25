@@ -141,16 +141,37 @@ GenAI quality-assurance metascience agenda).
   a TA babysitter instead, without explanation or grade impact.
 - Non-consenting or opt-out students use the synthetic persona pack; their
   course grade is unaffected and their data never enters the dataset.
-- **Jurisdiction.** The cohort sits at BITSoM (Mumbai, India): the
-  operative data-protection regime is India's **Digital Personal Data
+- **Jurisdiction and governance.** The cohort sits at BITSoM (Mumbai,
+  India): collection happens under India's **Digital Personal Data
   Protection Act (DPDP) 2023** — purchase history, questionnaire answers,
   and the clickstream are personal data; lawful basis = consent obtained
-  as above (specific, informed, withdrawable); the instructor's
-  institution acts as data fiduciary and minimization/pseudonymization
-  are implemented in the pipeline. Obtain approval through BITSoM's (or
-  the host institution's) ethics process, plus the instructor's home IRB
-  (UNC) if required for the research use. Keep GDPR language only if EU
-  exchange students are expected in the cohort; verify at term start.
+  as above (specific, informed, withdrawable), with the instructor as
+  data fiduciary. The instructor teaches as an **independent contracted
+  instructor** (not BITSoM faculty) and conducts the research in his own
+  academic capacity; no institutional ethics board covers a contracted
+  course, so **documented informed consent plus code-enforced
+  minimization and pseudonymization are the governance instruments** of
+  this protocol. The pseudonymized dataset is processed and retained by
+  the instructor in the EU, so the **GDPR applies to that processing**
+  (controller established in the EU) regardless of cohort composition;
+  data-subject rights run until the pseudonym mapping is destroyed and
+  the dataset is anonymous.
+- **Consent instrument and capture points.** The student-facing sheet is
+  `docs/CONSENT_AND_DATA_USE.md` (released in Session 6, walked through
+  in class before the Form opens). It carries the two confirmations —
+  (1) *understanding*: the agent browses and acts, add-to-cart only, on
+  the student's own logged-in amazon.in account, and questionnaire /
+  purchase-history profile / clickstream / agent logs / verdicts are
+  collected under pseudonym and submitted once for anonymized analysis;
+  (2) *consent*: pseudonymized data is used in the research the class
+  conducts together, the anonymized cohort report is returned to the
+  class, no other student receives access to anyone's data, and the
+  instructor retains the anonymized dataset for scientific research and
+  potential aggregate publication. Capture is layered: two required
+  checkboxes at the top of the Form (timestamped with the response), a
+  one-time typed AGREE acknowledgment in `dtlab-start` before the first
+  real agent run (recorded in the evidence pack's manifest), and the LMS
+  release acknowledgment.
 
 ## 4. Data-minimization guarantees (implemented in code)
 

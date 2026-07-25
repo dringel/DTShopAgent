@@ -447,8 +447,10 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
 
 ## Build checklist (instructor)
 
-- [ ] Ethics approval (BITSoM process + DPDP; see research_protocol.md §3)
-      + consent sheet incl. the partner-pairing disclosure
+- [ ] Consent & data-use sheet finalized and staged on the LMS
+      (`docs/CONSENT_AND_DATA_USE.md` — set the withdrawal date and
+      contact; partner-pairing disclosure included; see
+      research_protocol.md §3)
 - [ ] Build Form via Apps Script; test-submit once; confirm response Sheet
 - [ ] Pin installer checksums (TA_ONBOARDING.md), make the repo a template,
       enable Codespaces prebuilds

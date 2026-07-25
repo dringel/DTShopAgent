@@ -32,9 +32,18 @@ if [ -z "$BIN" ]; then
   exit 1
 fi
 
+# Checkout-guard extension: blocks every amazon.in checkout/Buy Now/
+# one-click pipeline at the network layer (add-to-cart-only is enforced
+# technically, not just by instruction). Lives next to this script in
+# the kit tools dir on both routes; dtlab-start's canary gate proves it
+# is live before any run.
+EXTDIR="$(cd "$(dirname "$0")" && pwd)/checkout_guard_extension"
+
 mkdir -p "$PROFILE"
 exec "$BIN" \
   --user-data-dir="$PROFILE" \
   --remote-debugging-port="$PORT" \
+  --load-extension="$EXTDIR" \
+  --disable-extensions-except="$EXTDIR" \
   --no-first-run --no-default-browser-check \
   "$URL"

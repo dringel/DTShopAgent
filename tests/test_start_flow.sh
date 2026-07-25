@@ -296,11 +296,25 @@ grep -q "Close ALL open lab-browser windows" "$HOME/last_out.txt"
 check $? 0 "prints the one action that fixes the profile lock"
 [ ! -f "$HOME/hermes_ran" ]
 check $? 0 "Hermes never started on a dead CDP port"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/bin/curl"       # CDP alive
+# CDP alive AND the checkout-guard canary lands on blocked.html
+cat > "$HOME/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *json/new*)   printf '{"id":"CANARY1","url":"about:blank"}'; exit 0 ;;
+    *json/list*)  printf '[{"id":"CANARY1","url":"chrome-extension://abcdefghijklmnop/blocked.html"}]'; exit 0 ;;
+    *json/close*) printf 'ok'; exit 0 ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$HOME/bin/curl"
 printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
   > "$HOME/last_out.txt" 2>&1
 rc=$?
-check "$rc" 0 "live CDP port proceeds to Hermes"
+check "$rc" 0 "live CDP port + blocked canary proceeds to Hermes"
+grep -q "checkout guard active (canary blocked)" "$HOME/last_out.txt"
+check $? 0 "canary gate reports the guard live"
 [ -f "$HOME/hermes_ran" ]
 check $? 0 "Hermes started once the port answered"
 guard; rm -rf "${HOME:?}/bin" "$HOME/hermes_ran"
@@ -422,6 +436,79 @@ check "$rc" 0 "exit 0"
 [ -f "$HOME/dtlab/.hermes_dirs" ] && \
   grep -q ".hermes" "$HOME/dtlab/.hermes_dirs"
 check $? 0 ".hermes_dirs records the transcript dir dtlab-pack will read"
+
+echo "[20] B22: canary NOT blocked -> pre-flight fails before Hermes"
+mkenv 0
+mkdir -p "$HOME/bin" "$HOME/dtlab/tools"
+# shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
+printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+cat > "$HOME/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *json/new*)   printf '{"id":"CANARY1","url":"about:blank"}'; exit 0 ;;
+    *json/list*)  printf '[{"id":"CANARY1","url":"https://www.amazon.in/ap/signin"}]'; exit 0 ;;
+    *json/close*) printf 'ok'; exit 0 ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
+         "$HOME/dtlab/tools/dtlab_browser.sh"
+printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
+  > "$HOME/last_out.txt" 2>&1
+rc=$?
+check "$rc" 1 "unblocked canary exits 1"
+grep -q "checkout guard did NOT block" "$HOME/last_out.txt"
+check $? 0 "red canary names the failed guarantee"
+grep -q "call a TA" "$HOME/last_out.txt"
+check $? 0 "red canary escalates to a TA on repeat"
+[ ! -f "$HOME/hermes_ran" ]
+check $? 0 "Hermes never started with the guard unproven"
+guard; rm -rf "${HOME:?}/bin" "$HOME/hermes_ran"
+
+echo "[21] B22: checkout-guard extension files are sane"
+python3 - "$REPO" <<'PY'
+import json, sys
+from pathlib import Path
+ext = Path(sys.argv[1]) / "tools" / "checkout_guard_extension"
+rules = json.loads((ext / "rules.json").read_text(encoding="utf-8"))
+assert isinstance(rules, list)
+required = {"||amazon.in/gp/buy/", "||amazon.in/checkout/",
+            "||amazon.in/gp/product/one-click/",
+            "||amazon.in/hz/mobile/checkout", "||amazon.in/gp/aw/buy"}
+pats = {r["condition"]["urlFilter"] for r in rules}
+assert pats == required, pats ^ required
+assert not any("/gp/cart" in p for p in pats), "cart must stay untouched"
+assert all(p.startswith("||amazon.in/") for p in pats)
+for p in required:
+    mains = [r for r in rules if r["condition"]["urlFilter"] == p
+             and r["condition"]["resourceTypes"] == ["main_frame"]]
+    assert len(mains) == 1 and mains[0]["action"]["type"] == "redirect" \
+        and mains[0]["action"]["redirect"]["extensionPath"] \
+        == "/blocked.html", p
+    others = [r for r in rules if r["condition"]["urlFilter"] == p
+              and r not in mains]
+    assert len(others) == 1 and others[0]["action"]["type"] == "block", p
+    assert set(others[0]["condition"]["resourceTypes"]) == \
+        {"sub_frame", "xmlhttprequest", "other"}, p
+ids = [r["id"] for r in rules]
+assert len(ids) == len(set(ids)), "duplicate rule ids"
+man = json.loads((ext / "manifest.json").read_text(encoding="utf-8"))
+assert man["manifest_version"] == 3
+assert man["permissions"] == ["declarativeNetRequest"]
+assert man["host_permissions"] == ["*://*.amazon.in/*"]
+assert man["declarative_net_request"]["rule_resources"][0]["path"] \
+    == "rules.json"
+assert "background" not in man and "content_scripts" not in man, \
+    "the extension must stay logic-free (auditable in one screen)"
+blocked = (ext / "blocked.html").read_text(encoding="utf-8")
+assert "add items to the cart only" in blocked
+assert "http://" not in blocked and "https://" not in blocked, \
+    "blocked.html must load no external resources"
+PY
+check $? 0 "rules cover the five pipelines, spare the cart; manifest minimal; blocked.html self-contained"
 
 guard
 rm -rf "$SANDBOX_HOME"

@@ -490,6 +490,14 @@ def read_submission(path):
         "product_views": (man.get("human_process") or {}).get(
             "product_views"),
         "n_issues": len(man.get("validation_issues") or []),
+        # B22: checkout-attempt detection (guard-blocked; packer scans
+        # decision logs + transcripts)
+        "n_checkout_urls": sum(
+            len(v.get("checkout_urls") or [])
+            for v in (man.get("checkout_attempts") or {}).values()),
+        "n_guard_fired": sum(
+            int(v.get("guard_fired") or 0)
+            for v in (man.get("checkout_attempts") or {}).values()),
     }
     return meta, rows, prov_rows
 
@@ -1850,6 +1858,13 @@ def main():
             f"{int(so.sum())} task(s) across {int((so > 0).sum())} "
             "student(s) — 'identical' was impossible there (human picks "
             "are frozen Wednesday; listings move)"))
+    quality.append((
+        "Checkout attempts (network-blocked by the guard extension)",
+        f"{int(sdf['n_checkout_urls'].sum())} checkout-shaped URL(s) in "
+        f"logs across {int((sdf['n_checkout_urls'] > 0).sum())} "
+        f"student(s); guard-fired sightings: "
+        f"{int(sdf['n_guard_fired'].sum())} — a nonzero count is itself "
+        "a finding about agent behavior; review the flagged packs"))
     if ablation:
         quality.append((
             "Grounding order day 1 (counterbalanced)" if four_run

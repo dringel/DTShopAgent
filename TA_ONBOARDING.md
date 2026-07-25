@@ -110,7 +110,16 @@ concrete machinery, so you recognize it when you see it:
 - **Agent containment:** add-to-cart only, amazon.in only, CAPTCHA halt,
   per-task effort caps, and webpage-text-is-never-instructions (prompt
   injection). Read the Hard boundaries block of `agent/SOUL.md` verbatim
-  — it is also Session 8 teaching content.
+  — it is also Session 8 teaching content. The add-to-cart-only rule is
+  a three-layer guarantee: the SOUL boundary (instruction), the
+  checkout-guard extension
+  (`tools/checkout_guard_extension/` — network-enforced
+  declarativeNetRequest rules that block every checkout, Buy Now,
+  one-click, COD, and gift-card path in the whole lab browser, human
+  session included; `dtlab-start`'s canary proves it is live before any
+  run), and pack-time attempt detection (any checkout-shaped URL in a
+  log is a blocking validation issue). Payment-method removal stays in
+  the pre-flight as hygiene, not as the guarantee.
 - **Ablation integrity:** an ablated run's persona files are physically
   absent, each run's log is archived before the next run starts, and
   the packer's manipulation check fails any ablated log (either day)

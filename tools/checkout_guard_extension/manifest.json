@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "DT Lab Checkout Guard",
+  "version": "1.0",
+  "description": "Digital Twin Shopping Agent Lab: blocks every amazon.in checkout, Buy Now, and one-click pipeline at the network layer. The lab browser adds items to the cart only. Static declarativeNetRequest rules, no scripts, no remote code, no data collection.",
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": ["*://*.amazon.in/*"],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "checkout_block",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html"],
+      "matches": ["*://*.amazon.in/*"]
+    }
+  ]
+}

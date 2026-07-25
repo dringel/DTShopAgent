@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": { "type": "redirect", "redirect": { "extensionPath": "/blocked.html" } },
+    "condition": { "urlFilter": "||amazon.in/gp/buy/", "resourceTypes": ["main_frame"] }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": { "urlFilter": "||amazon.in/gp/buy/", "resourceTypes": ["sub_frame", "xmlhttprequest", "other"] }
+  },
+  {
+    "id": 3,
+    "priority": 1,
+    "action": { "type": "redirect", "redirect": { "extensionPath": "/blocked.html" } },
+    "condition": { "urlFilter": "||amazon.in/checkout/", "resourceTypes": ["main_frame"] }
+  },
+  {
+    "id": 4,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": { "urlFilter": "||amazon.in/checkout/", "resourceTypes": ["sub_frame", "xmlhttprequest", "other"] }
+  },
+  {
+    "id": 5,
+    "priority": 1,
+    "action": { "type": "redirect", "redirect": { "extensionPath": "/blocked.html" } },
+    "condition": { "urlFilter": "||amazon.in/gp/product/one-click/", "resourceTypes": ["main_frame"] }
+  },
+  {
+    "id": 6,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": { "urlFilter": "||amazon.in/gp/product/one-click/", "resourceTypes": ["sub_frame", "xmlhttprequest", "other"] }
+  },
+  {
+    "id": 7,
+    "priority": 1,
+    "action": { "type": "redirect", "redirect": { "extensionPath": "/blocked.html" } },
+    "condition": { "urlFilter": "||amazon.in/hz/mobile/checkout", "resourceTypes": ["main_frame"] }
+  },
+  {
+    "id": 8,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": { "urlFilter": "||amazon.in/hz/mobile/checkout", "resourceTypes": ["sub_frame", "xmlhttprequest", "other"] }
+  },
+  {
+    "id": 9,
+    "priority": 1,
+    "action": { "type": "redirect", "redirect": { "extensionPath": "/blocked.html" } },
+    "condition": { "urlFilter": "||amazon.in/gp/aw/buy", "resourceTypes": ["main_frame"] }
+  },
+  {
+    "id": 10,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": { "urlFilter": "||amazon.in/gp/aw/buy", "resourceTypes": ["sub_frame", "xmlhttprequest", "other"] }
+  }
+]

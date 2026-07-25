@@ -217,6 +217,15 @@ def hermes_dirs():
 VERDICTS = {"better", "identical", "equivalent", "inferior"}
 MAX_LOG_MB = int(os.environ.get("DTLAB_MAX_LOG_MB", "50"))
 
+# ---- checkout-attempt detection (B22): the guard extension makes
+#      checkout technically impossible; a checkout-shaped URL in a log is
+#      therefore always a reviewable event, and a blocked.html sighting is
+#      evidence the guard fired ----
+CHECKOUT_URL_RE = re.compile(
+    r"amazon\.in/(?:gp/buy|checkout|gp/product/one-click|"
+    r"hz/mobile/checkout|gp/aw/buy)[^\s\"'<>)\]]*")
+GUARD_FIRED_RE = re.compile(r"chrome-extension://[^\s\"'<>]*blocked\.html")
+
 # ---- content redaction (P0.4): filenames are not enough; transcripts can
 #      contain the API key or PII seen on amazon.in pages ----
 KEY_RE = re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}")
@@ -975,6 +984,39 @@ def main():
     n_logs = collect_hermes_logs(staging)
     need(n_logs > 0, "no Hermes session logs found since run start "
                      "(did dtlab-start create the run marker?)")
+
+    # ---- checkout-attempt scan (B22): decision logs + collected
+    #      transcripts. Query strings are stripped (they may embed
+    #      tokens); any checkout-shaped amazon.in URL is a blocking
+    #      issue, blocked.html sightings are guard-fired evidence.
+    checkout_attempts = {}
+
+    def scan_checkout(src_name, path):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        urls = sorted({m.group(0).split("?")[0].split("#")[0]
+                       for m in CHECKOUT_URL_RE.finditer(text)})
+        fired = len(GUARD_FIRED_RE.findall(text))
+        if urls or fired:
+            checkout_attempts[src_name] = {
+                "checkout_urls": urls, "guard_fired": fired}
+        if urls:
+            need(False,
+                 f"checkout-shaped URL in {src_name} — the guard blocked "
+                 "it, but the attempt must be reviewed (tell a TA; do "
+                 "not edit the log)")
+
+    for rn in conds:
+        logp = staging / rn / "decision_log.md"
+        if logp.exists():
+            scan_checkout(f"{rn}/decision_log.md", logp)
+    if (staging / "decision_log.md").exists():
+        scan_checkout("decision_log.md", staging / "decision_log.md")
+    for f in sorted((staging / "hermes_logs").glob("*")):
+        if f.is_file():
+            scan_checkout(f"hermes_logs/{f.name}", f)
     screenshots = sorted(list(EV.glob("*.png")) + list(EV.glob("*.jpg")))
     cart_verified = {}
     if four_run:
@@ -1382,6 +1424,7 @@ def main():
         "verdict_source": ("verdicts_csv" if use_verdicts_csv
                            else "comparison_md"),
         "verdicts_captured_blind": verdicts_captured_blind,
+        "checkout_attempts": checkout_attempts,
         "candidates": candidates,
         "searches": searches,
         "warnings": warnings_,

@@ -105,6 +105,10 @@ cp -v "$KIT/tools/log_human_session.py"    "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_cart.py"         "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_verdicts.py"     "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/dtlab_browser.sh"        "$HOME/dtlab/tools/"
+# checkout-guard extension: kit code (never packed as evidence); the
+# launcher loads it from here and dtlab-start's canary proves it's live
+rm -rf "$HOME/dtlab/tools/checkout_guard_extension"
+cp -rv "$KIT/tools/checkout_guard_extension" "$HOME/dtlab/tools/"
 # Templates land in the workspace ONCE; students fill them in place, so a
 # re-run must never clobber them.
 [ -f "$HOME/dtlab/workspace/tasks.md" ] || \

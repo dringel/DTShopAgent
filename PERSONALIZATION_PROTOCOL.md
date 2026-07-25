@@ -152,7 +152,10 @@ these comparisons."
 
 **All students shop human-first** (Wednesday), committing their picks
 before any agent run; the four agent runs (2×2: persona/ablated ×
-economy/frontier) follow on Thursday and Friday. The order-arm
+economy/frontier) follow on Thursday and Friday. In every session —
+human and agent — checkout is technically blocked at the network layer
+(checkout-guard extension, canary-verified by `dtlab-start`); attempts
+are logged and flagged at pack time. The order-arm
 counterbalance of earlier drafts is retired: with the primary estimands
 now *within-student contrasts across agent runs* — questionnaire effect
 and model-tier effect — carry-over from the human session is common to

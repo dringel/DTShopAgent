@@ -1,5 +1,31 @@
 # Kit changelog
 
+## 2026-07-25 — Consent & governance: contracted-instructor posture
+
+- **New student-facing sheet `docs/CONSENT_AND_DATA_USE.md`** — the
+  consent instrument of record: what the agent does on the student's
+  account (browse + add-to-cart only, checkout network-blocked), what is
+  collected, who sees what (no cross-student access; partner-supervision
+  disclosure with TA alternative), pseudonymization and retention
+  (mapping destroyed post-grades; instructor retains the anonymized
+  dataset for research and potential aggregate publication), opt-out and
+  withdrawal, and the two confirmations (understanding + consent).
+- **research_protocol §3 and design_rationale §9 rewritten to the actual
+  governance posture:** the instructor teaches as an independent
+  contracted instructor (not BITSoM faculty) and conducts the research
+  in his own academic capacity; no institutional ethics board covers a
+  contracted course, so documented informed consent + code-enforced
+  minimization/pseudonymization are the governance instruments. IRB
+  references removed. Collection: DPDP Act 2023 (India), consent basis;
+  retention/processing by the instructor in the EU: GDPR applies to the
+  controller regardless of cohort composition.
+- **Layered consent capture specified** (implementation: work-order
+  addendum B23): two required checkboxes at the top of the Google Form,
+  a one-time typed AGREE acknowledgment in dtlab-start before the first
+  real agent run (recorded in the pack manifest), and the LMS release
+  acknowledgment. README build-checklist and COURSE_PLAN homework
+  bullets point at the sheet.
+
 ## 2026-07-25 — Order-history capture: official export only
 
 - **Amazon scraping dropped from the kit:** `data-pipeline/scrape_orders.py`

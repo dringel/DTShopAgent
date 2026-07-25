@@ -68,6 +68,65 @@ wait_cdp() {
   return 1
 }
 
+# Checkout-guard canary: before any run, a scratch tab is driven to a
+# checkout URL over CDP and MUST land on the guard extension's
+# blocked.html. When the guard works this generates ZERO amazon.in
+# traffic (declarativeNetRequest redirects the main frame before the
+# network); if the guard were absent, the canary is one harmless GET —
+# exactly the case that must go red before Hermes starts.
+canary_checkout_guard() {
+  local port="${DTLAB_CDP_PORT:-9222}"
+  local canary="https://www.amazon.in/gp/buy/spc/handlers/display.html"
+  local resp tid i blocked=1
+  resp=$(curl -fsS -X PUT "http://127.0.0.1:${port}/json/new?${canary}" \
+           2>/dev/null) \
+    || resp=$(curl -fsS "http://127.0.0.1:${port}/json/new?${canary}" \
+                2>/dev/null) \
+    || resp=""
+  tid=$(printf '%s' "$resp" | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("id", ""))
+except Exception:
+    pass' 2>/dev/null)
+  [ -n "$tid" ] || return 1
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsS "http://127.0.0.1:${port}/json/list" 2>/dev/null \
+       | python3 -c '
+import json, sys
+try:
+    tabs = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+for t in tabs:
+    if t.get("id") == sys.argv[1]:
+        u = t.get("url", "")
+        sys.exit(0 if u.startswith("chrome-extension://")
+                 and u.endswith("blocked.html") else 1)
+sys.exit(1)' "$tid" 2>/dev/null; then
+      blocked=0
+      break
+    fi
+    sleep 0.5
+  done
+  curl -fsS "http://127.0.0.1:${port}/json/close/${tid}" >/dev/null 2>&1 \
+    || true
+  return $blocked
+}
+
+canary_gate() {
+  if canary_checkout_guard; then
+    ok "checkout guard active (canary blocked)"
+    return 0
+  fi
+  echo ""
+  echo -e "${RED}The checkout guard did NOT block the canary page — the"
+  echo -e "add-to-cart-only guarantee is not enforceable right now."
+  echo -e "Close ALL lab-browser windows and re-run dtlab-start; if this"
+  echo -e "repeats, call a TA before any agent run.${NC}"
+  return 1
+}
+
 echo "=============================================="
 if [ "$SANDBOX" = "1" ]; then
   echo " Digital Twin Lab — SANDBOX pre-flight"
@@ -190,6 +249,7 @@ if [ "$SANDBOX" = "1" ]; then
   bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://books.toscrape.com" \
     >/dev/null 2>&1 &
   wait_cdp || exit 1
+  canary_gate || exit 1
   cd "$WS" && exec hermes
 fi
 # a stale sandbox marker must never leak into a real run's manifest
@@ -598,4 +658,5 @@ echo "(After the day's runs: dtlab-verdict, and on the final day dtlab-pack.)"
 # Same profile + CDP port as dtlab-shop, via the one shared launcher.
 bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://www.amazon.in" >/dev/null 2>&1 &
 wait_cdp || exit 1
+canary_gate || exit 1
 cd "$WS" && exec hermes

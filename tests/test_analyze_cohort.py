@@ -206,6 +206,14 @@ def make_zip(path, sid, i, mode, sandbox=False):
             "runs": {rn: {"duration_min":
                           (15.0 if tier == "economy" else 23.0) + i}
                      for (cond, tier), (rn, _, _) in cells.items()}}
+        if i == 1:
+            # one student's agent tried a checkout (guard blocked it) —
+            # the cohort report must surface the count
+            man["checkout_attempts"] = {
+                "run2/decision_log.md": {
+                    "checkout_urls": ["amazon.in/gp/buy/spc/handlers"
+                                      "/display.html"],
+                    "guard_fired": 1}}
         man["ablation"] = {
             "enabled": True, "design": "2x2",
             "grounding_order": {
@@ -427,6 +435,10 @@ def main():
                        "Minimum detectable tier effect",
                        "legacy arm design"):
             assert marker in html, f"missing B11 row: {marker}"
+        # B22: guard-blocked checkout attempts surface in Data Quality
+        assert "Checkout attempts (network-blocked" in html
+        assert "1 checkout-shaped URL(s) in logs across 1 student(s)" \
+            in html, "cohort checkout-attempt count wrong"
         # B15: occasion/price-drift caveats + stock-out flag
         for marker in ("verdict occasion tracks tier",
                        "captured on different days",
