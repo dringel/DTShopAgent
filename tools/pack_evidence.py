@@ -45,6 +45,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from collections import Counter
 from datetime import datetime, timezone
@@ -398,37 +399,124 @@ def collect_home_logs(home, out):
     return n
 
 
+# Redaction cost controls (audit 3.4): the naive whole-file EMAIL_RE
+# scan backtracked QUADRATICALLY on long '@'-free text (a multi-MB
+# homogeneous transcript line stalled the harness). The scan is now
+# line-by-line (streaming, bounded memory) with cheap prefilters; lines
+# over the cap get the email pattern only in windows around each '@'
+# (an email is far shorter than the window, and the '@'-free stretches
+# that caused the blowup are never regex-scanned). Exceeding the
+# per-file budget is a PACKAGING FAILURE, never a silent skip.
+REDACT_LINE_CAP = int(os.environ.get("DTLAB_REDACT_LINE_CAP", "10000"))
+REDACT_BUDGET_S = float(os.environ.get("DTLAB_REDACT_BUDGET_S", "30"))
+
+
+def _sub_email_windows(line, w=512):
+    """EMAIL_RE applied only within ±w chars of each '@'."""
+    spans = []
+    i = line.find("@")
+    while i != -1:
+        lo, hi = max(0, i - w), min(len(line), i + w)
+        if spans and lo <= spans[-1][1]:
+            spans[-1][1] = hi
+        else:
+            spans.append([lo, hi])
+        i = line.find("@", i + 1)
+    if not spans:
+        return line, 0
+    out, n, last = [], 0, 0
+    for lo, hi in spans:
+        seg, k = EMAIL_RE.subn("[REDACTED-EMAIL]", line[lo:hi])
+        out.append(line[last:lo])
+        out.append(seg)
+        n += k
+        last = hi
+    out.append(line[last:])
+    return "".join(out), n
+
+
+def redact_line(line):
+    """One line -> (redacted line, counts dict, was_long). Linear cost
+    at any line length."""
+    was_long = len(line) > REDACT_LINE_CAP
+    n_key = n_line = n_email = n_phone = 0
+    if "sk-ant-" in line:
+        line, n_key = KEY_RE.subn("[REDACTED-API-KEY]", line)
+    if "ANTHROPIC_API_KEY" in line:
+        line, n_line = KEYLINE_RE.subn(r"\1[REDACTED]", line)
+    if "@" in line:
+        if was_long:
+            line, n_email = _sub_email_windows(line)
+        else:
+            line, n_email = EMAIL_RE.subn("[REDACTED-EMAIL]", line)
+    line, n_phone = PHONE_RE.subn("[REDACTED-PHONE]", line)
+    return line, {"key": n_key + n_line, "email": n_email,
+                  "phone": n_phone,
+                  "deliver": line.lower().count("deliver to")}, was_long
+
+
 def redact_staging(staging):
     """Redact API keys, email addresses, and Indian mobile numbers out of
-    every staged text file (written back in place, counts kept for the
-    report); "deliver to" occurrences are flagged for review. Returns the
-    redaction report recorded in manifest.json so the instructor sees
-    exactly what was scrubbed or needs review."""
+    every staged text file (streamed line-by-line, written back in place,
+    counts kept for the report); "deliver to" occurrences are flagged for
+    review. Returns the redaction report recorded in manifest.json so the
+    instructor sees exactly what was scrubbed or needs review."""
     report = {}
     for p in sorted(staging.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in TEXT_SUFFIXES:
             continue
+        t0 = time.monotonic()
+        totals = {"key": 0, "email": 0, "phone": 0, "deliver": 0}
+        n_long = 0
+        changed = False
+        budget_hit = False
+        tmp = p.with_name(p.name + ".redact_tmp")
         try:
-            text = p.read_text(encoding="utf-8", errors="replace")
+            with open(p, encoding="utf-8", errors="replace") as src, \
+                    open(tmp, "w", encoding="utf-8") as dst:
+                for line in src:
+                    if time.monotonic() - t0 > REDACT_BUDGET_S:
+                        budget_hit = True
+                        dst.write(line)
+                        shutil.copyfileobj(src, dst)
+                        break
+                    new, counts, was_long = redact_line(line)
+                    for k in totals:
+                        totals[k] += counts[k]
+                    n_long += was_long
+                    if new != line:
+                        changed = True
+                    dst.write(new)
         except OSError:
+            tmp.unlink(missing_ok=True)
             continue
-        text, n_key = KEY_RE.subn("[REDACTED-API-KEY]", text)
-        text, n_line = KEYLINE_RE.subn(r"\1[REDACTED]", text)
-        text, n_email = EMAIL_RE.subn("[REDACTED-EMAIL]", text)
-        text, n_phone = PHONE_RE.subn("[REDACTED-PHONE]", text)
+        if changed:
+            tmp.replace(p)
+        else:
+            tmp.unlink(missing_ok=True)
+        if budget_hit:
+            need(False,
+                 f"redaction scan budget ({REDACT_BUDGET_S:g}s) exceeded "
+                 f"for {p.relative_to(staging)} — packaging failure: the "
+                 "file was copied through but NOT fully scanned; tell a "
+                 "TA (never a silent skip)")
         flags = {}
-        if n_email:
-            flags["emails_redacted"] = n_email
-        if n_phone:
-            flags["phones_redacted"] = n_phone
-        n = text.lower().count("deliver to")
-        if n:
-            flags["deliver_to"] = n
-        if n_key or n_line or n_email or n_phone:
-            p.write_text(text, encoding="utf-8")
-        if n_key or n_line or flags:
-            report[str(p.relative_to(staging))] = {
-                "api_keys_redacted": n_key + n_line, "pii_flags": flags}
+        if totals["email"]:
+            flags["emails_redacted"] = totals["email"]
+        if totals["phone"]:
+            flags["phones_redacted"] = totals["phone"]
+        if totals["deliver"]:
+            flags["deliver_to"] = totals["deliver"]
+        entry = {}
+        if totals["key"] or flags:
+            entry = {"api_keys_redacted": totals["key"],
+                     "pii_flags": flags}
+        if n_long:
+            entry.setdefault("api_keys_redacted", totals["key"])
+            entry.setdefault("pii_flags", flags)
+            entry["long_lines_skipped"] = n_long
+        if entry:
+            report[str(p.relative_to(staging))] = entry
     return report
 
 

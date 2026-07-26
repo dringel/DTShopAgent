@@ -13,13 +13,24 @@
 # immediately preceding test
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-PACK="$REPO/tools/pack_evidence.py"
 PASS=0; FAIL=0
 check(){ if [ "$1" = "$2" ]; then echo "  PASS: $3"; PASS=$((PASS+1));
          else echo "  FAIL: $3 (got $1, want $2)"; FAIL=$((FAIL+1)); fi; }
 
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/dtlab-harness.XXXXXX")"
 export HOME="$SANDBOX"
+# EVERY packer invocation runs under a hard timeout (C2.1 acceptance:
+# the whole suite must COMPLETE under explicit timeouts) — a pathological
+# scan must fail a case, never hang the harness. Portable (macOS has no
+# `timeout`): a python wrapper stands in for the packer path.
+REALPACK="$REPO/tools/pack_evidence.py"
+PACK="$SANDBOX/pack_with_timeout.py"
+cat > "$PACK" <<EOF
+import subprocess, sys
+r = subprocess.run([sys.executable, "$REALPACK", *sys.argv[1:]],
+                   timeout=120)
+sys.exit(r.returncode)
+EOF
 guard(){  # abort unless $HOME is still inside the sandbox before any rm -rf
   case "$HOME" in
     "$SANDBOX"*) ;;
@@ -1342,6 +1353,43 @@ assert m['spend_limit_ack_utc']
 assert m['key_override_utc']
 assert any('WITHOUT live verification' in w for w in m['warnings'])
 "; check $? 0 "spend ack + key override recorded; override is a warning"
+
+echo "[47] C2.1: adversarial transcripts pack fast; scan budget fails loud"
+mkenv
+python3 - <<'PY'   # the exact shape that stalled the old quadratic scan
+import os
+home = os.path.expanduser("~")
+with open(f"{home}/.hermes/sessions/big_no_at.jsonl", "w") as f:
+    f.write("x" * 5_000_000 + "\n")
+with open(f"{home}/.hermes/sessions/big_with_email.jsonl", "w") as f:
+    f.write("y" * 2_000_000 + " contact: hidden.person@example.in "
+            + "z" * 2_000_000 + "\n")
+PY
+T0=$(python3 -c "import time;print(time.time())")
+python3 "$PACK" >/dev/null 2>&1
+RC47=$?
+T1=$(python3 -c "import time;print(time.time())")
+check "$RC47" 0 "multi-MB homogeneous + embedded-email lines pack clean"
+python3 -c "import sys;sys.exit(0 if float(sys.argv[2])-float(sys.argv[1])<60 else 1)" "$T0" "$T1"
+check $? 0 "adversarial pack completes well inside the timeout"
+python3 - <<'PY'; check $? 0 "email inside a multi-MB line still redacted; long lines counted"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+blob = b""
+for n in z.namelist():
+    if 'big_with_email' in n:
+        blob = z.read(n)
+assert b'hidden.person@example.in' not in blob
+assert b'[REDACTED-EMAIL]' in blob
+m=json.loads(z.read('DT2026-999/manifest.json'))
+entry=[v for k,v in m['redaction_report'].items() if 'big_with_email' in k][0]
+assert entry['long_lines_skipped'] >= 1, entry
+assert entry['pii_flags'].get('emails_redacted', 0) >= 1, entry
+sys.exit(0)
+PY
+DTLAB_REDACT_BUDGET_S=0.000001 python3 "$PACK" 2>&1 \
+  | grep -q "redaction scan budget"
+check $? 0 "exhausted scan budget is a loud packaging failure, never a skip"
 
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
