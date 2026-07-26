@@ -162,6 +162,19 @@ def main():
     check(mp.CODE_RE.match("SENSITIVE_OPTOUT. x") is None,
           "the opt-out title prefix can never parse as an item code")
 
+    # 7c (C2.12): item-level Form validations — one VALIDATIONS map,
+    # keys must be real instrument codes
+    check("requireNumberBetween(16, 80)" in gs,
+          "build_form.gs validates D05 (age) as a number 16-80")
+    check("requireSelectAtMost(3)" in gs,
+          "build_form.gs caps CB04 at 3 selections "
+          "(CheckboxValidation; API name confirmed at Form build)")
+    vkeys = re.findall(r"(?m)^\s*([A-Z]{1,4}\d{1,3}):\s*function", gs)
+    check(set(vkeys) == {"D05", "CB04"},
+          f"VALIDATIONS map keys are D05 + CB04 (got {sorted(vkeys)})")
+    check(set(vkeys) <= set(codes),
+          "every VALIDATIONS key is a real instrument code")
+
     gm = re.search(r"requireTextMatchesPattern\('([^']+)'\)", gs)
     check(gm is not None, "build_form.gs contains an ID validation pattern")
     if gm:

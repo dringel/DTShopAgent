@@ -25,6 +25,30 @@ var LIKERT5 = ['1 - Disagree strongly', '2 - Disagree a little',
                '3 - Neither agree nor disagree', '4 - Agree a little',
                '5 - Agree strongly'];
 
+// Per-item response validation, keyed by item code — the ONE home for
+// validation rules (audit 5.6). Each entry receives the just-created
+// Form item and applies its validation. NOTE for the Form build:
+// verify the CheckboxValidation builder method name
+// (requireSelectAtMost) against the live FormApp API when running this
+// script — Apps Script is not lintable from the kit, so the method
+// name is confirmed at build time.
+var VALIDATIONS = {
+  // D05 (age, short_text): must be a plausible number
+  D05: function (item) {
+    item.setValidation(FormApp.createTextValidation()
+        .requireNumberBetween(16, 80)
+        .setHelpText('Enter your age as a number (16-80).')
+        .build());
+  },
+  // CB04 (multi_select): at most 3 selections
+  CB04: function (item) {
+    item.setValidation(FormApp.createCheckboxValidation()
+        .requireSelectAtMost(3)
+        .setHelpText('Pick at most 3.')
+        .build());
+  }
+};
+
 function buildForm() {
   var sheet = SpreadsheetApp.getActive().getSheetByName('items');
   var rows = sheet.getDataRange().getValues();
@@ -116,20 +140,22 @@ function buildForm() {
     }
 
     var title = code + '. ' + question;
+    var it;
     if (type === 'likert5') {
-      form.addMultipleChoiceItem().setTitle(title)
+      it = form.addMultipleChoiceItem().setTitle(title)
           .setChoiceValues(LIKERT5).setRequired(true);
     } else if (type === 'single_select') {
-      form.addMultipleChoiceItem().setTitle(title)
+      it = form.addMultipleChoiceItem().setTitle(title)
           .setChoiceValues(String(options).split('|')).setRequired(true);
     } else if (type === 'multi_select') {
-      form.addCheckboxItem().setTitle(title)
+      it = form.addCheckboxItem().setTitle(title)
           .setChoiceValues(String(options).split('|')).setRequired(true);
     } else if (type === 'long_text') {
-      form.addParagraphTextItem().setTitle(title).setRequired(true);
+      it = form.addParagraphTextItem().setTitle(title).setRequired(true);
     } else { // short_text
-      form.addTextItem().setTitle(title).setRequired(true);
+      it = form.addTextItem().setTitle(title).setRequired(true);
     }
+    if (VALIDATIONS[code]) { VALIDATIONS[code](it); }
   });
 
   Logger.log('Form created. Edit URL: ' + form.getEditUrl());
