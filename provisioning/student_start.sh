@@ -779,6 +779,19 @@ for d in $(echo "${DTLAB_HERMES_DIRS:-}" | tr ':' ' ') \
   [ -d "$d" ] && HD_FOUND="${HD_FOUND:+$HD_FOUND:}$d"
 done
 [ -n "$HD_FOUND" ] && echo "$HD_FOUND" > "$HOME/dtlab/.hermes_dirs"
+# ---- launch order (audit 4.4): browser -> CDP liveness -> checkout-
+# guard canary -> effective-config verification -> ONLY THEN run state.
+# A dead CDP port or an unproven guard must leave NO runs/runN dir for
+# a fresh run; a resume of an already-started run is unaffected.
+# DTLAB_TEST=1 skips the browser stack and exits after the state write,
+# so tests observe the final state.
+if [ "${DTLAB_TEST:-0}" != "1" ]; then
+  # Same profile + CDP port as dtlab-shop, via the one shared launcher.
+  bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://www.amazon.in" \
+    >/dev/null 2>&1 &
+  wait_cdp || exit 1
+  canary_gate || exit 1
+fi
 # ---- per-run Hermes home: generated and VERIFIED before any run state
 # is written — a config mismatch must never leave a phantom "started"
 # run ----
@@ -839,10 +852,6 @@ elif [ ! -f "$HOME/dtlab/tier.txt" ]; then
 fi
 [ "${DTLAB_TEST:-0}" = "1" ] && exit 0
 echo "(After the day's runs: dtlab-verdict, and on the final day dtlab-pack.)"
-# Same profile + CDP port as dtlab-shop, via the one shared launcher.
-bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://www.amazon.in" >/dev/null 2>&1 &
-wait_cdp || exit 1
-canary_gate || exit 1
 # HERMES_HOME is the treatment delivery: Hermes loads $HERMES_HOME/SOUL.md
 # and $HERMES_HOME/config.yaml (per-run condition SOUL + pinned model)
 cd "$WS" && HERMES_HOME="$RUN_HOME" exec hermes

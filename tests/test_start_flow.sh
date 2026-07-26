@@ -638,6 +638,63 @@ check "$rc" 1 "missing template exits 1"
 grep -q "re-run provisioning" "$HOME/last_out.txt"
 check $? 0 "missing template points at provisioning"
 
+echo "[25] C1.7: run state written only after the CDP + canary gates"
+mkenv 1
+mkdir -p "$HOME/bin" "$HOME/dtlab/tools"
+printf '#!/usr/bin/env bash\nexit 7\n' > "$HOME/bin/curl"       # CDP dead
+# shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
+printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
+         "$HOME/dtlab/tools/dtlab_browser.sh"
+printf 'P_FIRST\neconomy\ny\ny\n\n' | env PATH="$HOME/bin:$PATH" \
+  bash "$START" > "$HOME/last_out.txt" 2>&1
+rc=$?
+check "$rc" 1 "dead CDP port exits 1"
+[ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "CDP failure leaves NO run-1 state (fresh run)"
+[ ! -f "$HOME/hermes_ran" ]
+check $? 0 "Hermes never started on a dead CDP port"
+cat > "$HOME/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *json/new*)   printf '{"id":"C1","url":"about:blank"}'; exit 0 ;;
+    *json/list*)  printf '[{"id":"C1","url":"https://www.amazon.in/ap/signin"}]'; exit 0 ;;
+    *json/close*) printf 'ok'; exit 0 ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$HOME/bin/curl"
+printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
+  > "$HOME/last_out.txt" 2>&1
+rc=$?
+check "$rc" 1 "unblocked canary exits 1"
+[ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "canary failure leaves NO run-1 state (fresh run)"
+cat > "$HOME/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *json/new*)   printf '{"id":"C1","url":"about:blank"}'; exit 0 ;;
+    *json/list*)  printf '[{"id":"C1","url":"chrome-extension://abcdefghijklmnop/blocked.html"}]'; exit 0 ;;
+    *json/close*) printf 'ok'; exit 0 ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$HOME/bin/curl"
+printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
+  > "$HOME/last_out.txt" 2>&1
+rc=$?
+check "$rc" 0 "all gates green -> exit 0 through the hermes stub"
+check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
+      "run-1 state written only AFTER the gates, before exec"
+[ -f "$HOME/hermes_ran" ]
+check $? 0 "Hermes started after the state write"
+guard; rm -rf "${HOME:?}/bin" "$HOME/hermes_ran"
+
 guard
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"
