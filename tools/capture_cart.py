@@ -103,12 +103,14 @@ def parse_price(s):
         return None
 
 
-def capture_screenshot(page, png):
+def capture_screenshot(page, png, unsafe_png):
     """Screenshot CLIPPED to the active-cart region: the amazon.in page
     header carries account PII ("Hello, <name>", "Deliver to <name> —
     <city> <PIN>") that must never enter the evidence zip. Returns True
-    when the clip succeeded; on any failure falls back to a full-page
-    capture (the caller shows a blocking warning)."""
+    when the clip succeeded and `png` was written. On failure the
+    full-page capture goes to `unsafe_png` (the quarantine, NEVER the
+    evidence dir — the packer refuses unclipped captures) and nothing is
+    written to `png`."""
     try:
         el = page.query_selector("#sc-active-cart")
         box = el.bounding_box() if el else None
@@ -117,7 +119,8 @@ def capture_screenshot(page, png):
             return True
     except Exception:
         pass
-    page.screenshot(path=str(png), full_page=True)
+    Path(unsafe_png).parent.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(unsafe_png), full_page=True)
     return False
 
 
@@ -176,6 +179,8 @@ def main():
     port = cfg.get("DTLAB_CDP_PORT", "9222")
     EV.mkdir(parents=True, exist_ok=True)
     png = EV / f"cart_run{run}.png"
+    unsafe_png = (HOME / "dtlab" / "quarantine" / "unsafe_screenshots"
+                  / f"cart_run{run}_fullpage.png")
     out_json = EV / f"cart_run{run}.json"
 
     with sync_playwright() as p:
@@ -193,28 +198,19 @@ def main():
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(CART_URL, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(1500)              # let cart rows render
-        clipped = capture_screenshot(page, png)
-        print(f"  [ok] screenshot -> {png}"
-              + ("" if clipped else " (FULL PAGE — clip failed)"))
+        clipped = capture_screenshot(page, png, unsafe_png)
+        if clipped:
+            print(f"  [ok] screenshot -> {png} (clipped to the active "
+                  "cart)")
         items = parse_items(page)
         sfl = saved_for_later_asins(page)
-
-    if not clipped:
-        print("  [!!] could not clip the screenshot to the cart region "
-              "(#sc-active-cart)")
-        print("       — the FULL page was captured instead, and the "
-              "amazon.in header")
-        print("       shows the account name and delivery city. Tell a TA "
-              "before packing;")
-        print("       the evidence still counts.")
-        if sys.stdin.isatty():
-            input("  Press Enter to acknowledge... ")
 
     if items is not None:
         out_json.write_text(json.dumps({
             "schema": "dtlab-cart-v1",
             "run": run,
             "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+            "clip_succeeded": bool(clipped),
             "items": items,
         }, indent=2), encoding="utf-8")
         print(f"  [ok] parsed {len(items)} cart item(s) -> {out_json}")
@@ -232,6 +228,25 @@ def main():
         print("       If the cart was 'emptied' by clicking Save for later,")
         print("       earlier runs' items are still parked on the account.")
         print("       Delete those saved items too before the next run.")
+
+    if not clipped:
+        # capture FAILURE (audit 3.2): a full-page screenshot shows the
+        # account name and delivery address — it goes to the quarantine,
+        # never to evidence/, and this capture does not count
+        print()
+        print("  [!!] CAPTURE FAILED: the screenshot could not be clipped "
+              "to the")
+        print("       active-cart region (#sc-active-cart). The full-page "
+              "image was")
+        print(f"       quarantined at {unsafe_png}")
+        print("       and will never be packed. RECAPTURE NOW: wait for "
+              "the cart")
+        print("       page to settle, then re-run dtlab-cart; if it fails "
+              "again, take")
+        print("       a MANUAL screenshot cropped to the cart items only "
+              "and save it")
+        print(f"       as {png} .")
+        return 1
 
     print()
     print("NOW EMPTY THE CART by hand — use DELETE, never 'Save for later'")

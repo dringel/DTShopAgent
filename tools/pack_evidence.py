@@ -1455,10 +1455,18 @@ def main():
                      "screenshot fallback; not blocking)")
                 continue
             try:
-                cart_items = json.loads(
-                    cart_json.read_text(encoding="utf-8")).get("items", [])
+                cart_data = json.loads(
+                    cart_json.read_text(encoding="utf-8"))
+                cart_items = cart_data.get("items", [])
             except (json.JSONDecodeError, OSError):
-                cart_items = None
+                cart_data, cart_items = {}, None
+            # clip enforcement (audit 3.2): an unclipped capture shows
+            # account PII and was quarantined at capture time — the run
+            # needs a recapture, not a pack-time pass
+            need(cart_data.get("clip_succeeded") is True,
+                 f"{rn}: the cart capture was not clipped to the active-"
+                 "cart region — recapture with dtlab-cart (the full-page "
+                 "image is quarantined and never packed)")
             if cart_items is None:
                 cart_verified[rn] = None
                 warn(f"{rn}: cart_run{n}.json unreadable — cross-check "

@@ -162,8 +162,8 @@ printf "task_id,title,asin,price_inr,sponsored\n1,A,B07GYLZ1ZN,299,0\n2,B,B08YRW
 for i in 1 2 3 4; do
   cp "$HOME/dtlab/evidence/cart.png" "$HOME/dtlab/evidence/cart_run$i.png"
 done
-printf '{"schema":"dtlab-cart-v1","run":1,"items":[{"asin":"B07GYLZ1ZN","title":"A","unit_price":299,"qty":1},{"asin":"B08YRWN3RD","title":"B","unit_price":1299,"qty":1},{"asin":"B00R9QLRRO","title":"C","unit_price":1450,"qty":1}]}\n' > "$HOME/dtlab/evidence/cart_run1.json"
-printf '{"schema":"dtlab-cart-v1","run":2,"items":[{"asin":"B07GYLZ1ZN","title":"A","unit_price":299,"qty":1}]}\n' > "$HOME/dtlab/evidence/cart_run2.json"
+printf '{"schema":"dtlab-cart-v1","run":1,"clip_succeeded":true,"items":[{"asin":"B07GYLZ1ZN","title":"A","unit_price":299,"qty":1},{"asin":"B08YRWN3RD","title":"B","unit_price":1299,"qty":1},{"asin":"B00R9QLRRO","title":"C","unit_price":1450,"qty":1}]}\n' > "$HOME/dtlab/evidence/cart_run1.json"
+printf '{"schema":"dtlab-cart-v1","run":2,"clip_succeeded":true,"items":[{"asin":"B07GYLZ1ZN","title":"A","unit_price":299,"qty":1}]}\n' > "$HOME/dtlab/evidence/cart_run2.json"
 # 2x2 fallback memo: 12 verdict blocks + synthesis + head-to-heads
 python3 - <<'PY'
 import os
@@ -685,7 +685,7 @@ with sync_playwright() as p:
     sys.exit(0 if os.path.exists(p.chromium.executable_path) else 1)
 PY
 then
-python3 - "$REPO/tools/capture_cart.py" <<'PY'; check $? 0 "clip fixture: #sc-active-cart clipped; header excluded; fallback full-page when absent"
+python3 - "$REPO/tools/capture_cart.py" <<'PY' 
 import importlib.util, os, sys
 spec = importlib.util.spec_from_file_location("capture_cart", sys.argv[1])
 cc = importlib.util.module_from_spec(spec)
@@ -699,9 +699,14 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     page = b.new_page(viewport={"width": 800, "height": 700})
     page.set_content(FIXTURE)
-    assert cc.capture_screenshot(page, os.path.expanduser("~/clip.png")) is True
+    assert cc.capture_screenshot(page, os.path.expanduser("~/clip.png"),
+                                 os.path.expanduser("~/unsafe1.png")) is True
+    assert not os.path.exists(os.path.expanduser("~/unsafe1.png"))
     page.set_content("<html><body><p>no cart node</p></body></html>")
-    assert cc.capture_screenshot(page, os.path.expanduser("~/full.png")) is False
+    assert cc.capture_screenshot(page, os.path.expanduser("~/never.png"),
+                                 os.path.expanduser("~/full.png")) is False
+    assert not os.path.exists(os.path.expanduser("~/never.png")), \
+        "clip failure must write NOTHING to the evidence target"
     b.close()
 import struct
 def png_h(path):
@@ -709,8 +714,10 @@ def png_h(path):
     i = d.index(b"IHDR")
     return struct.unpack(">II", d[i+4:i+12])[1]
 assert png_h(os.path.expanduser("~/clip.png")) <= 310, "clip must exclude the 120px header"
+assert png_h(os.path.expanduser("~/full.png")) >= 400, "unsafe capture is the full page"
 sys.exit(0)
 PY
+check $? 0 "clip fixture: clipped capture only; failure writes ONLY the quarantine copy"
 else
   echo "  PASS: clip fixture skipped here (playwright not installed; runs where the browser stack exists)"
   PASS=$((PASS+1))
@@ -1451,6 +1458,22 @@ echo "$OUT48" | grep -q "final leak scan"
 check $? 0 "final-scan issue names the leaking file"
 [ -f "$HOME/dtlab/DT2026-999_evidence.zip" ]
 check $? 0 "zip still built for TA review (exit stays non-zero)"
+
+echo "[49] C2.3: unclipped cart captures block; quarantined shots never packed"
+mkenv_4run
+replace "$HOME/dtlab/evidence/cart_run1.json" '"clip_succeeded":true' '"clip_succeeded":false'
+mkdir -p "$HOME/dtlab/quarantine/unsafe_screenshots"
+cp "$HOME/dtlab/evidence/cart.png" \
+   "$HOME/dtlab/quarantine/unsafe_screenshots/cart_run1_fullpage.png"
+OUT49="$(python3 "$PACK" 2>&1)"; RC49=$?
+check "$([ "$RC49" -ne 0 ]; echo $?)" 0 "cart JSON without clip_succeeded=true blocks"
+echo "$OUT49" | grep -q "run1: the cart capture was not clipped"
+check $? 0 "issue names the run and demands a recapture"
+python3 -c "
+import zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+assert not any('unsafe' in n or 'fullpage' in n for n in z.namelist())
+"; check $? 0 "nothing from quarantine/unsafe_screenshots/ enters the zip"
 
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
