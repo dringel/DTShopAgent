@@ -74,6 +74,22 @@ function buildForm() {
       .setChoiceValues(['I consent'])
       .setRequired(true);
 
+  // Administrative opt-out (D6): the five sensitive demographic items
+  // {D04, D09, D10, D11, D12} stay in the agent-visible persona BY
+  // DEFAULT; checking this OPTIONAL box removes exactly those five from
+  // persona_survey.md (the research CSV is untouched). Administrative
+  // field like the consent boxes — NOT an instrument item; the EX0x
+  // guard and the item loop never see it, and make_persona.py finds it
+  // by its SENSITIVE_OPTOUT. title prefix.
+  form.addCheckboxItem()
+      .setTitle('SENSITIVE_OPTOUT. Optional: exclude my sensitive ' +
+                'demographic answers (sex assigned at birth, religion, ' +
+                'religious attendance, family income, political views) ' +
+                'from the persona file my agent reads. They remain in ' +
+                'the pseudonymized research dataset either way.')
+      .setChoiceValues(["Exclude them from my agent's persona"])
+      .setRequired(false);
+
   // Pseudonym ID (validated pattern DT2026-###). Apps Script cannot read
   // dtlab_config.env — keep this pattern in sync with DTLAB_ID_PATTERN by
   // hand (tests/test_instrument_lockstep.py cross-checks the two).

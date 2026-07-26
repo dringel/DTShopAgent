@@ -142,6 +142,7 @@ def make_zip(path, sid, i, mode, sandbox=False):
           58000 + 900 * i, 1000 + 15 * i]
 
     man = {"student_id": sid, "arm": arm, "sandbox": sandbox,
+           "sensitive_items_excluded": i % 5 == 2,
            "model_tier": "economy" if (mode != "4run" and i % 4 == 0)
            else "frontier",
            "human_process": {"searches": 5 + i, "product_views": 8 + i},
@@ -417,6 +418,7 @@ def main():
                        "H2 — Tier effect (day-counterbalanced",
                        "Exploratory day effect",
                        "Tier order across days",
+                       "Sensitive-item opt-outs",
                        "Grounding order day 2",
                        "Task-position effect",
                        "Shopping effort", "Deliberation time",

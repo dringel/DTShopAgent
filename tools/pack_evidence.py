@@ -672,6 +672,18 @@ def main():
     for name in optional:
         if (WS / name).exists():
             shutil.copy2(WS / name, staging / name)
+    # persona_meta.json (D6): which items the agent copy hides, and
+    # whether the sensitive-demographics opt-out was exercised; travels
+    # with the persona files (workspace or hold)
+    pmeta = {}
+    for pm in (WS / "persona_meta.json", HOLD / "persona_meta.json"):
+        if pm.exists():
+            shutil.copy2(pm, staging / "persona_meta.json")
+            try:
+                pmeta = json.loads(pm.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pmeta = {}
+            break
     # dtlab-verdict artifacts (verdicts.csv + head-to-heads + reflections);
     # a filled comparison.md is still staged as supporting material
     for name in ("verdicts.csv", "head_to_heads.csv",
@@ -1651,6 +1663,7 @@ def main():
         "protocol_tokens_by_run": protocol_tokens,
         "purchase_profile_sha256": frozen_sha,
         "purchase_profile_verified_by_run": profile_verified,
+        "sensitive_items_excluded": bool(pmeta.get("sensitive_excluded")),
         "task_order": task_order,
         "task_order_expected": expected_order,
         "ablation": ablation_meta,

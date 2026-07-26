@@ -1314,6 +1314,20 @@ guard; rm -rf "$HOME/dtlab/quarantine"
 python3 "$PACK" >/dev/null 2>&1
 check $? 0 "legacy layout packs via the fallback paths"
 
+echo "[45] C1.6: persona_meta staged; opt-out flag in the manifest"
+mkenv
+printf '{"agent_hidden": ["D04","D09","D10","D11","D12","PR02","PR08"], "sensitive_excluded": true, "rendered_items": 108}\n' \
+  > "$HOME/dtlab/workspace/persona_meta.json"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with persona_meta exits 0"
+python3 -c "
+import json,zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['sensitive_items_excluded'] is True
+assert 'DT2026-999/persona_meta.json' in z.namelist()
+"; check $? 0 "manifest flags the exclusion; meta travels in the zip"
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

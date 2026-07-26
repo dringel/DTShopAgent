@@ -787,6 +787,31 @@ check "$rc" 0 "sandbox run skips phase 0"
 [ ! -d "$HOME/dtlab/runs/bootstrap" ]
 check $? 0 "no bootstrap state in sandbox mode"
 
+echo "[28] C1.6: rendered-count gate honors persona_meta.json"
+mkenv 1
+for i in $(seq 1 108); do echo "- **X$i** q"; done \
+  > "$HOME/dtlab/workspace/persona_survey.md"
+printf '{"agent_hidden": [], "sensitive_excluded": true, "rendered_items": 108}\n' \
+  > "$HOME/dtlab/workspace/persona_meta.json"
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
+check "$rc" 0 "opt-out persona (108 items + meta) passes the gate"
+grep -q "matches persona_meta.json" "$HOME/last_out.txt"
+check $? 0 "gate reports the meta match"
+mkenv 1
+printf '{"agent_hidden": [], "sensitive_excluded": false, "rendered_items": 113}\n' \
+  > "$HOME/dtlab/workspace/persona_meta.json"
+for i in $(seq 1 100); do echo "- **X$i** q"; done \
+  > "$HOME/dtlab/workspace/persona_survey.md"
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
+check "$rc" 1 "persona/meta item-count mismatch refuses to launch"
+grep -q "persona_meta.json says 113" "$HOME/last_out.txt"
+check $? 0 "mismatch message names both counts"
+mkenv 1
+for i in $(seq 1 108); do echo "- **X$i** q"; done \
+  > "$HOME/dtlab/workspace/persona_survey.md"
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
+check "$rc" 0 "108-item persona passes the fallback heuristic (no meta)"
+
 guard
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"

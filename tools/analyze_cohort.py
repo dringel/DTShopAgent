@@ -496,6 +496,7 @@ def read_submission(path):
         "persona_order": order_d1,
         "persona_order_day2": order_d2,
         "tier_day1": tier_day1,
+        "sensitive_excluded": bool(man.get("sensitive_items_excluded")),
         "overlap_n": overlap_n,
         "pick_overlap": overlap or None,
         "n_profile_orders": n_orders, "n_profile_brands": len(brands),
@@ -1915,6 +1916,10 @@ def main():
             "per-section balance is validated at sheet generation)",
             ", ".join(f"{k}-first: {v}" for k, v in
                       Counter(sdf["tier_day1"].dropna()).items())))
+    quality.append((
+        "Sensitive-item opt-outs (agent persona excludes "
+        "D04/D09/D10/D11/D12 at the student's request)",
+        f"{int(sdf['sensitive_excluded'].sum())} of {len(sdf)} students"))
 
     # ---- cards ----
     cards = [("Students", f"{len(sdf)}"),

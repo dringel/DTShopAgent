@@ -24,6 +24,7 @@ USAGE
 
 import argparse
 import csv
+import json
 import re
 import sys
 from collections import OrderedDict
@@ -42,6 +43,14 @@ CODE_RE = re.compile(r"^([A-Z]{1,4}\d{1,3})\.")
 # exclusion set: student_start.sh's rendered-count gate and
 # tests/test_instrument_lockstep.py reference it.
 AGENT_HIDDEN_ITEMS = {"PR02", "PR08"}
+
+# Sensitive demographic items (D6): rendered into the agent persona BY
+# DEFAULT; the Form's administrative SENSITIVE_OPTOUT checkbox removes
+# exactly these five from persona_survey.md (never from the research
+# CSV). Exclusion is recorded in persona_meta.json and surfaces in the
+# manifest and the cohort report.
+SENSITIVE_ITEMS = {"D04", "D09", "D10", "D11", "D12"}
+OPTOUT_PREFIX = "SENSITIVE_OPTOUT"
 
 
 def load_items(path):
@@ -92,6 +101,16 @@ def main():
             # strip Likert prefix "4 - Agree" -> keep both number and label
             answers[m.group(1)] = val
 
+    # administrative sensitive-item opt-out (D6): checkbox checked =
+    # non-empty answer in the SENSITIVE_OPTOUT. column; absent column or
+    # unchecked box = default (items rendered)
+    optout_col = next((h for h in headers
+                       if h.strip().startswith(OPTOUT_PREFIX)), None)
+    sensitive_excluded = bool(optout_col
+                              and (row.get(optout_col) or "").strip())
+    hidden = set(AGENT_HIDDEN_ITEMS) | (
+        SENSITIVE_ITEMS if sensitive_excluded else set())
+
     missing = [c for c in items if c not in answers]
     if missing:
         print(f"WARNING: {len(missing)} items missing from responses "
@@ -119,13 +138,17 @@ def main():
         "Cite item codes verbatim when using these facts in the decision log.",
         "Likert answers: 1=Disagree strongly ... 5=Agree strongly.",
         "Items marked [CONSTRAINT] are inviolable rules, never preferences.",
-        "",
     ]
+    if sensitive_excluded:
+        lines.append(
+            f"{len(SENSITIVE_ITEMS)} sensitive demographic items excluded "
+            "at the participant's request.")
+    lines.append("")
     current = None
     n_rendered = 0
     for code, item in items.items():
-        if code in AGENT_HIDDEN_ITEMS:
-            continue          # research-only: CSV yes, agent persona no
+        if code in hidden:
+            continue      # research-only or opted-out: CSV yes, agent no
         if item["construct"] != current:
             current = item["construct"]
             lines += [f"## {current}", ""]
@@ -137,9 +160,20 @@ def main():
     (outdir / "persona_survey.md").write_text("\n".join(lines) + "\n",
                                               encoding="utf-8")
 
-    print(f"Wrote persona_survey.md ({n_rendered} agent-visible items) and "
-          f"persona_survey.csv (all {len(items)}) for "
-          f"{args.student_id} ({len(answers)}/{len(items)} items answered).")
+    # ---- persona_meta.json: what the agent copy hides (the pre-flight
+    # rendered-count gate and the packer read this) ----
+    (outdir / "persona_meta.json").write_text(json.dumps({
+        "agent_hidden": sorted(hidden),
+        "sensitive_excluded": sensitive_excluded,
+        "rendered_items": n_rendered,
+    }, indent=2), encoding="utf-8")
+
+    print(f"Wrote persona_survey.md ({n_rendered} agent-visible items"
+          + (", sensitive demographics excluded on request"
+             if sensitive_excluded else "")
+          + f"), persona_survey.csv (all {len(items)}), and "
+          f"persona_meta.json for {args.student_id} "
+          f"({len(answers)}/{len(items)} items answered).")
 
 
 if __name__ == "__main__":

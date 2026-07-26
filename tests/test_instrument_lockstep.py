@@ -35,13 +35,17 @@ CSV_PATH = REPO / "questionnaire" / "questionnaire_items.csv"
 CODE_RE = re.compile(r"^[A-Z]{1,4}\d{1,3}$")
 
 
-def _load_agent_hidden_items():
-    """The ONE authoritative exclusion set lives in make_persona.py."""
+def _load_make_persona():
     spec = importlib.util.spec_from_file_location(
         "make_persona", REPO / "questionnaire" / "make_persona.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return set(mod.AGENT_HIDDEN_ITEMS)
+    return mod
+
+
+def _load_agent_hidden_items():
+    """The ONE authoritative exclusion set lives in make_persona.py."""
+    return set(_load_make_persona().AGENT_HIDDEN_ITEMS)
 
 failures = []
 
@@ -143,6 +147,21 @@ def main():
           "+ Consent)")
     check("CONSENT_AND_DATA_USE" in gs,
           "build_form.gs points at the consent & data-use sheet")
+    # 7b (C1.6): the administrative sensitive-item opt-out is a FORM
+    # field, not an instrument item — present, optional, and invisible
+    # to the item machinery (its title prefix cannot parse as a code)
+    mp = _load_make_persona()
+    check(mp.SENSITIVE_ITEMS == {"D04", "D09", "D10", "D11", "D12"},
+          "make_persona.SENSITIVE_ITEMS is exactly the five decided items")
+    check(mp.SENSITIVE_ITEMS <= set(codes),
+          "every sensitive item exists in the instrument")
+    check("SENSITIVE_OPTOUT." in gs,
+          "build_form.gs carries the administrative opt-out checkbox")
+    check(".setRequired(false)" in gs,
+          "the opt-out checkbox is OPTIONAL (everything else required)")
+    check(mp.CODE_RE.match("SENSITIVE_OPTOUT. x") is None,
+          "the opt-out title prefix can never parse as an item code")
+
     gm = re.search(r"requireTextMatchesPattern\('([^']+)'\)", gs)
     check(gm is not None, "build_form.gs contains an ID validation pattern")
     if gm:
@@ -235,26 +254,38 @@ def main():
           f"({len(diffs)} diffs; first: {diffs[:3]})")
 
     # 9 (N3): fabricate a Form response row, run make_persona.py, count the
-    # exact pattern student_start.sh greps ('^- **CODE** ...').
+    # exact pattern student_start.sh greps ('^- **CODE** ...'). Run BOTH
+    # variants: opt-out unchecked (default) and checked (C1.6).
+    import json as _json
     with tempfile.TemporaryDirectory() as tmp:
         td = Path(tmp)
         id_header = "Your course-issued participant ID (e.g. DT2026-042)"
-        headers = ["Timestamp", id_header] + \
+        optout_header = ("SENSITIVE_OPTOUT. Optional: exclude my "
+                         "sensitive demographic answers ...")
+        headers = ["Timestamp", id_header, optout_header] + \
                   [f"{r['item_code']}. {r['question']}" for r in rows]
-        row = ["2026-09-01 10:00:00", "DT2026-042"] + \
-              [_fake_answer(r) for r in rows]
-        with open(td / "responses.csv", "w", newline="",
-                  encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(headers)
-            w.writerow(row)
-        r = subprocess.run(
-            check=False,
-            args=[sys.executable,
-                  str(REPO / "questionnaire" / "make_persona.py"),
-             "--items", str(CSV_PATH), "--responses", str(td / "responses.csv"),
-             "--student-id", "DT2026-042", "--outdir", str(td)],
-            capture_output=True, text=True)
+
+        def write_responses(optout_val):
+            row = ["2026-09-01 10:00:00", "DT2026-042", optout_val] + \
+                  [_fake_answer(r) for r in rows]
+            with open(td / "responses.csv", "w", newline="",
+                      encoding="utf-8") as f:
+                w = csv.writer(f)
+                w.writerow(headers)
+                w.writerow(row)
+
+        def gen():
+            return subprocess.run(
+                check=False,
+                args=[sys.executable,
+                      str(REPO / "questionnaire" / "make_persona.py"),
+                      "--items", str(CSV_PATH),
+                      "--responses", str(td / "responses.csv"),
+                      "--student-id", "DT2026-042", "--outdir", str(td)],
+                capture_output=True, text=True)
+
+        write_responses("")            # default: box unchecked
+        r = gen()
         check(r.returncode == 0,
               f"make_persona.py succeeds on fabricated row ({r.stderr.strip()[:200]})")
         persona = td / "persona_survey.md"
@@ -271,6 +302,10 @@ def main():
             check(not leaked,
                   f"agent-hidden items absent from persona_survey.md "
                   f"(leaked: {leaked})")
+            sens_present = [c for c in mp.SENSITIVE_ITEMS
+                            if f"**{c}**" in ptext]
+            check(sorted(sens_present) == sorted(mp.SENSITIVE_ITEMS),
+                  "sensitive items RENDERED by default (no opt-out)")
             pcsv = (td / "persona_survey.csv").read_text()
             kept = [c for c in hidden if f",{c}," in pcsv]
             check(sorted(kept) == sorted(hidden),
@@ -278,8 +313,38 @@ def main():
             n_ans = sum(1 for line in ptext.splitlines()
                         if "(no answer)" in line)
             check(n_ans == 0, f"all fabricated answers mapped ({n_ans} unmapped)")
+            meta = _json.loads((td / "persona_meta.json").read_text())
+            check(meta == {"agent_hidden": sorted(hidden),
+                           "sensitive_excluded": False,
+                           "rendered_items": rendered},
+                  f"persona_meta.json records the default render ({meta})")
         else:
             check(False, "persona_survey.md was generated")
+
+        # opt-out CHECKED: exactly the five sensitive items leave the
+        # agent copy; the research CSV is untouched
+        write_responses("Exclude them from my agent's persona")
+        r = gen()
+        check(r.returncode == 0,
+              "make_persona.py succeeds with the opt-out checked")
+        ptext = persona.read_text()
+        n = sum(1 for line in ptext.splitlines()
+                if re.match(r"^- \*\*", line))
+        check(n == rendered - len(mp.SENSITIVE_ITEMS),
+              f"opt-out persona renders {rendered - len(mp.SENSITIVE_ITEMS)} "
+              f"items (got {n})")
+        check(not any(f"**{c}**" in ptext for c in mp.SENSITIVE_ITEMS),
+              "sensitive items absent from the opt-out persona")
+        check("sensitive demographic items excluded" in ptext,
+              "opt-out persona header notes the exclusion")
+        pcsv = (td / "persona_survey.csv").read_text()
+        check(all(f",{c}," in pcsv for c in mp.SENSITIVE_ITEMS),
+              "opt-out never touches the research CSV")
+        meta = _json.loads((td / "persona_meta.json").read_text())
+        check(meta["sensitive_excluded"] is True
+              and meta["rendered_items"] == rendered - len(mp.SENSITIVE_ITEMS)
+              and set(mp.SENSITIVE_ITEMS) <= set(meta["agent_hidden"]),
+              f"persona_meta.json records the exclusion ({meta})")
 
     print()
     if failures:

@@ -588,7 +588,7 @@ PY
   if [ "$BOOTSTRAP_RUN" = "1" ]; then
     # Phase 0 workspace: persona files held in quarantine REGARDLESS of
     # the grounding order — the profile is written questionnaire-blind
-    for f in persona_survey.md persona_survey.csv; do
+    for f in persona_survey.md persona_survey.csv persona_meta.json; do
       [ -f "$WS/$f" ] && mv "$WS/$f" "$HOLD/$f"
     done
     if [ -f "$HOME/dtlab/soul/SOUL_bootstrap.md" ]; then
@@ -630,13 +630,13 @@ PY
   fi
   ok "purchase profile verified against the freeze record"
   if [ "$COND" = "persona" ]; then
-    for f in persona_survey.md persona_survey.csv; do
+    for f in persona_survey.md persona_survey.csv persona_meta.json; do
       [ -f "$HOLD/$f" ] && mv "$HOLD/$f" "$WS/$f"
     done
     cp "$HOME/dtlab/soul/SOUL.md" "$WS/SOUL.md"
     ok "ablation factor: run $RUN = PERSONA run (questionnaire present; use the standard prompt)"
   else
-    for f in persona_survey.md persona_survey.csv; do
+    for f in persona_survey.md persona_survey.csv persona_meta.json; do
       [ -f "$WS/$f" ] && mv "$WS/$f" "$HOLD/$f"
     done
     cp "$HOME/dtlab/soul/SOUL_ablated.md" "$WS/SOUL.md"
@@ -660,15 +660,38 @@ fi
 # persona file may legitimately sit in the hold dir during an ablated run
 PSF="$WS/persona_survey.md"
 [ -f "$PSF" ] || PSF="$HOLD/persona_survey.md"
+# persona_meta.json (make_persona.py) records the exact agent-visible
+# item count — the authority when present (sensitive-item opt-outs
+# render 5 fewer items); the 113-based heuristic is the fallback and
+# accepts both the default and the opt-out count
+PMETA=""
+for _pm in "$WS/persona_meta.json" "$HOLD/persona_meta.json"; do
+  [ -f "$_pm" ] && PMETA="$_pm" && break
+done
+if [ -n "$PMETA" ]; then
+  META_N=$(python3 -c 'import json,sys
+print(json.load(open(sys.argv[1])).get("rendered_items", ""))' "$PMETA" \
+    2>/dev/null || echo "")
+else
+  META_N=""
+fi
 if [ -f "$PSF" ]; then
   N=$(grep -c '^\- \*\*' "$PSF" || true)
-  MIN=$(( RENDERED_ITEMS * 95 / 100 ))
-  if [ "$N" -ge "$MIN" ]; then
-    ok "persona_survey.md present ($N/$RENDERED_ITEMS agent-visible items)"
-  elif [ "$N" -gt 0 ]; then
-    bad "persona_survey.md has only $N/$RENDERED_ITEMS agent-visible items — regenerate"
+  if [ -n "$META_N" ]; then
+    if [ "$N" = "$META_N" ]; then
+      ok "persona_survey.md present ($N agent-visible items, matches persona_meta.json)"
+    else
+      bad "persona_survey.md has $N agent-visible items but persona_meta.json says $META_N — regenerate"
+    fi
   else
-    bad "persona_survey.md is empty or malformed — regenerate"
+    MIN=$(( (RENDERED_ITEMS - 5) * 95 / 100 ))
+    if [ "$N" -ge "$MIN" ]; then
+      ok "persona_survey.md present ($N/$RENDERED_ITEMS agent-visible items)"
+    elif [ "$N" -gt 0 ]; then
+      bad "persona_survey.md has only $N/$RENDERED_ITEMS agent-visible items — regenerate"
+    else
+      bad "persona_survey.md is empty or malformed — regenerate"
+    fi
   fi
 else
   bad "persona_survey.md missing — run make_persona.py first (see handout §6)"

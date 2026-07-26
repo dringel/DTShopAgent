@@ -18,6 +18,7 @@ so you can chase missing submissions before session 2 starts.
 
 import argparse
 import csv
+import json
 import re
 import subprocess
 import sys
@@ -98,6 +99,21 @@ def main():
                          if r.stderr else "unknown error"))
 
     print(f"\nGenerated personas for {len(ok)} students -> {outdir}/")
+    # sensitive-item opt-outs (D6): surfaced on the roster so the
+    # exclusion is visible at distribution time, not discovered later
+    optouts = []
+    for sid in ok:
+        meta = outdir / sid / "persona_meta.json"
+        try:
+            if json.loads(meta.read_text(
+                    encoding="utf-8")).get("sensitive_excluded"):
+                optouts.append(sid)
+        except (OSError, ValueError):
+            pass
+    if optouts:
+        print(f"Sensitive-item opt-outs ({len(optouts)}): "
+              f"{', '.join(optouts)} — their agent personas exclude "
+              "D04/D09/D10/D11/D12 (research CSV unchanged).")
     if fail:
         print(f"FAILED ({len(fail)}):")
         for sid, err in fail:
