@@ -275,29 +275,65 @@ def main():
         id_header = "Your course-issued participant ID (e.g. DT2026-042)"
         optout_header = ("SENSITIVE_OPTOUT. Optional: exclude my "
                          "sensitive demographic answers ...")
-        headers = ["Timestamp", id_header, optout_header] + \
+        u_header = "Understanding — I understand that my AI agent ..."
+        c_header = "Consent — I consent to my pseudonymized data ..."
+        headers = ["Timestamp", id_header, u_header, c_header,
+                   optout_header] + \
                   [f"{r['item_code']}. {r['question']}" for r in rows]
 
-        def write_responses(optout_val):
-            row = ["2026-09-01 10:00:00", "DT2026-042", optout_val] + \
-                  [_fake_answer(r) for r in rows]
+        def write_responses(optout_val, understanding="I understand",
+                            consent="I consent", blank_items=(),
+                            drop_consent_cols=False):
+            hdrs = [h for h in headers
+                    if not (drop_consent_cols
+                            and h in (u_header, c_header))]
+            vals = {id_header: "DT2026-042", "Timestamp":
+                    "2026-09-01 10:00:00", u_header: understanding,
+                    c_header: consent, optout_header: optout_val}
+            for r_ in rows:
+                h_ = f"{r_['item_code']}. {r_['question']}"
+                vals[h_] = ("" if r_["item_code"] in blank_items
+                            else _fake_answer(r_))
             with open(td / "responses.csv", "w", newline="",
                       encoding="utf-8") as f:
                 w = csv.writer(f)
-                w.writerow(headers)
-                w.writerow(row)
+                w.writerow(hdrs)
+                w.writerow([vals.get(h, "") for h in hdrs])
 
-        def gen():
+        def gen(*extra):
             return subprocess.run(
                 check=False,
                 args=[sys.executable,
                       str(REPO / "questionnaire" / "make_persona.py"),
                       "--items", str(CSV_PATH),
                       "--responses", str(td / "responses.csv"),
-                      "--student-id", "DT2026-042", "--outdir", str(td)],
+                      "--student-id", "DT2026-042", "--outdir", str(td),
+                      *extra],
                 capture_output=True, text=True)
 
-        write_responses("")            # default: box unchecked
+        # C2.13 consent gate: unchecked / missing-column refuse
+        write_responses("", consent="")
+        r = gen()
+        check(r.returncode != 0 and "no consent on file" in r.stderr,
+              "unchecked Consent box refuses persona generation")
+        write_responses("", drop_consent_cols=True)
+        r = gen()
+        check(r.returncode != 0 and "no consent on file" in r.stderr,
+              "missing consent columns refuse persona generation")
+        # C2.13 completeness gate: a blank required item is a hard fail
+        write_responses("", blank_items=("D05",))
+        r = gen()
+        check(r.returncode != 0 and "D05" in r.stderr,
+              "blank required item hard-fails, naming the code")
+        # --allow-incomplete: synthetic path only, prominent banner
+        write_responses("", consent="", blank_items=("D05",))
+        r = gen("--allow-incomplete")
+        check(r.returncode == 0
+              and "SYNTHETIC / OPT-OUT PERSONA" in
+              (td / "persona_survey.md").read_text(),
+              "--allow-incomplete generates with the SYNTHETIC banner")
+
+        write_responses("")            # default: opt-out box unchecked
         r = gen()
         check(r.returncode == 0,
               f"make_persona.py succeeds on fabricated row ({r.stderr.strip()[:200]})")

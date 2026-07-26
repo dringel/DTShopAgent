@@ -20,6 +20,7 @@ import argparse
 import csv
 import json
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -51,54 +52,132 @@ def main():
     ap.add_argument("--responses", required=True)
     ap.add_argument("--outdir", default="cohort_personas")
     ap.add_argument("--zip", action="store_true",
-                    help="also write one <ID>.zip per student")
+                    help="also write one <ID>.zip per student "
+                         "(exact allowlist: persona_survey.md, "
+                         "persona_survey.csv, persona_meta.json)")
+    ap.add_argument("--latest-wins", action="store_true",
+                    help="resolve duplicate submissions by keeping the "
+                         "latest Form timestamp per ID (decision logged "
+                         "to the roster); without it duplicates are a "
+                         "blocking error")
+    ap.add_argument("--keep-email", action="store_true",
+                    help="INSTRUCTOR integrity check only: keep the "
+                         "email column in the research copy — never for "
+                         "distribution (email stripping is the default)")
     ap.add_argument("--strip-email", action="store_true",
-                    help="also write <outdir>/responses_research.csv with "
-                         "every email column removed (the research copy "
-                         "required by research_protocol.md §2)")
+                    help="(deprecated no-op: stripping is the default)")
     args = ap.parse_args()
 
     with open(args.responses, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
-        id_col = next((h for h in reader.fieldnames
+        headers = reader.fieldnames or []
+        id_col = next((h for h in headers
                        if "participant id" in h.lower()
                        or "course-issued" in h.lower()), None)
         if not id_col:
             sys.exit("No participant-ID column found in responses.csv")
-        ids = []
-        for row in reader:
-            m = ID_RE.search(row.get(id_col, ""))
-            if m:
-                ids.append(m.group(0))
+        ts_col = next((h for h in headers
+                       if h.strip().lower() == "timestamp"), None)
+        all_rows = list(reader)
 
-    dupes = {i for i in ids if ids.count(i) > 1}
+    # duplicate submissions: BLOCKING unless --latest-wins (audit 5.8)
+    by_id = {}
+    dup_log = []
+    for row in all_rows:
+        m = ID_RE.search(row.get(id_col, ""))
+        if not m:
+            continue
+        sid = m.group(0)
+        prev = by_id.get(sid)
+        if prev is None:
+            by_id[sid] = row
+            continue
+        if not args.latest_wins:
+            by_id[sid] = "DUP"
+            continue
+        newer = (row.get(ts_col) or "") > (prev.get(ts_col) or "") \
+            if ts_col else False
+        kept, dropped = (row, prev) if newer else (prev, row)
+        dup_log.append(f"{sid}: kept the row stamped "
+                       f"{kept.get(ts_col)} over {dropped.get(ts_col)}"
+                       if ts_col else f"{sid}: kept the first row")
+        by_id[sid] = kept
+    dupes = sorted(s for s, r in by_id.items() if r == "DUP")
     if dupes:
-        print(f"WARNING: duplicate submissions for {sorted(dupes)} — "
-              f"make_persona uses the FIRST row per ID.", file=sys.stderr)
+        sys.exit(f"duplicate submissions for {dupes} — resolve them in "
+                 "the response sheet, or pass --latest-wins to keep the "
+                 "latest Form timestamp per ID (the decision is logged "
+                 "to the roster output).")
 
+    # generation source: the deduplicated sheet (make_persona takes the
+    # first matching row, so the dedup must happen HERE)
     outdir = Path(args.outdir)
-    ok, fail = [], []
-    for sid in sorted(set(ids)):
-        d = outdir / sid
-        d.mkdir(parents=True, exist_ok=True)
-        r = subprocess.run(
-            check=False,
-            args=[sys.executable, str(MAKE_PERSONA), "--items", args.items,
-             "--responses", args.responses, "--student-id", sid,
-             "--outdir", str(d)],
-            capture_output=True, text=True)
-        if r.returncode == 0:
+    outdir.mkdir(parents=True, exist_ok=True)
+    import tempfile
+    dedup_path = None
+    responses_for_gen = args.responses
+    if dup_log:
+        fd = tempfile.NamedTemporaryFile(
+            "w", newline="", encoding="utf-8", suffix=".csv",
+            delete=False)
+        with fd as fh:
+            w = csv.DictWriter(fh, fieldnames=headers)
+            w.writeheader()
+            w.writerows(by_id[s] for s in sorted(by_id))
+        dedup_path = fd.name
+        responses_for_gen = dedup_path
+
+    ALLOWLIST = ("persona_survey.md", "persona_survey.csv",
+                 "persona_meta.json")
+    ok, fail, skipped = [], [], []
+    for sid in sorted(by_id):
+        with tempfile.TemporaryDirectory() as tdir:
+            r = subprocess.run(
+                check=False,
+                args=[sys.executable, str(MAKE_PERSONA),
+                      "--items", args.items,
+                      "--responses", responses_for_gen,
+                      "--student-id", sid, "--outdir", tdir],
+                capture_output=True, text=True)
+            if r.returncode != 0:
+                err = (r.stderr.strip().splitlines()[-1]
+                       if r.stderr else "unknown error")
+                if "no consent on file" in err:
+                    skipped.append((sid, "no consent on file — resolve "
+                                    "before generating this persona"))
+                else:
+                    fail.append((sid, err))
+                continue
+            # exact allowlist, staged in a fresh temp dir, atomically
+            # replacing the per-student output (audit 5.8) — the full
+            # response sheet never enters a per-student artifact
+            stage = outdir / f".{sid}.tmp"
+            if stage.exists():
+                shutil.rmtree(stage)
+            stage.mkdir(parents=True)
+            for name in ALLOWLIST:
+                src = Path(tdir) / name
+                if src.exists():
+                    shutil.copy2(src, stage / name)
+            final = outdir / sid
+            if final.exists():
+                shutil.rmtree(final)
+            stage.rename(final)
             ok.append(sid)
             if args.zip:
-                with zipfile.ZipFile(outdir / f"{sid}.zip", "w",
+                ztmp = outdir / f"{sid}.zip.tmp"
+                with zipfile.ZipFile(ztmp, "w",
                                      zipfile.ZIP_DEFLATED) as z:
-                    for f_ in d.iterdir():
-                        z.write(f_, f_.name)
-        else:
-            fail.append((sid, r.stderr.strip().splitlines()[-1]
-                         if r.stderr else "unknown error"))
+                    for name in ALLOWLIST:
+                        if (final / name).exists():
+                            z.write(final / name, name)
+                ztmp.replace(outdir / f"{sid}.zip")
+    if dedup_path:
+        Path(dedup_path).unlink(missing_ok=True)
 
     print(f"\nGenerated personas for {len(ok)} students -> {outdir}/")
+    for line in dup_log:
+        print(f"  duplicate resolved (--latest-wins): {line}")
     # sensitive-item opt-outs (D6): surfaced on the roster so the
     # exclusion is visible at distribution time, not discovered later
     optouts = []
@@ -114,6 +193,10 @@ def main():
         print(f"Sensitive-item opt-outs ({len(optouts)}): "
               f"{', '.join(optouts)} — their agent personas exclude "
               "D04/D09/D10/D11/D12 (research CSV unchanged).")
+    if skipped:
+        print(f"SKIPPED, consent unresolved ({len(skipped)}):")
+        for sid, why in skipped:
+            print(f"  {sid}: {why}")
     if fail:
         print(f"FAILED ({len(fail)}):")
         for sid, err in fail:
@@ -122,26 +205,26 @@ def main():
           "list to chase missing questionnaire submissions before "
           "session 2.")
 
-    # Email hygiene (research_protocol.md §2): the raw Form export contains
-    # institutional emails; the research copy must not.
-    if args.strip_email:
-        with open(args.responses, newline="", encoding="utf-8-sig") as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            keep = [i for i, h in enumerate(header)
-                    if "email" not in h.lower()]
-            research = outdir / "responses_research.csv"
-            with open(research, "w", newline="", encoding="utf-8") as out:
-                w = csv.writer(out)
-                w.writerow([header[i] for i in keep])
-                for row in reader:
-                    w.writerow([row[i] for i in keep if i < len(row)])
-        print(f"\nWrote email-stripped research copy -> {research}")
-    else:
-        print("\nREMINDER: responses.csv contains institutional emails. "
-              "The research copy must have the email column deleted "
-              "(research_protocol.md §2) — re-run with --strip-email to "
-              "generate it automatically.")
+    # Email hygiene (research_protocol.md §2): the raw Form export
+    # contains institutional emails; the research copy is written
+    # email-stripped BY DEFAULT (--keep-email is the instructor's
+    # integrity check, never for distribution).
+    with open(args.responses, newline="", encoding="utf-8-sig") as f:
+        reader2 = csv.reader(f)
+        header2 = next(reader2)
+        keep = [i for i, h in enumerate(header2)
+                if args.keep_email or "email" not in h.lower()]
+        research = outdir / "responses_research.csv"
+        with open(research, "w", newline="", encoding="utf-8") as out:
+            w = csv.writer(out)
+            w.writerow([header2[i] for i in keep])
+            for row in reader2:
+                w.writerow([row[i] for i in keep if i < len(row)])
+    print(f"\nWrote research copy -> {research} "
+          + ("(EMAILS KEPT — integrity check only, never distribute)"
+             if args.keep_email else "(email columns stripped)"))
+    if fail:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

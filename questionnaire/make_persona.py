@@ -83,6 +83,11 @@ def main():
     ap.add_argument("--responses", required=True)
     ap.add_argument("--student-id", required=True)
     ap.add_argument("--outdir", default=".")
+    ap.add_argument("--allow-incomplete", action="store_true",
+                    help="SYNTHETIC PACK PATH ONLY: skip the consent and "
+                         "completeness gates and stamp a prominent "
+                         "SYNTHETIC/OPT-OUT banner into the persona "
+                         "header")
     args = ap.parse_args()
 
     items = load_items(args.items)
@@ -111,10 +116,30 @@ def main():
     hidden = set(AGENT_HIDDEN_ITEMS) | (
         SENSITIVE_ITEMS if sensitive_excluded else set())
 
-    missing = [c for c in items if c not in answers]
-    if missing:
-        print(f"WARNING: {len(missing)} items missing from responses "
-              f"(first few: {missing[:5]}). Continuing.", file=sys.stderr)
+    # consent gate (B23.2): BOTH consent checkboxes must be on file —
+    # a persona is never generated from an unconsented row
+    u_col = next((h for h in headers
+                  if h.strip().startswith("Understanding")), None)
+    c_col = next((h for h in headers
+                  if h.strip().startswith("Consent")), None)
+    consent_ok = bool(u_col and c_col
+                      and (row.get(u_col) or "").strip()
+                      and (row.get(c_col) or "").strip())
+    if not consent_ok and not args.allow_incomplete:
+        sys.exit(f"no consent on file for {args.student_id} "
+                 "(Understanding/Consent checkbox missing or unchecked "
+                 "in responses.csv) — resolve before generating this "
+                 "persona")
+
+    # completeness gate (audit 5.7): every instrument item is required
+    # in the Form, so a missing/blank answer means a broken export or a
+    # hand-edited sheet — hard fail, never a silent hole in the persona
+    missing = [c for c in items if not (answers.get(c) or "").strip()]
+    if missing and not args.allow_incomplete:
+        sys.exit(f"{len(missing)} required item(s) missing/blank for "
+                 f"{args.student_id} (first: {', '.join(missing[:8])}) — "
+                 "check the responses export; --allow-incomplete exists "
+                 "for the synthetic pack path ONLY")
 
     outdir = Path(args.outdir)
 
@@ -133,6 +158,16 @@ def main():
     lines = [
         f"# Consumer profile — participant {args.student_id}",
         "",
+    ]
+    if args.allow_incomplete:
+        lines += [
+            "**SYNTHETIC / OPT-OUT PERSONA — generated with "
+            "--allow-incomplete; not a consented research "
+            "participant's complete data. Never distribute as a real "
+            "persona.**",
+            "",
+        ]
+    lines += [
         f"Source: {len(items)}-item Digital Twin questionnaire "
         "(dtlab-persona-v1).",
         "Cite item codes verbatim when using these facts in the decision log.",
