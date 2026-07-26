@@ -435,6 +435,7 @@ assert ab['head_to_head']['tier_ablated']=={'1':'same','2':'same','3':'same'}
 assert ab['pick_overlap']=={'within_economy':['1'],'within_frontier':[],
                             'within_persona':['1','2'],'within_ablated':['2','3']}
 assert ab['manipulation_check_cited_codes']=={'run2':[],'run3':[]}
+assert ab['tier_order']=={'day1':'economy','day2':'frontier'}
 assert ab['cart_verified']=={'run1':True,'run2':False,'run3':None,'run4':None}
 assert set(m['contamination_index'])=={'persona_economy','ablated_economy','ablated_frontier','persona_frontier'}
 assert m['environment']['model_id_by_run']=={'run1':'claude-haiku-x','run2':'claude-haiku-x','run3':'claude-sonnet-y','run4':'claude-sonnet-y'}
@@ -1177,6 +1178,42 @@ mkenv_4run; add_hermes_homes           # completed run with zero transcripts
 rm -f "$HOME/dtlab/runs/run1/hermes_home/sessions/run1.jsonl"
 python3 "$PACK" 2>&1 | grep -q "run1: completed run .* ZERO collected Hermes transcripts"
 check $? 0 "completed run without transcripts is a blocking issue"
+
+echo "[41] C1.2: 2x2 tier pairing enforced (day shares a tier; days differ)"
+mkenv_4run
+echo frontier > "$HOME/dtlab/runs/run2/tier.txt"   # day-1 runs disagree
+python3 "$PACK" 2>&1 | grep -q "day-1 runs must share one tier"
+check $? 0 "mixed tiers within a day block"
+mkenv_4run                                          # both days economy
+echo economy > "$HOME/dtlab/runs/run3/tier.txt"
+echo economy > "$HOME/dtlab/runs/run4/tier.txt"
+python3 "$PACK" 2>&1 | grep -q "must run DIFFERENT tiers"
+check $? 0 "same tier on both days blocks (tier order counterbalanced)"
+mkenv_4run                                          # flipped order is VALID
+for i in 1 2; do echo frontier > "$HOME/dtlab/runs/run$i/tier.txt"; done
+for i in 3 4; do echo economy  > "$HOME/dtlab/runs/run$i/tier.txt"; done
+python3 - <<'PY'   # re-key the memo verdict blocks to the flipped tiers
+import os
+p = os.path.expanduser("~/dtlab/workspace/comparison.md")
+t = open(p).read()
+t = (t.replace("(persona run, economy)", "(persona run, TMP)")
+      .replace("(ablated run, economy)", "(ablated run, TMP)")
+      .replace("(persona run, frontier)", "(persona run, economy)")
+      .replace("(ablated run, frontier)", "(ablated run, economy)")
+      .replace("(persona run, TMP)", "(persona run, frontier)")
+      .replace("(ablated run, TMP)", "(ablated run, frontier)"))
+open(p, "w").write(t)
+PY
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "frontier-first tier order packs clean"
+python3 -c "
+import json,zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['ablation']['tier_order']=={'day1':'frontier','day2':'economy'}
+"; check $? 0 "manifest records the flipped tier order"
+
+echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"
 import json,zipfile,os,sys

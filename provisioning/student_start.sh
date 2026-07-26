@@ -5,8 +5,9 @@
 # Plan of record (COURSE_PLAN_1WEEK.md, research_protocol.md §1): with the
 # questionnaire-ablation factor ON, every agent runs the task set FOUR
 # times in a within-student 2x2 — grounding (persona|ablated) x model tier
-# (runs 1-2 = day-1/economy, runs 3-4 = day-2/frontier), grounding order
-# counterbalanced per day. All students are human-first.
+# (runs 1-2 = day-1 tier, runs 3-4 = day-2 tier). BOTH the grounding order
+# (per day) and the tier order (across days) come from the course
+# counterbalance sheet, per student. All students are human-first.
 #
 # DTLAB_TEST=1     stop right before the browser/Hermes launch (used by
 #                  tests/test_start_flow.sh; all state is already written).
@@ -35,7 +36,10 @@ RENDERED_ITEMS=$(( EXPECTED_ITEMS - AGENT_HIDDEN_COUNT ))
 # workspace state is ENFORCED per condition (in ablated runs the persona
 # files are physically absent, and the agent gets the ablated SOUL).
 PERSONA_FACTOR="${DTLAB_PERSONA_FACTOR:-0}"
-# Model tier by day (dtlab_config.env; overridable for reruns).
+# Legacy day-tier defaults: real runs resolve their tier from the
+# counterbalance sheet (tier_day1/tier_day2, per student); these values
+# remain only as the sandbox fallback and are parsed harmlessly for one
+# release.
 DAY1_TIER="${DTLAB_DAY1_TIER:-economy}"
 DAY2_TIER="${DTLAB_DAY2_TIER:-frontier}"
 SANDBOX="${DTLAB_SANDBOX:-0}"
@@ -312,8 +316,15 @@ if [ "$SANDBOX" = "1" ]; then
   # way, and the cheap tier keeps practice spend low
   if [ -n "${SBRUN:-}" ]; then
     RUN_HOME="$RUNSDIR/run$SBRUN/hermes_home"
-    if [ "$SBRUN" -le 2 ]; then SBTIER="$DAY1_TIER"
-    else SBTIER="$DAY2_TIER"; fi
+    SBDAY=1; [ "$SBRUN" -ge 3 ] && SBDAY=2
+    # substituted run: use the day's assigned tier when already resolved
+    # (tier_dayN.txt); soft fallback to the legacy day default otherwise
+    SBTIER="$(cat "$HOME/dtlab/tier_day$SBDAY.txt" 2>/dev/null || true)"
+    case "$SBTIER" in
+      economy|frontier) ;;
+      *) if [ "$SBDAY" = "1" ]; then SBTIER="$DAY1_TIER"
+         else SBTIER="$DAY2_TIER"; fi ;;
+    esac
   else
     RUN_HOME="$RUNSDIR/sandbox_home"
     SBTIER="$DAY1_TIER"
@@ -388,7 +399,6 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
     if [ ! -d "$RUNSDIR/run$i" ]; then RUN=$i; break; fi
   done
   run_day()  { if [ "$1" -le 2 ]; then echo 1; else echo 2; fi; }
-  run_tier() { if [ "$1" -le 2 ]; then echo "$DAY1_TIER"; else echo "$DAY2_TIER"; fi; }
   # condition of run N under a given day order (first run of the day
   # follows the order; the second run of the day is the other condition)
   run_cond() {  # $1=run index, $2=P_FIRST|NP_FIRST
@@ -399,7 +409,7 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
   prev_desc() {  # "economy, persona" from an existing run dir
     local d="$RUNSDIR/run$1" c t
     c=$(cat "$d/condition.txt" 2>/dev/null || echo "?")
-    t=$(cat "$d/tier.txt" 2>/dev/null || run_tier "$1")
+    t=$(cat "$d/tier.txt" 2>/dev/null || echo "?")
     echo "$t, $c"
   }
   # a run dir WITHOUT started_at.txt was set up but never launched (a
@@ -454,16 +464,12 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
     fi
   fi
   DAY=$(run_day "$RUN")
-  TIER=$(run_tier "$RUN")
-  # model pinning gate: fail closed BEFORE any prompt or run state while
-  # the tier's model ID is unpinned (sets MODEL_ID for the run's home)
-  pin_gate "$TIER"
-  ORDERFILE="$HOME/dtlab/persona_order_day$DAY.txt"
-  if [ ! -f "$ORDERFILE" ]; then
-    # the kit-baked counterbalance sheet (same file as the LMS artifact,
-    # pseudonyms only) is the authority; typed entry is the fallback and
-    # is demoted to confirmation when the sheet has this student
-    SID=$(python3 - <<'PY'
+  # the kit-baked counterbalance sheet (same file as the LMS artifact,
+  # pseudonyms only) is the authority for BOTH assignments — grounding
+  # order per day and tier order across days; typed entry is the
+  # fallback and is demoted to confirmation when the sheet has this
+  # student. Pseudonym resolved once, used by both lookups.
+  SID=$(python3 - <<'PY'
 import csv
 from pathlib import Path
 home = Path.home()
@@ -479,20 +485,22 @@ for p in (home / "dtlab" / "workspace" / "persona_survey.csv",
         pass
 PY
 )
-    ASSIGNED=""
-    CBFILE="$HOME/dtlab/counterbalance.csv"
-    if [ -n "$SID" ] && [ -f "$CBFILE" ]; then
-      ASSIGNED=$(python3 - "$CBFILE" "$SID" "$DAY" <<'PY'
+  CBFILE="$HOME/dtlab/counterbalance.csv"
+  cb_lookup() {  # $1 = column name -> this student's value, or ""
+    [ -n "$SID" ] && [ -f "$CBFILE" ] || return 0
+    python3 - "$CBFILE" "$SID" "$1" <<'PY'
 import csv
 import sys
 with open(sys.argv[1], newline="", encoding="utf-8-sig") as f:
     for r in csv.DictReader(f):
         if (r.get("student_id") or "").strip() == sys.argv[2]:
-            print((r.get(f"day{sys.argv[3]}_order") or "").strip())
+            print((r.get(sys.argv[3]) or "").strip())
             break
 PY
-)
-    fi
+  }
+  ORDERFILE="$HOME/dtlab/persona_order_day$DAY.txt"
+  if [ ! -f "$ORDERFILE" ]; then
+    ASSIGNED=$(cb_lookup "day${DAY}_order")
     if [ "$ASSIGNED" = "P_FIRST" ] || [ "$ASSIGNED" = "NP_FIRST" ]; then
       echo "  Your assigned DAY-$DAY grounding order (course counterbalance sheet): $ASSIGNED"
       read -rp "  Confirm [Y/n] " CONF
@@ -509,6 +517,31 @@ PY
     fi
   fi
   PORDER=$(cat "$ORDERFILE")
+  # ---- model tier for this day: counterbalanced ACROSS DAYS per
+  # student (tier_day1/tier_day2 on the sheet). The tier is assigned,
+  # never guessed: no sheet row + no valid typed entry = fail closed.
+  TIERFILE="$HOME/dtlab/tier_day$DAY.txt"
+  if [ ! -f "$TIERFILE" ]; then
+    ASSIGNED_TIER=$(cb_lookup "tier_day$DAY")
+    if [ "$ASSIGNED_TIER" = "economy" ] || [ "$ASSIGNED_TIER" = "frontier" ]; then
+      echo "  Your assigned DAY-$DAY model tier (course counterbalance sheet): $ASSIGNED_TIER"
+      read -rp "  Confirm [Y/n] " TCONF
+      case "$TCONF" in
+        [nN]*) echo -e "${RED}The sheet and the LMS carry the SAME assignment — tell a TA before overriding.${NC}"; exit 1 ;;
+        *) echo "$ASSIGNED_TIER" > "$TIERFILE" ;;
+      esac
+    else
+      read -rp "Your assigned model tier for DAY $DAY (from the LMS sheet) [economy/frontier]: " TT
+      case "$TT" in
+        economy|frontier) echo "$TT" > "$TIERFILE" ;;
+        *) echo -e "${RED}Enter exactly economy or frontier (check the LMS assignment sheet) — the tier is assigned per student, not guessable.${NC}"; exit 1 ;;
+      esac
+    fi
+  fi
+  TIER=$(cat "$TIERFILE")
+  # model pinning gate: fail closed BEFORE any run state while the
+  # tier's model ID is unpinned (sets MODEL_ID for the run's home)
+  pin_gate "$TIER"
   COND=$(run_cond "$RUN" "$PORDER")
   # run-dir creation happens ONLY at launch (after every gate below has
   # passed) — a refused gate must never leave a phantom "started" run

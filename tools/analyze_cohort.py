@@ -324,6 +324,15 @@ def read_submission(path):
             str(r.get("task_id", "")).strip(): r
             for r in rd_csv("agent_picks.csv")})
 
+    def day_of(rn):
+        """Lab day from the run index (runs 1-2 = day 1, runs 3-4 =
+        day 2). With the tier order counterbalanced across days, day is
+        its own variable — no longer synonymous with tier."""
+        try:
+            return 1 if int(str(rn)[3:]) <= 2 else 2
+        except (ValueError, TypeError):
+            return None
+
     rows, prov_rows = [], []
     # the human's product views join the provenance chart as their own
     # series ("tier" carries the facet label; views, not candidates)
@@ -363,6 +372,9 @@ def read_submission(path):
             rows.append({
                 "student": sid, "arm": man.get("arm"),
                 "tier": tier, "condition": cond,
+                "day": day_of(rn) if rn else None,
+                "ist_date": (rd(f"{rn}/ist_date.txt") or "").strip()
+                or None if rn else None,
                 "task": t, "task_name": TASK_NAMES[t],
                 "task_position": tpos.get(t),
                 "category_class": TASK_CLASS.get(t, "unclassified"),
@@ -416,6 +428,7 @@ def read_submission(path):
         rows.append({
             "student": sid, "arm": man.get("arm"),
             "tier": None, "condition": "human",
+            "day": None, "ist_date": None,
             "task": t, "task_name": TASK_NAMES[t],
             "task_position": tpos.get(t),
             "category_class": TASK_CLASS.get(t, "unclassified"),
@@ -448,7 +461,10 @@ def read_submission(path):
         g_order = ab.get("grounding_order") or {}
         order_d1, order_d2 = g_order.get("day1"), g_order.get("day2")
         overlap_n = sum(len(v or []) for v in overlap.values())
+        t_order = ab.get("tier_order") or {}
+        tier_day1 = t_order.get("day1") or run_tiers.get("run1")
     else:
+        tier_day1 = None
         order_d1 = ab.get("persona_order") if ablation else None
         order_d2 = None
         overlap_n = (len(ab.get("agent_pick_overlap_tasks") or [])
@@ -479,6 +495,7 @@ def read_submission(path):
         "ablation": ablation, "design": design,
         "persona_order": order_d1,
         "persona_order_day2": order_d2,
+        "tier_day1": tier_day1,
         "overlap_n": overlap_n,
         "pick_overlap": overlap or None,
         "n_profile_orders": n_orders, "n_profile_brands": len(brands),
@@ -1381,8 +1398,9 @@ def main():
             po1 = sdf.set_index("student")["persona_order"]
             po2 = sdf.set_index("student")["persona_order_day2"]
             vr = vd_[vd_["condition"].isin(["persona", "ablated"])].copy()
-            # day 1 = economy runs, day 2 = frontier runs (by design)
-            vr["porder"] = np.where(vr["tier"] == "frontier",
+            # the run's lab DAY picks the day's grounding order (tier no
+            # longer identifies the day — tier order is counterbalanced)
+            vr["porder"] = np.where(vr["day"] == 2,
                                     vr["student"].map(po2),
                                     vr["student"].map(po1))
             vr = vr.dropna(subset=["porder"])
@@ -1457,7 +1475,9 @@ def main():
             dlo, dhi = cboot(lambda ix: darr[ix].mean(), len(darr))
             b = int(((piv["frontier"] == 1) & (piv["economy"] == 0)).sum())
             c_ = int(((piv["frontier"] == 0) & (piv["economy"] == 1)).sum())
-            srow(f"{'H2 — ' if hyp else ''}Tier effect{label}: frontier "
+            srow((f"H2 — Tier effect (day-counterbalanced across "
+                  f"students){label}" if hyp else
+                  f"Tier effect{label}") + ": frontier "
                  "− economy acceptable-pick rate (paired within student)",
                  f"Δ = {100 * darr.mean():+.1f} pp; 95% CI "
                  f"{fmt_ci(dlo, dhi)}; {len(piv)} task-cell pairs from "
@@ -1531,18 +1551,31 @@ def main():
                  f"{wm['economy']}, same {wm['same']}); "
                  f"cluster-bootstrap 95% CI {fmt_ci(mlo, mhi)}",
                  p=cboot_p(km / nmc - 0.5))
-        srow("Caveat: tier is confounded with day",
-             "economy runs happened on day 1, frontier runs on day 2 "
-             "(by design, stated in the methods) — the tier effect "
-             "carries any day effect; the within-day run-order estimate "
-             "above bounds plausible order effects")
-        srow("Caveat: verdict occasion tracks tier",
-             "economy runs are judged in Thursday's dtlab-verdict "
-             "session and frontier runs in Friday's, so the tier "
-             "contrast also carries any judgment-occasion effect "
-             "(mood, fatigue, day-2 experience); verdicts.csv v2 "
-             "records verdict_at_utc per row, so the actual occasions "
-             "are auditable")
+        # exploratory day effect — estimable as its own contrast because
+        # the tier order is counterbalanced across days per student
+        if "day" in vd_.columns and vd_["day"].notna().any():
+            vday = vd_[vd_["condition"].isin(["persona", "ablated"])]
+            daypiv = vday.pivot_table(index="student", columns="day",
+                                      values="acceptable",
+                                      aggfunc="mean").dropna()
+            if {1, 2} <= set(daypiv.columns):
+                day_arr = (daypiv[2] - daypiv[1]).to_numpy(float)
+                if len(day_arr):
+                    dylo, dyhi = cboot(lambda ix: day_arr[ix].mean(),
+                                       len(day_arr))
+                    srow("Exploratory day effect (day 2 − day 1 "
+                         "acceptable rate, paired within student)",
+                         f"Δ = {100 * day_arr.mean():+.1f} pp; 95% CI "
+                         f"{fmt_ci(dylo, dyhi)}; {len(day_arr)} students "
+                         "— identified separately from tier because the "
+                         "tier order is counterbalanced across days",
+                         p=cboot_p(day_arr))
+        srow("Verdict occasion",
+             "all verdicts for all four runs are captured in ONE blind "
+             "Friday session by design (single-session capture), so no "
+             "cell carries a judgment-occasion difference; verdicts.csv "
+             "records verdict_at_utc per row, so the occasion is "
+             "auditable")
 
     arms = sorted(a for a in set(vd_["arm"].dropna()) if a != "UNKNOWN")
     if len(arms) == 2:
@@ -1876,6 +1909,12 @@ def main():
             "Grounding order day 2 (independently re-randomized)",
             ", ".join(f"{order_name(k)}: {v}" for k, v in
                       Counter(sdf["persona_order_day2"].dropna()).items())))
+    if four_run and sdf["tier_day1"].notna().any():
+        quality.append((
+            "Tier order across days (counterbalanced across students; "
+            "per-section balance is validated at sheet generation)",
+            ", ".join(f"{k}-first: {v}" for k, v in
+                      Counter(sdf["tier_day1"].dropna()).items())))
 
     # ---- cards ----
     cards = [("Students", f"{len(sdf)}"),
@@ -1933,8 +1972,9 @@ profile; ablated = purchase profile only (no questionnaire){
 if 'single' in conds else ''}. Task order is randomized across
 students and held constant within student.{
 ' Model tier is the second within-student factor: every grounding ran '
-'under the economy model (day 1) and the frontier model (day 2); tier '
-'is confounded with day by design and stated as such.'
+'under both the economy and the frontier model, with the tier order '
+'counterbalanced across the two lab days per student — the tier effect '
+'is identified separately from the day.'
 if four_run else
 ' "Human first" / "Agent first" is the counterbalanced session order.'}
 Sandbox packs are excluded.</p>

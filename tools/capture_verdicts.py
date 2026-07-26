@@ -118,9 +118,26 @@ def load_task_ids():
     return ids or ["1", "2", "3"]
 
 
-def load_runs():
-    """Started runs -> [(runN, condition, tier)] in run order. Tier falls
-    back by run index for packs from before per-run tier files."""
+def tier_from_sheet(student_id, run_idx):
+    """This student's assigned tier for the run's day, from the
+    counterbalance sheet (tier order is counterbalanced across days —
+    the run index alone cannot resolve it)."""
+    p = HOME / "dtlab" / "counterbalance.csv"
+    if not (student_id and p.exists()):
+        return None
+    col = "tier_day1" if run_idx <= 2 else "tier_day2"
+    for r in read_csv_rows(p):
+        if (r.get("student_id") or "").strip() == student_id:
+            t = (r.get(col) or "").strip()
+            return t if t in ("economy", "frontier") else None
+    return None
+
+
+def load_runs(student_id):
+    """Started runs -> [(runN, condition, tier)] in run order. A run
+    without tier.txt falls back to the counterbalance sheet; without
+    either the tool refuses (tier labels every stored verdict row and
+    is not guessable — tier order varies across students)."""
     runs = []
     for i in (1, 2, 3, 4):
         d = RUNSDIR / f"run{i}"
@@ -129,9 +146,15 @@ def load_runs():
         cond = (d / "condition.txt").read_text().strip() \
             if (d / "condition.txt").exists() else ""
         tier = (d / "tier.txt").read_text().strip() \
-            if (d / "tier.txt").exists() else \
-            ("economy" if i <= 2 else "frontier")
+            if (d / "tier.txt").exists() else ""
+        if not tier:
+            tier = tier_from_sheet(student_id, i) or ""
         if cond in ("persona", "ablated"):
+            if not tier:
+                sys.exit(f"run{i} has no tier.txt and the counterbalance "
+                         "sheet cannot resolve this student's tier for "
+                         "that day — the tier labels every verdict row "
+                         "and cannot be guessed; tell a TA.")
             runs.append((f"run{i}", cond, tier))
     return runs
 
@@ -249,7 +272,7 @@ def main():
         sys.exit("cannot determine student_id (persona_survey.csv missing? "
                  "use --student-id DT2026-###)")
     task_ids = load_task_ids()
-    runs = load_runs()
+    runs = load_runs(student_id)
     if not runs:
         sys.exit("no agent runs found under ~/dtlab/runs — dtlab-verdict "
                  "runs AFTER the day's agent runs.")

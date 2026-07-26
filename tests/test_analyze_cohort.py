@@ -152,10 +152,14 @@ def make_zip(path, sid, i, mode, sandbox=False):
     files = base_files(sid, i, human, hp)
 
     if mode == "4run":
-        cells = {("persona", "economy"): ("run1", pe, [0, 1, 0, 0, 0]),
-                 ("ablated", "economy"): ("run2", ae, [1, 0, 0, 0, 1]),
-                 ("ablated", "frontier"): ("run3", af, [0, 0, 0, 0, 0]),
-                 ("persona", "frontier"): ("run4", pf, [0, 1, 0, 1, 0])}
+        # tier order is counterbalanced ACROSS DAYS per student: even i
+        # runs economy on day 1, odd i runs frontier on day 1
+        t1, t2 = (("economy", "frontier") if i % 2 == 0
+                  else ("frontier", "economy"))
+        cells = {("persona", t1): ("run1", pe, [0, 1, 0, 0, 0]),
+                 ("ablated", t1): ("run2", ae, [1, 0, 0, 0, 1]),
+                 ("ablated", t2): ("run3", af, [0, 0, 0, 0, 0]),
+                 ("persona", t2): ("run4", pf, [0, 1, 0, 1, 0])}
         man["verdicts"], man["contamination_index"] = {}, {}
         man["candidates"] = {}
         hth = {"grounding_economy": {}, "grounding_frontier": {},
@@ -219,6 +223,7 @@ def make_zip(path, sid, i, mode, sandbox=False):
             "grounding_order": {
                 "day1": "P_FIRST" if i % 2 else "NP_FIRST",
                 "day2": "NP_FIRST" if i % 3 else "P_FIRST"},
+            "tier_order": {"day1": t1, "day2": t2},
             "run_conditions": {rn: cond for (cond, _), (rn, _, _)
                                in cells.items()},
             "run_tiers": {rn: tier for (_, tier), (rn, _, _)
@@ -408,7 +413,10 @@ def main():
                        # four-run 2x2 additions
                        "Tier effect", "interaction", "MODEL TIER",
                        "Provenance mix", "Within-day run-order",
-                       "frontier win share", "confounded with day",
+                       "frontier win share",
+                       "H2 — Tier effect (day-counterbalanced",
+                       "Exploratory day effect",
+                       "Tier order across days",
                        "Grounding order day 2",
                        "Task-position effect",
                        "Shopping effort", "Deliberation time",
@@ -439,11 +447,18 @@ def main():
         assert "Checkout attempts (network-blocked" in html
         assert "1 checkout-shaped URL(s) in logs across 1 student(s)" \
             in html, "cohort checkout-attempt count wrong"
-        # B15: occasion/price-drift caveats + stock-out flag
-        for marker in ("verdict occasion tracks tier",
+        # B15/C1.2: single-occasion note + price-drift caveat +
+        # stock-out flag; the day-confound caveat must be GONE (tier is
+        # day-counterbalanced now)
+        for marker in ("ONE blind",
                        "captured on different days",
                        "Likely stock-outs"):
             assert marker in html, f"missing B15 marker: {marker}"
+        assert "confounded with day" not in html, \
+            "day-confound caveat must not survive the counterbalance"
+        assert "verdict occasion tracks tier" not in html, \
+            "per-day verdict-occasion caveat must not survive the " \
+            "single Friday session"
         # B14: contamination read against a null, used as a subgroup
         for marker in ("permutation baseline",
                        "top-quartile contamination",

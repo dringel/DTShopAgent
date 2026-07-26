@@ -697,7 +697,11 @@ def main():
             if cond in CONDITIONS and (sdir / "agent_picks.csv").exists():
                 pick_sets[label] = read_csv(sdir / "agent_picks.csv")
         if four_run:
-            # each day must hold one persona and one ablated run
+            # each day must hold one persona and one ablated run, the
+            # day's two runs must share one tier, and the two days must
+            # run DIFFERENT tiers (tier order counterbalanced across
+            # days per student)
+            day_tier = {}
             for day, pair in ((1, ("run1", "run2")), (2, ("run3", "run4"))):
                 got = {conds[rn] for rn in pair if rn in conds}
                 if len([rn for rn in pair if rn in conds]) == 2:
@@ -705,6 +709,19 @@ def main():
                          f"2x2 design: day-{day} runs must be one persona "
                          f"and one ablated run (got "
                          f"{ {rn: conds[rn] for rn in pair if rn in conds} })")
+                ts = [tiers[rn] for rn in pair
+                      if tiers.get(rn) in TIERS]
+                if len(ts) == 2:
+                    need(ts[0] == ts[1],
+                         f"2x2 design: day-{day} runs must share one tier "
+                         f"(got {ts})")
+                if ts:
+                    day_tier[f"day{day}"] = ts[0]
+            if len(day_tier) == 2:
+                need(day_tier["day1"] != day_tier["day2"],
+                     "2x2 design: the two lab days must run DIFFERENT "
+                     "tiers (tier order is counterbalanced across days; "
+                     f"got {day_tier})")
         elif len(conds) == 2:
             need(set(conds.values()) == set(CONDITIONS),
                  f"ablation factor: the two runs must be one persona and "
@@ -1237,6 +1254,7 @@ def main():
                 "design": "2x2",
                 "grounding_order": {"day1": order_of(1),
                                     "day2": order_of(2)},
+                "tier_order": day_tier,
                 "run_conditions": conds,
                 "run_tiers": tiers,
                 "run_started_at": started,

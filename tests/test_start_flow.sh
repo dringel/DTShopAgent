@@ -77,14 +77,14 @@ check "$(cat "$HOME/dtlab/tier.txt")" "frontier" "tier defaulted silently"
 echo "[2] human-first is a hard gate (no dtlab-shop -> refuse)"
 mkenv 1
 rm -f "$HOME/dtlab/human/human_picks.csv"
-rc=$(run 'P_FIRST\ny\ny\n\n')
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 1 "exit 1"
 grep -q "dtlab-shop" "$HOME/last_out.txt"
 check $? 0 "points at dtlab-shop"
 
 echo "[3] run 1 (day-1 order P_FIRST) = persona, economy"
 mkenv 1
-rc=$(run 'P_FIRST\ny\ny\n\n')
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 0 "exit 0"
 check "$(cat "$HOME/dtlab/persona_order_day1.txt")" "P_FIRST" "day-1 order stored"
 check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" "run1 = persona"
@@ -149,7 +149,7 @@ check $? 0 "run-2 config still pins the economy model"
 
 echo "[6] run 3 needs the day-2 order and the Friday re-pause gate"
 finish_run
-rc=$(run 'y\nNP_FIRST\nn\n')
+rc=$(run 'y\nNP_FIRST\nfrontier\nn\n')
 check "$rc" 1 "refusing the re-pause gate exits 1"
 grep -q "LAPSED" "$HOME/last_out.txt"
 check $? 0 "gate names the lapsed 1-day pause"
@@ -269,7 +269,7 @@ mkenv 1
 mkdir -p "$HOME/ws"
 mv "$HOME/dtlab" "$HOME/ws/.dtlab"
 ln -s "$HOME/ws/.dtlab" "$HOME/dtlab"
-rc=$(run 'P_FIRST\ny\ny\n\n')
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 0 "pre-flight exits 0 through the symlink"
 check "$(cat "$HOME/ws/.dtlab/runs/run1/condition.txt" 2>/dev/null)" \
       "persona" "run state lands under the persistent root"
@@ -354,7 +354,7 @@ guard; rm -rf "${HOME:?}/bin" "$HOME/hermes_ran"
 
 echo "[15] B16.1: refused gate leaves no phantom run; never-started dirs resume"
 mkenv 1
-rc=$(run 'P_FIRST\ny\nn\n')             # payment gate refused
+rc=$(run 'P_FIRST\neconomy\ny\nn\n')     # payment gate refused
 check "$rc" 1 "payment-gate refusal exits 1"
 [ ! -d "$HOME/dtlab/runs/run1" ]
 check $? 0 "no phantom run-1 dir after a refused gate"
@@ -401,13 +401,23 @@ for day in ("day1_order", "day2_order"):
     b = [r[day] for r in rows if r["section"] == "B"]
     assert sorted(b) == ["NP_FIRST", "P_FIRST"], (day, b)
 assert rows[0]["pair_id"] == "P01"
+# C1.2: tier order balanced within section, day-2 tier complementary
+a = [r["tier_day1"] for r in rows if r["section"] == "A"]
+assert a.count("economy") == 2 and a.count("frontier") == 2, a
+b = [r["tier_day1"] for r in rows if r["section"] == "B"]
+assert sorted(b) == ["economy", "frontier"], b
+for r in rows:
+    assert {r["tier_day1"], r["tier_day2"]} == {"economy", "frontier"}, r
 PY
-check $? 0 "balanced P/NP within each section per day; pair carried"
+check $? 0 "balanced P/NP within each section per day; pair carried; tier order balanced + complementary"
+python3 "$REPO/tools/make_counterbalance.py" --roster "$HOME/roster.csv" \
+  --out "$HOME/cb3.csv" --seed 7 | grep -q "2x2 crosstab"
+check $? 0 "tier-order x grounding crosstab printed (orthogonality auditable)"
 mkenv 1
 cp "$HOME/cb1.csv" "$HOME/dtlab/counterbalance.csv"
 printf 'student_id,item_code\nDT2026-999,D01\n' \
   > "$HOME/dtlab/workspace/persona_survey.csv"
-rc=$(run '\ny\ny\n\n')                  # Enter = confirm assigned order
+rc=$(run '\n\ny\ny\n\n')               # Enter x2 = confirm order + tier
 check "$rc" 0 "sheet lookup + confirmation path exits 0"
 grep -q "counterbalance sheet" "$HOME/last_out.txt"
 check $? 0 "assigned order announced from the sheet"
@@ -420,6 +430,26 @@ PY
 )
 check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "$EXPECTED" \
       "run-1 condition matches the SHEET assignment, not typed input"
+EXPTIER=$(python3 - "$HOME/cb1.csv" <<'PY'
+import csv, sys
+for r in csv.DictReader(open(sys.argv[1])):
+    if r["student_id"] == "DT2026-999":
+        print(r["tier_day1"])
+PY
+)
+check "$(cat "$HOME/dtlab/runs/run1/tier.txt")" "$EXPTIER" \
+      "run-1 tier matches the SHEET tier_day1, not a day default"
+grep -q "assigned DAY-1 model tier" "$HOME/last_out.txt"
+check $? 0 "assigned tier announced from the sheet"
+# C1.2: tier is NOT guessable — no sheet row and no valid typed entry
+# must fail closed before any run state
+mkenv 1
+rc=$(run 'P_FIRST\nwhatever\n')
+check "$rc" 1 "garbage typed tier exits 1 (tier is assigned, not guessed)"
+grep -q "economy or frontier" "$HOME/last_out.txt"
+check $? 0 "fail-closed message names the valid entries and the sheet"
+[ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "no run state written on the tier fail-close"
 
 echo "[17] B16.3: API key — malformed exits at once; live check gates storage"
 mkenv 0
@@ -449,7 +479,7 @@ guard; rm -rf "${HOME:?}/bin"
 
 echo "[18] B16.4: mid-week sandbox fallback stamps PER-RUN, not the whole zip"
 mkenv 1
-rc=$(run 'P_FIRST\ny\ny\n\n')           # real run 1
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n') # real run 1
 check "$rc" 0 "real run 1 launches"
 finish_run
 rc=$(run '\n' DTLAB_SANDBOX=1)          # flagged-account fallback
@@ -466,7 +496,7 @@ check $? 0 "real run-1 artifacts parked into run1 before the sandbox agent"
 echo "[19] B18: dtlab-start records the probed Hermes transcript dirs"
 mkenv 1
 mkdir -p "$HOME/.hermes/sessions"
-rc=$(run 'P_FIRST\ny\ny\n\n')
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 0 "exit 0"
 [ -f "$HOME/dtlab/.hermes_dirs" ] && \
   grep -q ".hermes" "$HOME/dtlab/.hermes_dirs"
@@ -548,7 +578,7 @@ check $? 0 "rules cover the five pipelines, spare the cart; manifest minimal; bl
 echo "[22] consent acknowledgment: one-time typed AGREE before the first run"
 mkenv 1
 rm -f "$HOME/dtlab/.consent_ack"
-rc=$(run 'P_FIRST\nnope\n')
+rc=$(run 'P_FIRST\neconomy\nnope\n')
 check "$rc" 1 "refusing the acknowledgment exits 1"
 grep -q "CONSENT_AND_DATA_USE" "$HOME/last_out.txt"
 check $? 0 "gate names the consent sheet"
@@ -575,7 +605,7 @@ mkenv 1
 sed "s/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/DTLAB_MODEL_ECONOMY='PIN-AT-DRYRUN'/" \
     "$HOME/dtlab/dtlab_config.env" > "$HOME/dtlab/cfg.tmp" \
   && mv "$HOME/dtlab/cfg.tmp" "$HOME/dtlab/dtlab_config.env"
-printf '' | bash "$START" > "$HOME/last_out.txt" 2>&1
+printf 'P_FIRST\neconomy\n' | bash "$START" > "$HOME/last_out.txt" 2>&1
 rc=$?
 check "$rc" 1 "PIN-AT-DRYRUN model id exits 1"
 grep -q "PIN-AT-DRYRUN" "$HOME/last_out.txt"
@@ -584,7 +614,7 @@ grep -q "DTLAB_ALLOW_UNPINNED" "$HOME/last_out.txt"
 check $? 0 "gate names the throwaway-test escape"
 [ ! -d "$HOME/dtlab/runs/run1" ]
 check $? 0 "no run state written on the pin gate"
-rc=$(run 'P_FIRST\ny\ny\n\n')      # DTLAB_TEST=1 substitutes dummy ids
+rc=$(run 'y\ny\n\n')             # order/tier stored; dummy ids in test mode
 check "$rc" 0 "test mode proceeds on dummy model ids"
 check "$(cat "$HOME/dtlab/runs/run1/model_id.txt")" "test-model-economy" \
       "dummy id recorded in test mode"
@@ -594,7 +624,7 @@ mkenv 1
 # tampered template: hardcoded model instead of the {{MODEL_ID}} slot
 printf 'model:\n  provider: "anthropic"\n  id: "some-other-model"\n' \
   > "$HOME/dtlab/hermes_config.template.yaml"
-rc=$(run 'P_FIRST\ny\ny\n\n')
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 1 "config that does not name the assigned model exits 1"
 grep -q "does not" "$HOME/last_out.txt" \
   && grep -q "tell a TA" "$HOME/last_out.txt"
