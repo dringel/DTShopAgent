@@ -60,6 +60,7 @@ printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asi
 printf "task_id,title,asin,url,price_inr,reasoning\n1,A,B07GYLZ1ZN,u,299,r\n2,S,B09YLFGBLL,u,1490,r\n3,K,B07D75V2GH,u,780,r\n" > "$HOME/dtlab/quarantine/human/human_picks.csv"
 echo H_FIRST > "$HOME/dtlab/arm.txt"
 date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
+date -u +%FT%TZ > "$HOME/dtlab/.spend_limit_ack"
 python3 -c "import hashlib,os;print(hashlib.sha256(open(os.path.expanduser('~/dtlab/workspace/purchase_profile.md'),'rb').read()).hexdigest())" \
   > "$HOME/dtlab/purchase_profile.sha256"
 touch "$HOME/dtlab/.bootstrap_done"
@@ -1327,6 +1328,20 @@ m=json.loads(z.read('DT2026-999/manifest.json'))
 assert m['sensitive_items_excluded'] is True
 assert 'DT2026-999/persona_meta.json' in z.namelist()
 "; check $? 0 "manifest flags the exclusion; meta travels in the zip"
+
+echo "[46] C1.8: spend-limit ack + key-override surface in the manifest"
+mkenv
+date -u +%FT%TZ > "$HOME/dtlab/.key_override"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with an override on file exits 0"
+python3 -c "
+import json,zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['spend_limit_ack_utc']
+assert m['key_override_utc']
+assert any('WITHOUT live verification' in w for w in m['warnings'])
+"; check $? 0 "spend ack + key override recorded; override is a warning"
 
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"

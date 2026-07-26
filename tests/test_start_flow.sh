@@ -53,6 +53,8 @@ printf 'export ANTHROPIC_API_KEY=sk-ant-test0000000000000000000000\n' \
 chmod 600 "$HOME/.dtlab_env"
 # consent acknowledgment already given (the gate has its own case [22])
 date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
+# spend-limit confirmation already recorded (the gate has case [29])
+date -u +%FT%TZ > "$HOME/dtlab/.spend_limit_ack"
 # bootstrap phase already done: frozen profile + matching hash on file
 # (Phase 0 has its own case [27])
 printf '# Purchase profile (bootstrap output)\n- top categories: x\n' \
@@ -811,6 +813,45 @@ for i in $(seq 1 108); do echo "- **X$i** q"; done \
   > "$HOME/dtlab/workspace/persona_survey.md"
 rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 0 "108-item persona passes the fallback heuristic (no meta)"
+
+echo "[29] C1.8: unverifiable key fails closed; spend-limit gate recorded"
+mkenv 0
+rm -f "$HOME/.dtlab_env"
+mkdir -p "$HOME/bin"
+printf '#!/usr/bin/env bash\nexit 7\n' > "$HOME/bin/curl"    # network dead
+chmod +x "$HOME/bin/curl"
+rc=$(run 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXX\nnope\n' PATH="$HOME/bin:$PATH")
+check "$rc" 1 "unverifiable key without OVERRIDE exits 1"
+grep -q "Could not verify the key" "$HOME/last_out.txt"
+check $? 0 "message names the verification failure and the TA override"
+[ ! -f "$HOME/.dtlab_env" ]
+check $? 0 "nothing stored without the override"
+[ ! -f "$HOME/dtlab/.key_override" ]
+check $? 0 "no override record on refusal"
+rc=$(run 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXX\nOVERRIDE\ny\ny\n\n' \
+     PATH="$HOME/bin:$PATH")
+check "$rc" 0 "typed OVERRIDE stores the unverified key and continues"
+grep -q "sk-ant-api03" "$HOME/.dtlab_env"
+check $? 0 "key stored on override"
+[ -s "$HOME/dtlab/.key_override" ]
+check $? 0 "override recorded with a timestamp (manifest picks it up)"
+guard; rm -rf "${HOME:?}/bin"
+mkenv 0
+rm -f "$HOME/dtlab/.spend_limit_ack"
+rc=$(run 'n\n')
+check "$rc" 1 "refusing the spend-limit confirmation exits 1"
+grep -q "Anthropic Console" "$HOME/last_out.txt"
+check $? 0 "refusal names where to set the limit"
+[ ! -f "$HOME/dtlab/.spend_limit_ack" ]
+check $? 0 "nothing recorded on refusal"
+rc=$(run 'y\ny\ny\n\n')
+check "$rc" 0 "confirming the spend limit proceeds"
+[ -s "$HOME/dtlab/.spend_limit_ack" ]
+check $? 0 "spend-limit ack recorded with a timestamp"
+rc=$(run 'y\ny\n\n')
+check "$rc" 0 "second start does not re-ask (one-time gate)"
+! grep -q "spend limit" "$HOME/last_out.txt"
+check $? 0 "no spend-limit prompt once recorded"
 
 guard
 rm -rf "$SANDBOX_HOME"

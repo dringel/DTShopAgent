@@ -599,6 +599,12 @@ def main():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
 
+    ko = HOME / "dtlab" / ".key_override"
+    if ko.exists():
+        warn("API key was stored WITHOUT live verification (TA override "
+             f"recorded {ko.read_text(encoding='utf-8').strip()}) — "
+             "review with the student")
+
     # ---- design mode: single / 2run (legacy) / 2x2 (four runs) ----
     all_run_dirs = [rn for rn in RUN_NAMES if (RUNS / rn).exists()]
     # per-run sandbox stamps (flagged-account fallback mid-week): those
@@ -1683,6 +1689,16 @@ def main():
             (HOME / "dtlab" / ".consent_ack").read_text(
                 encoding="utf-8").strip()
             if (HOME / "dtlab" / ".consent_ack").exists() else None),
+        # spend-limit confirmation + key-verification override
+        # (dtlab-start gates, audited here)
+        "spend_limit_ack_utc": (
+            (HOME / "dtlab" / ".spend_limit_ack").read_text(
+                encoding="utf-8").strip()
+            if (HOME / "dtlab" / ".spend_limit_ack").exists() else None),
+        "key_override_utc": (
+            (HOME / "dtlab" / ".key_override").read_text(
+                encoding="utf-8").strip()
+            if (HOME / "dtlab" / ".key_override").exists() else None),
         "candidates": candidates,
         "searches": searches,
         "warnings": warnings_,

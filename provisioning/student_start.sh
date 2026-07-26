@@ -249,9 +249,23 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         echo -e "reset it with:  rm ~/.dtlab_env${NC}"
         exit 1 ;;
       *)
-        note "could not reach the Claude API to verify the key — storing it
-       anyway; if agent runs fail with auth errors, reset with
-       rm ~/.dtlab_env and re-enter" ;;
+        # FAIL CLOSED (audit 8.5): an unverifiable key is stored only on
+        # an explicit, recorded TA override — never silently
+        echo ""
+        echo -e "${YEL}Could not verify the key against the Claude API"
+        echo -e "(HTTP '${CODE:-none}') — check the codespace's network"
+        echo -e "and retry. A TA can override: type OVERRIDE to store the"
+        echo -e "key unverified (the override is recorded); anything else"
+        echo -e "stores nothing.${NC}"
+        read -rp "> " OV
+        if [ "$OV" = "OVERRIDE" ]; then
+          date -u +%FT%TZ > "$HOME/dtlab/.key_override"
+          note "unverified key stored on TA override (recorded in the manifest)"
+        else
+          echo -e "${RED}Nothing stored — re-run dtlab-start when the"
+          echo -e "network is back (or with a TA for the override).${NC}"
+          exit 1
+        fi ;;
     esac
     umask 077
     printf 'export ANTHROPIC_API_KEY=%q\n' "$KEY" > "$ENVFILE"
@@ -273,6 +287,22 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
   fi
 else
   ok "Claude API key present."
+fi
+# Spend-limit gate (audit 8.4): the README's claim is now a RECORDED
+# one-time confirmation — the ack lands in the manifest at pack time.
+SPENDACK="$HOME/dtlab/.spend_limit_ack"
+if [ ! -f "$SPENDACK" ]; then
+  read -rp "  Personal monthly spend limit (~\$20) set in your Anthropic Console? [y/N] " SL
+  case "$SL" in
+    [yY]*)
+      date -u +%FT%TZ > "$SPENDACK"
+      ok "spend-limit confirmation recorded (asked once)" ;;
+    *)
+      echo -e "${RED}Set it now (Anthropic Console > Billing > Limits;"
+      echo -e "takes ~2 minutes — it caps what a runaway session could"
+      echo -e "cost YOU), then re-run dtlab-start.${NC}"
+      exit 1 ;;
+  esac
 fi
 
 # ---- SANDBOX MODE: soft gates, sandbox SOUL, stamped for exclusion ----
