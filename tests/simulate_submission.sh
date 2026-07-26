@@ -837,58 +837,25 @@ assert 'DT2026-999/verdicts.csv' in z.namelist()
 sys.exit(0)
 PY
 
-echo "[32] B2/B17: Thursday capture resumes Friday; corrupt run never drops rows"
+echo "[32] C1.4: single Friday session; immutable rows; --amend path"
 mkenv_4run
 guard; rm -rf "$HOME/dtlab/runs/run3" "$HOME/dtlab/runs/run4"
-python3 - "$REPO" <<'PY'; check $? 0 "3-phase resume: stored answers survive; corrupt condition.txt carries rows forward"
-import csv, hashlib, os, shutil, subprocess, sys
+python3 - "$REPO" <<'PY'; check $? 0 "<4-run gate; crash-safe; immutable re-run; TA-token amendments"
+import csv, hashlib, os, subprocess, sys
 REPO, HOME, SID = sys.argv[1], os.path.expanduser("~"), "DT2026-999"
 WS = f"{HOME}/dtlab/workspace"
-def blind(t, runs):
-    order = sorted(runs, key=lambda rn: hashlib.sha256(
-        f"{SID}|{t}|{rn}|verdictorder".encode()).hexdigest())
-    return dict(zip("ABCD", order))
-def condtier(rn):
-    d = f"{HOME}/dtlab/runs/{rn}"
-    return (open(f"{d}/condition.txt").read().strip(),
-            open(f"{d}/tier.txt").read().strip())
-def picks_of(rn, runs):
-    src = f"{HOME}/dtlab/runs/{rn}/agent_picks.csv"
-    if not os.path.exists(src) and rn == runs[-1]:
-        src = f"{WS}/agent_picks.csv"
-    return {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
-human = {r["task_id"]: r["asin"]
-         for r in csv.DictReader(open(f"{HOME}/dtlab/quarantine/human/human_picks.csv"))}
-tasks = ["1", "2", "3"]
 cap = f"{REPO}/tools/capture_verdicts.py"
-def run_capture(lines):
-    return subprocess.run([sys.executable, cap],
+def run_capture(lines, extra=()):
+    return subprocess.run([sys.executable, cap, *extra],
                           input="\n".join(lines) + "\n",
                           capture_output=True, text=True)
-# ---- phase 1: Thursday (runs 1-2 only) ----
-runs = ["run1", "run2"]
-ct = {rn: condtier(rn) for rn in runs}
-lines, thur = [], {}
-for t in tasks:
-    lab2run = blind(t, runs)
-    lines.append("8")
-    for i, label in enumerate("AB"):
-        rn = lab2run[label]
-        v = "identical" if picks_of(rn, runs).get(t) == human.get(t) \
-            else ("better" if i == 0 else "equivalent")
-        thur[(t,) + ct[rn]] = v
-        lines += [v, "4", "thu"]
-    # one family (grounding_economy): answer the PERSONA run's label
-    plabel = next(lb for lb, rn in lab2run.items() if ct[rn][0] == "persona")
-    lines.append(plabel.lower())
-p = run_capture(lines)
+vp = f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv"
+# ---- fewer than four runs: schedule printed, NOTHING captured ----
+p = run_capture([])
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-rows = list(csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv")))
-assert len(rows) == 6
-h = {(r["task_id"], r["contrast"]): r["winner"] for r in
-     csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/head_to_heads.csv"))}
-assert all(h[(t, "grounding_economy")] == "persona" for t in tasks)
-# ---- phase 2: Friday (runs 3-4 exist; fresh process keeps Thursday) ----
+assert "single blind" in p.stdout
+assert not os.path.exists(vp)
+# ---- runs 3-4 arrive; a crash mid-session leaves no partial store ----
 for i, cond, tier in ((3, "ablated", "frontier"), (4, "persona", "frontier")):
     d = f"{HOME}/dtlab/runs/run{i}"
     os.makedirs(d, exist_ok=True)
@@ -897,52 +864,117 @@ for i, cond, tier in ((3, "ablated", "frontier"), (4, "persona", "frontier")):
 open(f"{HOME}/dtlab/runs/run3/agent_picks.csv", "w").write(
     "task_id,title,asin,price_inr,sponsored\n1,Q,B0CCCC3333,310,0\n"
     "2,X,B0AAAA1111,1200,0\n3,Y,B0BBBB2222,1400,0\n")
-runs = ["run1", "run2", "run3", "run4"]
-ct = {rn: condtier(rn) for rn in runs}
-lines, fri = [], {}
+open(f"{HOME}/dtlab/runs/run3/decision_log.md", "w").write(
+    "log citing PP only, frontier\n")
+p = run_capture(["7", "better"])          # EOF mid-way = crash
+assert p.returncode != 0
+assert not os.path.exists(vp), "a crashed session must store nothing partial"
+# ---- the one full blind session ----
+RUNS = ["run1", "run2", "run3", "run4"]
+def blind(t):
+    order = sorted(RUNS, key=lambda rn: hashlib.sha256(
+        f"{SID}|{t}|{rn}|verdictorder".encode()).hexdigest())
+    return dict(zip("ABCD", order))
+condtier = {rn: (open(f"{HOME}/dtlab/runs/{rn}/condition.txt").read().strip(),
+                 open(f"{HOME}/dtlab/runs/{rn}/tier.txt").read().strip())
+            for rn in RUNS}
+def picks_of(rn):
+    src = f"{HOME}/dtlab/runs/{rn}/agent_picks.csv"
+    if not os.path.exists(src):
+        src = f"{WS}/agent_picks.csv"
+    return {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
+picks = {rn: picks_of(rn) for rn in RUNS}
+human = {r["task_id"]: r["asin"] for r in csv.DictReader(
+    open(f"{HOME}/dtlab/quarantine/human/human_picks.csv"))}
+tasks = ["1", "2", "3"]
+lines = []
 for t in tasks:
-    lab2run = blind(t, runs)
-    lines.append("")                       # rating_self stored -> Enter
+    lab2run = blind(t)
+    lines.append("7")
     for label in "ABCD":
         rn = lab2run[label]
-        if rn in ("run1", "run2"):
-            lines += ["", "", ""]          # stored -> Enter keeps
-        else:
-            v = "identical" if picks_of(rn, runs).get(t) == human.get(t) \
-                else "inferior"
-            fri[(t,) + ct[rn]] = v
-            lines += [v, "6", "fri"]
-    # families in fixed order: grounding_economy (stored), then
-    # grounding_frontier, tier_persona, tier_ablated (new)
-    lines += ["", "tie", "tie", "tie"]
+        v = "identical" if picks[rn].get(t) == human.get(t) else "equivalent"
+        lines += [v, "5", "r"]
+    lines += ["tie"] * 4
 lines += ["x", ""] * 5
 p = run_capture(lines)
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-rows = list(csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv")))
-assert len(rows) == 12
-got = {(r["task_id"], r["condition"], r["tier"]): r for r in rows}
-for k, v in thur.items():
-    assert got[k]["verdict"] == v and got[k]["rationale"] == "thu", k
-    assert got[k]["rating_self"] == "8" and got[k]["rating_agent"] == "4"
-for k, v in fri.items():
-    assert got[k]["verdict"] == v and got[k]["rationale"] == "fri", k
-# ---- phase 3: corrupt run3's condition -> rows carried, not dropped ----
-open(f"{HOME}/dtlab/runs/run3/condition.txt", "w").write("garbage\n")
-runs3 = ["run1", "run2", "run4"]
-lines = []
-for t in tasks:
-    lines += [""] + [""] * 9 + ["", ""]    # all stored -> Enter
-p = run_capture(lines)                     # 3 runs -> no Overall stage
+first = open(vp, "rb").read()
+assert len(list(csv.DictReader(open(vp)))) == 12
+# ---- immutability: a re-run shows stored rows read-only and keeps the
+#      file byte-identical (timestamps included); only the 5 Overall
+#      Enter-keeps are consumed ----
+p = run_capture([""] * 5)
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-assert "carried forward" in p.stdout
-rows = list(csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv")))
-assert len(rows) == 12
-kept = [r for r in rows if (r["condition"], r["tier"]) ==
-        ("ablated", "frontier")]
-assert len(kept) == 3 and all(r["rationale"] == "fri" for r in kept)
-shutil.rmtree(f"{HOME}/dtlab/quarantine/verdicts")    # leave later cases untouched
+assert "final" in p.stdout
+assert open(vp, "rb").read() == first, "stored rows must never change"
+# ---- a corrupt run refuses the session and never touches the store ----
+open(f"{HOME}/dtlab/runs/run3/condition.txt", "w").write("garbage\n")
+p = run_capture([])
+assert p.returncode == 0 and "single blind" in p.stdout
+assert open(vp, "rb").read() == first
+open(f"{HOME}/dtlab/runs/run3/condition.txt", "w").write("ablated\n")
+# ---- amendments: append-only, TA-token gated, original row untouched ----
+apath = f"{HOME}/dtlab/quarantine/verdicts/verdicts_amendments.csv"
+p = run_capture(["1", "persona", "economy", "verdict", "better",
+                 "typo fix", "WRONG"], extra=("--amend",))
+assert p.returncode != 0 and not os.path.exists(apath)
+open(f"{HOME}/dtlab/.ta_token", "w").write("sekrit-42\n")
+p = run_capture(["1", "persona", "economy", "verdict", "better",
+                 "typo fix", "sekrit-42"], extra=("--amend",))
+assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
+arows = list(csv.DictReader(open(apath)))
+assert len(arows) == 1 and arows[0]["new_value"] == "better"
+assert arows[0]["amended_at_utc"] and arows[0]["reason"] == "typo fix"
+assert open(vp, "rb").read() == first, "amendment must not rewrite the row"
 sys.exit(0)
 PY
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack after the single session + amendment exits 0"
+python3 -c "
+import json,zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert 'DT2026-999/verdicts_amendments.csv' in z.namelist()
+assert m['verdicts_single_session'] is True
+assert m['verdicts_captured_blind'] is True
+"; check $? 0 "amendments staged; single-session + blind flags recorded"
+mkenv_4run
+rm -f "$HOME/dtlab/workspace/comparison.md"
+mkdir -p "$HOME/dtlab/quarantine/verdicts"
+python3 - <<'PY'
+import csv, os
+verdict = {
+    ("1","persona","economy"):"identical",("2","persona","economy"):"inferior",
+    ("3","persona","economy"):"better",("1","ablated","economy"):"identical",
+    ("2","ablated","economy"):"equivalent",("3","ablated","economy"):"inferior",
+    ("1","ablated","frontier"):"equivalent",("2","ablated","frontier"):"equivalent",
+    ("3","ablated","frontier"):"inferior",("1","persona","frontier"):"identical",
+    ("2","persona","frontier"):"better",("3","persona","frontier"):"equivalent",
+}
+vd = os.path.expanduser("~/dtlab/quarantine/verdicts")
+with open(f"{vd}/verdicts.csv","w",newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["student_id","task_id","condition","tier","verdict",
+                "rating_self","rating_agent","rationale"])
+    for (t,c,ti),v in verdict.items():
+        w.writerow(["DT2026-999",t,c,ti,v,"8","5","r"])
+with open(f"{vd}/head_to_heads.csv","w",newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["task_id","contrast","winner"])
+    for t in ("1","2","3"):
+        w.writerow([t,"grounding_economy","persona"])
+        w.writerow([t,"grounding_frontier","tie"])
+        w.writerow([t,"tier_persona","frontier"])
+        w.writerow([t,"tier_ablated","same"])
+open(f"{vd}/overall_reflections.md","w").write("# Overall reflections\nanswers\n")
+PY
+printf '{"schema":"dtlab-verdicts-v2","blind":false,"single_session":true}\n' \
+  > "$HOME/dtlab/quarantine/verdicts/capture_meta.json"
+OUT32B="$(python3 "$PACK" 2>&1)"; RC32B=$?
+check "$([ "$RC32B" -ne 0 ]; echo $?)" 0 "reveal-before-complete capture blocks the pack"
+echo "$OUT32B" | grep -q "NOT blind"
+check $? 0 "blocking issue names the broken blinding"
 
 echo "[33] B2: blind memo fallback parses; labels resolve via shared derivation"
 mkenv_4run

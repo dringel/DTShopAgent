@@ -634,12 +634,22 @@ def main():
     use_verdicts_csv = verdicts_csv.exists()
     blind_meta = VD / "capture_meta.json"
     verdicts_captured_blind = False
+    verdicts_single_session = None
     if use_verdicts_csv and blind_meta.exists():
         try:
-            verdicts_captured_blind = bool(json.loads(
-                blind_meta.read_text(encoding="utf-8")).get("blind"))
+            bm = json.loads(blind_meta.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            pass
+            bm = {}
+        verdicts_captured_blind = bool(bm.get("blind"))
+        verdicts_single_session = bm.get("single_session")
+        # D5: a reveal that preceded stored rows breaks the blinding;
+        # the capture tool records that fact and the pack must flag it
+        need(verdicts_captured_blind,
+             "verdict capture was NOT blind (a reveal preceded stored "
+             "rows — capture_meta.json records it); tell a TA")
+        need(bool(verdicts_single_session),
+             "verdicts were not captured in the single Friday session "
+             "(capture_meta.single_session missing/false) — tell a TA")
     required = ["persona_survey.csv", "persona_survey.md",
                 "purchase_profile.md", "tasks.md", "decision_log.md",
                 "agent_picks.csv", "comparison.md"]
@@ -665,7 +675,8 @@ def main():
     # dtlab-verdict artifacts (verdicts.csv + head-to-heads + reflections);
     # a filled comparison.md is still staged as supporting material
     for name in ("verdicts.csv", "head_to_heads.csv",
-                 "overall_reflections.md"):
+                 "overall_reflections.md", "verdicts_amendments.csv",
+                 "capture_meta.json"):
         src = verdict_dir / name
         if not src.exists() and (WS / name).exists():
             src = WS / name          # mixed legacy layout
@@ -1650,6 +1661,7 @@ def main():
         "verdict_source": ("verdicts_csv" if use_verdicts_csv
                            else "comparison_md"),
         "verdicts_captured_blind": verdicts_captured_blind,
+        "verdicts_single_session": verdicts_single_session,
         "checkout_attempts": checkout_attempts,
         "demographic_citations_by_run": demographic_citations,
         # the typed pre-run acknowledgment (consent capture layer 2 of 3,

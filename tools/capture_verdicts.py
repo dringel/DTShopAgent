@@ -36,11 +36,24 @@ path is barred from, so no agent can ever read stored judgments:
   overall_reflections.md   free text
   capture_meta.json        blind-capture stamp for the manifest
 
-Idempotent and resumable: Thursday fills the economy rows, Friday the
-rest; re-running shows the stored answer and Enter keeps it (stored rows
-are keyed by the RESOLVED condition/tier, so answers survive fresh
-processes and re-randomized labels). Stored rows for runs that are no
-longer readable are carried forward, never dropped.
+SINGLE SESSION (D5): all verdicts are captured ONCE, in Friday's single
+blind session, after run 4 — before that the tool prints the schedule
+and exits. With the tier order counterbalanced across days, the single
+session is blind on BOTH factors. Stored rows are IMMUTABLE: the first
+stored value of every (task, run) verdict — and its ratings and
+rationale — is final; re-running displays stored rows read-only (rows
+are keyed by the RESOLVED condition/tier, so a crash mid-session never
+loses what was already written, and rows for runs that are no longer
+readable are carried forward, never dropped).
+
+`dtlab-verdict --amend` is the ONLY correction path: it appends to
+verdicts_amendments.csv (row key, field, new value, one-line reason,
+amended_at_utc) and never rewrites the original row. Amendments require
+TA authorization: the token typed at the prompt (or DTLAB_TA_TOKEN in
+the environment) must match ~/dtlab/.ta_token, a file the TA installs
+at setup and students have no reason to read — simple, auditable, and
+off the repo. The analyzer applies amendments last-wins and reports
+their count.
 
 `dtlab-verdict --worksheet` prints each task's blind label -> pick list
 (titles + ASINs only) for the memo fallback path, without capturing.
@@ -49,6 +62,7 @@ longer readable are carried forward, never dropped.
 import csv
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -266,6 +280,63 @@ def resolved_winner(fam, cell_a, cell_b, ans, label_a, label_b, tie_word):
     return cell[0] if fam.startswith("grounding_") else cell[1]
 
 
+AMEND_FIELDS = ("verdict", "rating_self", "rating_agent", "rationale")
+
+
+def amend_flow(student_id):
+    """TA-authorized append-only correction: the original verdict row is
+    never rewritten; the analyzer applies amendments last-wins."""
+    vpath = VD / "verdicts.csv"
+    rows = read_csv_rows(vpath)
+    if not rows:
+        sys.exit("no stored verdicts to amend (verdicts.csv is empty)")
+    print("Amendment (append-only; the original row stays untouched).")
+    t = input("  task_id: ").strip()
+    cond = input("  condition (persona/ablated): ").strip().lower()
+    tier = input("  tier (economy/frontier): ").strip().lower()
+    if not any((r.get("task_id") or "").strip() == t
+               and (r.get("condition") or "").strip() == cond
+               and (r.get("tier") or "").strip() == tier for r in rows):
+        sys.exit(f"no stored verdict row for task {t} ({cond}, {tier})")
+    field = input("  field (" + "/".join(AMEND_FIELDS) + "): ").strip()
+    if field not in AMEND_FIELDS:
+        sys.exit("field must be one of " + "/".join(AMEND_FIELDS))
+    val = input("  new value: ").strip()
+    if field == "verdict" and val not in VERDICTS:
+        sys.exit("verdict must be better/identical/equivalent/inferior")
+    if field.startswith("rating") and not re.fullmatch(r"(10|[1-9])", val):
+        sys.exit("rating must be a whole number 1-10")
+    reason = input("  one-line reason: ").strip()
+    if not reason:
+        sys.exit("a reason is required for the audit trail")
+    # TA authorization: typed token (or DTLAB_TA_TOKEN) must match the
+    # token file the TA installed at setup
+    tokfile = HOME / "dtlab" / ".ta_token"
+    expected = tokfile.read_text(encoding="utf-8").strip() \
+        if tokfile.exists() else None
+    supplied = os.environ.get("DTLAB_TA_TOKEN") or input("  TA token: ").strip()
+    if not expected or supplied != expected:
+        sys.exit("TA token missing or wrong — amendments need a TA "
+                 "(the token file ~/dtlab/.ta_token is installed at "
+                 "setup; the stored verdict stays as-is).")
+    apath = VD / "verdicts_amendments.csv"
+    fields = ["student_id", "task_id", "condition", "tier", "field",
+              "new_value", "reason", "amended_at_utc"]
+    new_file = not apath.exists()
+    with open(apath, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        if new_file:
+            w.writeheader()
+        w.writerow({"student_id": student_id, "task_id": t,
+                    "condition": cond, "tier": tier, "field": field,
+                    "new_value": val, "reason": reason,
+                    "amended_at_utc":
+                        datetime.now(timezone.utc).isoformat()})
+    print(f"Amendment appended to {apath} — the analyzer applies "
+          "amendments last-wins and reports their count.")
+    return 0
+
+
 def print_worksheet(student_id, task_ids, runs, rundata):
     print(f"\nBlind worksheet — {student_id} ({len(runs)} runs on file).")
     print("Per task, the runs' picks in their blind order (conditions stay")
@@ -312,6 +383,19 @@ def main():
     if "--worksheet" in sys.argv:
         print_worksheet(student_id, task_ids, runs, rundata)
         return 0
+    if "--amend" in sys.argv:
+        migrate_legacy_locations()
+        return amend_flow(student_id)
+    # ---- SINGLE SESSION (D5): capture happens once, after run 4 ----
+    if len(runs) < 4:
+        print(f"\ndtlab-verdict — {student_id}. Runs on file: "
+              f"{len(runs)} of 4.")
+        print("Verdicts are captured ONCE, in Friday's single blind")
+        print("session, after run 4 — with the tier order")
+        print("counterbalanced, that one session is blind on both")
+        print("factors. Nothing was captured now.")
+        print("(dtlab-verdict --worksheet works any time.)")
+        return 0
     human = picks_by_task(HU / "human_picks.csv")
 
     migrate_legacy_locations()
@@ -328,11 +412,12 @@ def main():
     print("BLIND assessment: each task shows the runs' picks in a")
     print("randomized order as Run A-D. Which run was which is revealed")
     print("AFTER your verdicts are saved.")
-    print("Enter keeps a stored answer; everything is revisable by "
-          "re-running dtlab-verdict.\n")
+    print("Stored answers are FINAL (shown read-only on a re-run);")
+    print("corrections go through  dtlab-verdict --amend  with a TA.\n")
 
     out_rows = []
     hrows = []
+    new_rows_stored = False
     fams = contrast_families(cells)
     for t in task_ids:
         lab2run = blind_labels(student_id, t, run_names)
@@ -343,14 +428,23 @@ def main():
         if h:
             print(f"    your pick : {h.get('title', '?')[:70]} ({h_asin})")
         # own-pick satisfaction: one judgment per task (it does not vary
-        # by run); stored per row for schema compatibility
+        # by run); stored per row for schema compatibility, and FINAL
+        # once stored
         cur_rs = next(((stored.get((t,) + condtier[rn], {})
                         .get("rating_self") or "").strip()
                        for rn in run_names
                        if (stored.get((t,) + condtier[rn], {})
                            .get("rating_self") or "").strip()), None)
-        rs = ask_rating("    YOUR pick — satisfaction owning it (1-10)",
-                        cur_rs)
+        fresh_rows = [rn for rn in run_names
+                      if not (stored.get((t,) + condtier[rn], {})
+                              .get("verdict") or "").strip()]
+        if cur_rs:
+            rs = cur_rs
+        elif fresh_rows:
+            rs = ask_rating("    YOUR pick — satisfaction owning it "
+                            "(1-10)")
+        else:
+            rs = ""
         for label in "ABCD"[:len(run_names)]:
             rn = lab2run[label]
             cond, tier = condtier[rn]
@@ -359,6 +453,14 @@ def main():
             a_asin = (a.get("asin") or "").strip()
             print(f"\n  Run {label} pick: {(a.get('title') or '?')[:70]} "
                   f"({a_asin})")
+            if (cur.get("verdict") or "").strip():
+                # IMMUTABLE: the first stored value is final; display
+                # read-only and keep the original row byte-for-byte
+                # (verdict_at_utc included)
+                print(f"    stored verdict: {cur['verdict']} (final — "
+                      "corrections only via dtlab-verdict --amend)")
+                out_rows.append({f: (cur.get(f) or "") for f in VFIELDS})
+                continue
             if a_asin and h_asin:
                 if a_asin == h_asin:
                     print("    (same ASIN as your pick — verdict must be "
@@ -368,38 +470,34 @@ def main():
                     valid = {"better", "equivalent", "inferior"}
             else:
                 valid = set(VERDICTS)
-            cur_v = (cur.get("verdict") or "").strip() or None
-            if cur_v not in valid:
-                cur_v = None
             v = ask("    verdict (better/identical/equivalent/inferior)",
-                    valid, cur_v)
-            ra = ask_rating("    this pick — satisfaction owning it (1-10)",
-                            (cur.get("rating_agent") or "").strip() or None)
-            why = ask_line("    one-line rationale",
-                           (cur.get("rationale") or "").strip() or None)
+                    valid)
+            ra = ask_rating("    this pick — satisfaction owning it (1-10)")
+            why = ask_line("    one-line rationale")
+            new_rows_stored = True
             out_rows.append({
                 "student_id": student_id, "task_id": t,
                 "condition": cond, "tier": tier, "verdict": v,
                 "rating_self": rs, "rating_agent": ra, "rationale": why,
                 "verdict_at_utc":
                     datetime.now(timezone.utc).isoformat()})
-        # pairwise head-to-heads for this task, still blind
+        # pairwise head-to-heads for this task, still blind; stored
+        # winners are final
         for fam, fam_cell_a, fam_cell_b, tie_word in fams:
             # present the pair in label order (A before D, etc.)
             (la, cell_a), (lb, cell_b) = sorted(
                 [(run2lab[cell2run[fam_cell_a]], fam_cell_a),
                  (run2lab[cell2run[fam_cell_b]], fam_cell_b)])
             cur_res = hstored.get((t, fam)) or None
-            cur_lab = None
-            if cur_res in ("tie", "same"):
-                cur_lab = "tie"
-            elif cur_res:
-                for lab, cell in ((la, cell_a), (lb, cell_b)):
-                    if cur_res in cell:
-                        cur_lab = lab.lower()
+            if cur_res:
+                print(f"  head-to-head {fam}: stored (final)")
+                hrows.append({"task_id": t, "contrast": fam,
+                              "winner": cur_res})
+                continue
             w = ask(f"  head-to-head: Run {la} vs Run {lb} — better pick "
                     f"for you ({la.lower()}/{lb.lower()}/tie)",
-                    {la.lower(), lb.lower(), "tie"}, cur_lab)
+                    {la.lower(), lb.lower(), "tie"})
+            new_rows_stored = True
             hrows.append({"task_id": t, "contrast": fam,
                           "winner": resolved_winner(
                               fam, cell_a, cell_b, w, la, lb, tie_word)})
@@ -434,11 +532,36 @@ def main():
         wcsv.writeheader()
         wcsv.writerows(hrows)
     print(f"Wrote {hpath}")
-    (VD / "capture_meta.json").write_text(json.dumps({
+    # ---- capture meta: blind is written true only when no reveal
+    # preceded the last stored row; revealed_at_utc marks this
+    # session's reveal (below) and survives re-runs ----
+    mpath = VD / "capture_meta.json"
+    prior_meta = {}
+    if mpath.exists():
+        try:
+            prior_meta = json.loads(mpath.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            prior_meta = {}
+    complete = (sum(1 for r in out_rows
+                    if (r.get("verdict") or "").strip())
+                >= len(task_ids) * len(run_names)) \
+        and len(hrows) >= len(task_ids) * len(fams)
+    blind = bool(prior_meta.get("blind", True)) and not (
+        prior_meta.get("revealed_at_utc") and new_rows_stored)
+    now_utc = datetime.now(timezone.utc).isoformat()
+    mpath.write_text(json.dumps({
         "schema": "dtlab-verdicts-v2",
-        "blind": True,
-        "written_at_utc": datetime.now(timezone.utc).isoformat(),
+        "blind": blind,
+        "single_session": True,
+        "written_at_utc": now_utc,
+        "revealed_at_utc": prior_meta.get("revealed_at_utc")
+        or (now_utc if complete else None),
     }, indent=2), encoding="utf-8")
+
+    if not complete:
+        print("\n(Reveal withheld: not every task x run verdict and "
+              "head-to-head is on file yet — re-run dtlab-verdict.)")
+        return 0
 
     # ---- reveal — only AFTER everything above is on disk ----
     print("\n=== Reveal — which run was which (hidden until now) ===")
