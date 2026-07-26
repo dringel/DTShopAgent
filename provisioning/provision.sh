@@ -8,7 +8,8 @@
 #   1. Import the VM, log in (student / <course password>)
 #   2. Paste their Claude API key when prompted by student_start.sh
 #   3. Drop persona_survey.md (from make_persona.py) into ~/dtlab/workspace
-#      (purchase_profile.md is written by the agent itself at Bootstrap)
+#      (purchase_profile.md is written by the one-time bootstrap session
+#      dtlab-start runs before run 1, then frozen)
 #   4. Run: dtlab-shop, then dtlab-start
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")/.." && pwd)"   # repo root = the dt-lab kit
@@ -85,7 +86,8 @@ cp -v "$KIT/agent/SOUL.md"                 "$HOME/dtlab/workspace/SOUL.md"
 # swaps the workspace SOUL.md per condition when the factor is enabled)
 mkdir -p "$HOME/dtlab/soul"
 cp -v "$KIT/agent/SOUL.md" "$KIT/agent/SOUL_ablated.md" \
-      "$KIT/agent/SOUL_sandbox.md" "$HOME/dtlab/soul/"
+      "$KIT/agent/SOUL_sandbox.md" "$KIT/agent/SOUL_bootstrap.md" \
+      "$HOME/dtlab/soul/"
 cp -v "$KIT/templates/comparison_ablation.md" \
       "$HOME/dtlab/comparison_ablation.TEMPLATE.md"
 cp -v "$KIT/dtlab_config.env"              "$HOME/dtlab/dtlab_config.env"

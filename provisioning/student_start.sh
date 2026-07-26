@@ -404,11 +404,35 @@ else
 fi
 
 # ---- ablation factor: which of the four runs is this? ----
+BOOTSTRAP_RUN=0
 if [ "$PERSONA_FACTOR" = "1" ]; then
+  # ---- Phase 0 (D4): the purchase profile is written ONCE, before run
+  # 1, by a dedicated questionnaire-blind bootstrap session, then
+  # frozen. Two dtlab-start invocations by design: the first launches
+  # the bootstrap agent; the second detects the written profile,
+  # freezes it, and proceeds to run 1.
+  if [ ! -f "$HOME/dtlab/.bootstrap_done" ]; then
+    if [ -s "$WS/purchase_profile.md" ]; then
+      chmod 444 "$WS/purchase_profile.md" 2>/dev/null || true
+      sha256_file "$WS/purchase_profile.md" \
+        > "$HOME/dtlab/purchase_profile.sha256"
+      touch "$HOME/dtlab/.bootstrap_done"
+      # park the bootstrap session's log so run 1 starts clean (the
+      # packer validates its PROTOCOL token from here)
+      mkdir -p "$RUNSDIR/bootstrap"
+      [ -f "$WS/decision_log.md" ] && \
+        mv "$WS/decision_log.md" "$RUNSDIR/bootstrap/decision_log.md"
+      ok "purchase profile frozen (read-only; hash recorded) — proceeding to run 1"
+    else
+      BOOTSTRAP_RUN=1
+    fi
+  fi
   # first run directory that does not exist yet = the next run
-  for i in 1 2 3 4; do
-    if [ ! -d "$RUNSDIR/run$i" ]; then RUN=$i; break; fi
-  done
+  if [ "$BOOTSTRAP_RUN" = "0" ]; then
+    for i in 1 2 3 4; do
+      if [ ! -d "$RUNSDIR/run$i" ]; then RUN=$i; break; fi
+    done
+  fi
   run_day()  { if [ "$1" -le 2 ]; then echo 1; else echo 2; fi; }
   # condition of run N under a given day order (first run of the day
   # follows the order; the second run of the day is the other condition)
@@ -439,7 +463,9 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
       fi
     done
   }
-  if [ -z "$RUN" ]; then
+  if [ "$BOOTSTRAP_RUN" = "1" ]; then
+    :   # Phase 0: no run to resume — the bootstrap session has no runN
+  elif [ -z "$RUN" ]; then
     if never_started 4; then
       RUN=4
       note "run 4 was set up but never started — resuming it"
@@ -474,7 +500,11 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
       esac
     fi
   fi
-  DAY=$(run_day "$RUN")
+  if [ "$BOOTSTRAP_RUN" = "1" ]; then
+    DAY=1     # the bootstrap session runs on day 1's assigned tier
+  else
+    DAY=$(run_day "$RUN")
+  fi
   # the kit-baked counterbalance sheet (same file as the LMS artifact,
   # pseudonyms only) is the authority for BOTH assignments — grounding
   # order per day and tier order across days; typed entry is the
@@ -511,7 +541,7 @@ with open(sys.argv[1], newline="", encoding="utf-8-sig") as f:
 PY
   }
   ORDERFILE="$HOME/dtlab/persona_order_day$DAY.txt"
-  if [ ! -f "$ORDERFILE" ]; then
+  if [ ! -f "$ORDERFILE" ] && [ "$BOOTSTRAP_RUN" = "0" ]; then
     ASSIGNED=$(cb_lookup "day${DAY}_order")
     if [ "$ASSIGNED" = "P_FIRST" ] || [ "$ASSIGNED" = "NP_FIRST" ]; then
       echo "  Your assigned DAY-$DAY grounding order (course counterbalance sheet): $ASSIGNED"
@@ -528,7 +558,7 @@ PY
       esac
     fi
   fi
-  PORDER=$(cat "$ORDERFILE")
+  [ "$BOOTSTRAP_RUN" = "0" ] && PORDER=$(cat "$ORDERFILE")
   # ---- model tier for this day: counterbalanced ACROSS DAYS per
   # student (tier_day1/tier_day2 on the sheet). The tier is assigned,
   # never guessed: no sheet row + no valid typed entry = fail closed.
@@ -554,16 +584,51 @@ PY
   # model pinning gate: fail closed BEFORE any run state while the
   # tier's model ID is unpinned (sets MODEL_ID for the run's home)
   pin_gate "$TIER"
+  mkdir -p "$HOLD"
+  if [ "$BOOTSTRAP_RUN" = "1" ]; then
+    # Phase 0 workspace: persona files held in quarantine REGARDLESS of
+    # the grounding order — the profile is written questionnaire-blind
+    for f in persona_survey.md persona_survey.csv; do
+      [ -f "$WS/$f" ] && mv "$WS/$f" "$HOLD/$f"
+    done
+    if [ -f "$HOME/dtlab/soul/SOUL_bootstrap.md" ]; then
+      cp "$HOME/dtlab/soul/SOUL_bootstrap.md" "$WS/SOUL.md"
+    else
+      bad "SOUL_bootstrap.md missing from ~/dtlab/soul/ — re-run provisioning"
+    fi
+    echo ""
+    echo -e "${YEL}BOOTSTRAP PHASE (one-time, before run 1): this session's"
+    echo -e "agent reads your amazon.in order history and writes"
+    echo -e "purchase_profile.md — questionnaire-blind (your persona files"
+    echo -e "are held in quarantine), no shopping. The flow:"
+    echo -e "  1. Hermes starts; the agent writes purchase_profile.md,"
+    echo -e "     says it is done, and stops — then exit Hermes."
+    echo -e "  2. Run dtlab-start AGAIN: pre-flight freezes the profile"
+    echo -e "     (read-only, hash-recorded) and starts run 1.${NC}"
+    ok "bootstrap session prepared ($TIER tier writes the profile; tier recorded)"
+  else
   COND=$(run_cond "$RUN" "$PORDER")
   # run-dir creation happens ONLY at launch (after every gate below has
   # passed) — a refused gate must never leave a phantom "started" run
   [ -d "$RUNSDIR/run$RUN" ] || FRESH_RUN=1
-  mkdir -p "$HOLD"
   if [ "$FRESH_RUN" = "1" ]; then
     ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; day-$DAY order $PORDER)"
   else
     ok "resuming agent run $RUN of 4 ($TIER tier, $COND grounding)"
   fi
+  # frozen-profile verification, EVERY run (fail closed): the profile
+  # all four runs read must be byte-identical to the frozen bootstrap
+  # output
+  FROZEN_SHA="$(cat "$HOME/dtlab/purchase_profile.sha256" 2>/dev/null || echo none)"
+  CUR_SHA="$([ -f "$WS/purchase_profile.md" ] \
+             && sha256_file "$WS/purchase_profile.md" || echo missing)"
+  if [ "$CUR_SHA" != "$FROZEN_SHA" ]; then
+    echo ""
+    echo -e "${RED}The purchase profile changed after the freeze (or the"
+    echo -e "freeze record is missing) — tell a TA. No run was started.${NC}"
+    exit 1
+  fi
+  ok "purchase profile verified against the freeze record"
   if [ "$COND" = "persona" ]; then
     for f in persona_survey.md persona_survey.csv; do
       [ -f "$HOLD/$f" ] && mv "$HOLD/$f" "$WS/$f"
@@ -588,6 +653,7 @@ PY
     cp "$HOME/dtlab/comparison_ablation.TEMPLATE.md" "$WS/comparison.md"
     note "comparison.md swapped to the ablation template (old file kept as comparison.md.bak)"
   fi
+  fi   # end of the non-bootstrap (numbered-run) branch
 fi
 [ -f "$WS/human_picks.csv" ] \
   && bad "human_picks.csv found in the AGENT workspace — move it to ~/dtlab/quarantine/human/ (the agent must not see your picks)"
@@ -607,8 +673,8 @@ if [ -f "$PSF" ]; then
 else
   bad "persona_survey.md missing — run make_persona.py first (see handout §6)"
 fi
-note "purchase profile: created BY THE AGENT from your amazon.in order
-       history as its first action (no extraction needed beforehand)"
+note "purchase profile: written ONCE by the bootstrap session before
+       run 1, then frozen read-only and hash-verified at every run"
 
 # ---- per-student task order: randomized ACROSS students, held constant
 # WITHIN a student (human session + all four agent runs), derived
@@ -808,7 +874,13 @@ fi
 # ---- per-run Hermes home: generated and VERIFIED before any run state
 # is written — a config mismatch must never leave a phantom "started"
 # run ----
-if [ -n "$RUN" ]; then
+if [ "$BOOTSTRAP_RUN" = "1" ]; then
+  RUN_HOME="$RUNSDIR/bootstrap/hermes_home"
+  make_hermes_home "$RUN_HOME" "$HOME/dtlab/soul/SOUL_bootstrap.md" \
+    "$MODEL_ID" || exit 1
+  verify_hermes_config "$RUN_HOME" "${DTLAB_PROVIDER:-anthropic}" \
+    "$MODEL_ID" || config_mismatch_abort
+elif [ -n "$RUN" ]; then
   if [ "$COND" = "persona" ]; then SOUL_SRC="$HOME/dtlab/soul/SOUL.md"
   else SOUL_SRC="$HOME/dtlab/soul/SOUL_ablated.md"; fi
   RUN_HOME="$RUNSDIR/run$RUN/hermes_home"
@@ -855,6 +927,16 @@ if [ -n "$RUN" ]; then
   sha256_file "$RUN_HOME/config.yaml" \
     > "$RUNSDIR/run$RUN/config_sha256.txt"
   echo "$MODEL_ID" > "$RUNSDIR/run$RUN/model_id.txt"
+  # per-run snapshot of the frozen profile: proves what THIS run saw
+  [ -f "$RUNSDIR/run$RUN/purchase_profile.md" ] || \
+    { [ -f "$WS/purchase_profile.md" ] && \
+      cp "$WS/purchase_profile.md" "$RUNSDIR/run$RUN/purchase_profile.md"; }
+elif [ "$BOOTSTRAP_RUN" = "1" ]; then
+  # the profile writer's identity is part of the research record
+  echo "$TIER" > "$RUNSDIR/bootstrap/tier.txt"
+  echo "$MODEL_ID" > "$RUNSDIR/bootstrap/model_id.txt"
+  [ -f "$RUNSDIR/bootstrap/started_at.txt" ] || \
+    date -u +%FT%TZ > "$RUNSDIR/bootstrap/started_at.txt"
 fi
 # per-run tier is authoritative (runs/runN/tier.txt); ~/dtlab/tier.txt is
 # kept for manifest backward compatibility only

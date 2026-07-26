@@ -90,7 +90,8 @@ cp -v "$KIT/agent/SOUL.md"                 "$HOME/dtlab/workspace/SOUL.md"
 # swaps the workspace SOUL.md per condition when the factor is enabled)
 mkdir -p "$HOME/dtlab/soul"
 cp -v "$KIT/agent/SOUL.md" "$KIT/agent/SOUL_ablated.md" \
-      "$KIT/agent/SOUL_sandbox.md" "$HOME/dtlab/soul/"
+      "$KIT/agent/SOUL_sandbox.md" "$KIT/agent/SOUL_bootstrap.md" \
+      "$HOME/dtlab/soul/"
 cp -v "$KIT/templates/comparison_ablation.md" \
       "$HOME/dtlab/comparison_ablation.TEMPLATE.md"
 cp -v "$KIT/dtlab_config.env"              "$HOME/dtlab/dtlab_config.env"

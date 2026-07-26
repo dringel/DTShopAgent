@@ -60,6 +60,9 @@ printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asi
 printf "task_id,title,asin,url,price_inr,reasoning\n1,A,B07GYLZ1ZN,u,299,r\n2,S,B09YLFGBLL,u,1490,r\n3,K,B07D75V2GH,u,780,r\n" > "$HOME/dtlab/quarantine/human/human_picks.csv"
 echo H_FIRST > "$HOME/dtlab/arm.txt"
 date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
+python3 -c "import hashlib,os;print(hashlib.sha256(open(os.path.expanduser('~/dtlab/workspace/purchase_profile.md'),'rb').read()).hexdigest())" \
+  > "$HOME/dtlab/purchase_profile.sha256"
+touch "$HOME/dtlab/.bootstrap_done"
 sleep 0.2; touch "$HOME/dtlab/.run_started"; sleep 0.1
 echo '{"t":1}' > "$HOME/.hermes/sessions/s.jsonl"
 python3 - <<'PY'
@@ -217,7 +220,7 @@ for i in (1, 2, 3, 4):
         open(f"{d}/{name}", "w").write(h + "\n")
     open(f"{d}/model_id.txt", "w").write(model + "\n")
     # PROTOCOL token: the SOUL variant's canary opens the decision log
-    token = "persona-v3" if cond == "persona" else "ablated-v3"
+    token = "persona-v4" if cond == "persona" else "ablated-v4"
     logp = f"{d}/decision_log.md"
     if not os.path.exists(logp):        # run-4 log still in the workspace
         logp = f"{home}/dtlab/workspace/decision_log.md"
@@ -1157,7 +1160,7 @@ env=m['environment']
 assert env['model_id_by_run']=={'run1':'claude-eco-test-1','run2':'claude-eco-test-1','run3':'claude-fro-test-1','run4':'claude-fro-test-1'}
 assert set(env['context_sha256_by_run'])=={'run1','run2','run3','run4'}
 assert set(env['config_sha256_by_run'])=={'run1','run2','run3','run4'}
-assert m['protocol_tokens_by_run']=={'run1':'persona-v3','run2':'ablated-v3','run3':'ablated-v3','run4':'persona-v3'}
+assert m['protocol_tokens_by_run']=={'run1':'persona-v4','run2':'ablated-v4','run3':'ablated-v4','run4':'persona-v4'}
 assert m['validation_issues']==[], m['validation_issues']
 # the delivery files themselves are hashed, never packed as transcripts
 assert not any(n.endswith('hermes_logs/hermes_home__SOUL.md')
@@ -1165,13 +1168,13 @@ assert not any(n.endswith('hermes_logs/hermes_home__SOUL.md')
 sys.exit(0)
 PY
 mkenv_4run; add_hermes_homes           # wrong token: ablated run claims persona
-replace "$HOME/dtlab/runs/run2/decision_log.md" "soul=ablated-v3" "soul=persona-v3"
+replace "$HOME/dtlab/runs/run2/decision_log.md" "soul=ablated-v4" "soul=persona-v4"
 OUT40="$(python3 "$PACK" 2>&1)"; RC40=$?
 check "$([ "$RC40" -ne 0 ]; echo $?)" 0 "mismatched PROTOCOL token blocks"
 echo "$OUT40" | grep -q "run2: decision log PROTOCOL token"
 check $? 0 "issue names the run and both tokens"
 mkenv_4run; add_hermes_homes           # token absent entirely
-replace "$HOME/dtlab/runs/run3/decision_log.md" "PROTOCOL | soul=ablated-v3" "no token here"
+replace "$HOME/dtlab/runs/run3/decision_log.md" "PROTOCOL | soul=ablated-v4" "no token here"
 python3 "$PACK" 2>&1 | grep -q "run3: decision log PROTOCOL token is MISSING"
 check $? 0 "absent PROTOCOL token blocks, naming the run"
 mkenv_4run; add_hermes_homes           # completed run with zero transcripts
@@ -1236,6 +1239,40 @@ assert dc['run4']=={'D01':1}, dc
 assert m['validation_issues']==[], m['validation_issues']
 sys.exit(0)
 PY
+
+echo "[44] C1.5: frozen-profile snapshots + bootstrap record in the pack"
+mkenv_4run; add_hermes_homes
+for i in 1 2 3 4; do
+  cp "$HOME/dtlab/workspace/purchase_profile.md" \
+     "$HOME/dtlab/runs/run$i/purchase_profile.md"
+done
+mkdir -p "$HOME/dtlab/runs/bootstrap"
+printf 'PROTOCOL | soul=bootstrap-v1\nprofile written\n' \
+  > "$HOME/dtlab/runs/bootstrap/decision_log.md"
+echo economy > "$HOME/dtlab/runs/bootstrap/tier.txt"
+echo claude-eco-test-1 > "$HOME/dtlab/runs/bootstrap/model_id.txt"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with bootstrap record + snapshots exits 0"
+python3 - <<'PY'; check $? 0 "manifest: frozen hash, per-run verification, bootstrap token + files"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['purchase_profile_sha256']
+assert m['purchase_profile_verified_by_run']=={'run1':True,'run2':True,'run3':True,'run4':True}
+assert m['protocol_tokens_by_run']['bootstrap']=='bootstrap-v1'
+assert 'DT2026-999/run1/purchase_profile.md' in z.namelist()
+assert 'DT2026-999/bootstrap/decision_log.md' in z.namelist()
+assert m['validation_issues']==[], m['validation_issues']
+sys.exit(0)
+PY
+replace "$HOME/dtlab/runs/run3/purchase_profile.md" "top categories: x" "EDITED"
+python3 "$PACK" 2>&1 | grep -q "run3: the run's purchase-profile snapshot differs"
+check $? 0 "tampered per-run snapshot blocks, naming the run"
+mkenv_4run; add_hermes_homes
+mkdir -p "$HOME/dtlab/runs/bootstrap"
+printf 'no token at all\n' > "$HOME/dtlab/runs/bootstrap/decision_log.md"
+python3 "$PACK" 2>&1 | grep -q "bootstrap: decision log PROTOCOL token is MISSING"
+check $? 0 "bootstrap log without its token blocks"
 
 echo "[43] C1.3: pre-quarantine (legacy) human/ layout still packs"
 mkenv

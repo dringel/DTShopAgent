@@ -35,6 +35,7 @@ cp "$REPO/provisioning/hermes_config.template.yaml" "$HOME/dtlab/"
 printf '# MARK-STANDARD\n' >  "$HOME/dtlab/soul/SOUL.md"
 printf '# MARK-ABLATED\n'  >  "$HOME/dtlab/soul/SOUL_ablated.md"
 printf '# MARK-SANDBOX\n'  >  "$HOME/dtlab/soul/SOUL_sandbox.md"
+printf '# MARK-BOOTSTRAP\n' >  "$HOME/dtlab/soul/SOUL_bootstrap.md"
 cp "$HOME/dtlab/soul/SOUL.md" "$HOME/dtlab/workspace/SOUL.md"
 cp "$REPO/templates/comparison_ablation.md" \
    "$HOME/dtlab/comparison_ablation.TEMPLATE.md"
@@ -52,6 +53,13 @@ printf 'export ANTHROPIC_API_KEY=sk-ant-test0000000000000000000000\n' \
 chmod 600 "$HOME/.dtlab_env"
 # consent acknowledgment already given (the gate has its own case [22])
 date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
+# bootstrap phase already done: frozen profile + matching hash on file
+# (Phase 0 has its own case [27])
+printf '# Purchase profile (bootstrap output)\n- top categories: x\n' \
+  > "$HOME/dtlab/workspace/purchase_profile.md"
+python3 -c "import hashlib,os;print(hashlib.sha256(open(os.path.expanduser('~/dtlab/workspace/purchase_profile.md'),'rb').read()).hexdigest())" \
+  > "$HOME/dtlab/purchase_profile.sha256"
+touch "$HOME/dtlab/.bootstrap_done"
 }
 
 run(){  # $1=piped answers, rest = env assignments
@@ -721,6 +729,63 @@ rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 1 "human_picks.csv inside the AGENT workspace refuses to launch"
 grep -q "quarantine/human" "$HOME/last_out.txt"
 check $? 0 "refusal names the quarantine location"
+
+echo "[27] C1.5: bootstrap phase — one questionnaire-blind frozen profile"
+mkenv 1
+rm -f "$HOME/dtlab/.bootstrap_done" "$HOME/dtlab/purchase_profile.sha256" \
+      "$HOME/dtlab/workspace/purchase_profile.md"
+rc=$(run 'economy\ny\ny\n\n')
+check "$rc" 0 "bootstrap session launches (no grounding-order prompt)"
+grep -q "BOOTSTRAP PHASE" "$HOME/last_out.txt"
+check $? 0 "phase-0 banner prints the two-invocation flow"
+[ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "no run-1 state during the bootstrap session"
+grep -q 'MARK-BOOTSTRAP' "$HOME/dtlab/runs/bootstrap/hermes_home/SOUL.md"
+check $? 0 "bootstrap hermes home carries SOUL_bootstrap"
+check "$(cat "$HOME/dtlab/runs/bootstrap/tier.txt")" "economy" \
+      "profile writer's tier recorded"
+check "$(cat "$HOME/dtlab/runs/bootstrap/model_id.txt")" "claude-eco-test-1" \
+      "profile writer's model recorded"
+[ -f "$HOME/dtlab/quarantine/persona_hold/persona_survey.md" ] \
+  && [ ! -f "$HOME/dtlab/workspace/persona_survey.md" ]
+check $? 0 "persona held in quarantine during bootstrap (questionnaire-blind)"
+# the bootstrap agent writes the profile + its PROTOCOL-opened log
+printf 'PROTOCOL | soul=bootstrap-v1\nprofile written\n' \
+  > "$HOME/dtlab/workspace/decision_log.md"
+printf '# Purchase profile\n- top categories: y\n' \
+  > "$HOME/dtlab/workspace/purchase_profile.md"
+rc=$(run 'P_FIRST\ny\ny\n\n')
+check "$rc" 0 "second dtlab-start freezes the profile and starts run 1"
+grep -q "purchase profile frozen" "$HOME/last_out.txt"
+check $? 0 "freeze announced"
+[ -f "$HOME/dtlab/.bootstrap_done" ] \
+  && [ -s "$HOME/dtlab/purchase_profile.sha256" ]
+check $? 0 "freeze marker + hash recorded"
+[ ! -w "$HOME/dtlab/workspace/purchase_profile.md" ]
+check $? 0 "profile is read-only after the freeze"
+check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
+      "run 1 started after the freeze"
+[ -f "$HOME/dtlab/runs/bootstrap/decision_log.md" ] \
+  && [ ! -f "$HOME/dtlab/workspace/decision_log.md" ]
+check $? 0 "bootstrap log parked under runs/bootstrap/ (run 1 starts clean)"
+[ -f "$HOME/dtlab/runs/run1/purchase_profile.md" ]
+check $? 0 "per-run profile snapshot recorded at launch"
+finish_run
+chmod +w "$HOME/dtlab/workspace/purchase_profile.md"
+echo tampered >> "$HOME/dtlab/workspace/purchase_profile.md"
+rc=$(run 'y\ny\ny\n\n')
+check "$rc" 1 "tampered profile fails every later run closed"
+grep -q "changed after the freeze" "$HOME/last_out.txt"
+check $? 0 "tamper message names the freeze"
+[ ! -d "$HOME/dtlab/runs/run2" ]
+check $? 0 "no run-2 state after the tamper refusal"
+mkenv 1
+rm -f "$HOME/dtlab/.bootstrap_done" "$HOME/dtlab/purchase_profile.sha256" \
+      "$HOME/dtlab/workspace/purchase_profile.md"
+rc=$(run '\n' DTLAB_SANDBOX=1)
+check "$rc" 0 "sandbox run skips phase 0"
+[ ! -d "$HOME/dtlab/runs/bootstrap" ]
+check $? 0 "no bootstrap state in sandbox mode"
 
 guard
 rm -rf "$SANDBOX_HOME"

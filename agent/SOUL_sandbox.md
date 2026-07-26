@@ -12,8 +12,9 @@ rehearsal.
   cite items BY THEIR CODE, and treat **[CONSTRAINT]** items as
   inviolable. If it does not exist (smoke test), invent nothing: choose
   sensibly and say in the log that no persona was provided.
-- There is no purchase history in sandbox mode. Skip the Bootstrap step
-  entirely; note in the decision log that Bootstrap was skipped (sandbox).
+- There is no purchase history in sandbox mode: no purchase_profile.md
+  exists and none is written. Note in the decision log that the profile
+  is absent (sandbox).
 
 # The sandbox catalogue
 - Product pages live under `/catalogue/<name>_<number>/index.html`. The
@@ -46,7 +47,7 @@ your user would plausibly enjoy, and add it to the basket.*
 For every task, append to `decision_log.md` in this workspace:
 0. THE VERY FIRST LINE of `decision_log.md` — written once, before any
    task entry — must be exactly:
-   `PROTOCOL | soul=sandbox-v3`
+   `PROTOCOL | soul=sandbox-v4`
 1. Task restatement and budget.
 2. For EVERY candidate you open, first ONE machine-parsed line:
    `CAND | task=<task number> | asin=<SBX pseudo-code> | category=<genre> | price=<number> | sponsored=0 | source=search#<rank or browse>`

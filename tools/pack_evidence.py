@@ -137,7 +137,8 @@ def derived_task_order(student_id, task_ids):
 # "PROTOCOL | soul=<token>" — the per-variant token proves the agent
 # loaded the intended instructions, machine-checked per run.
 PROTO_RE = re.compile(r"(?m)^\s*PROTOCOL\s*\|\s*soul=([\w.-]+)")
-SOUL_TOKENS = {"persona": "persona-v3", "ablated": "ablated-v3"}
+SOUL_TOKENS = {"persona": "persona-v4", "ablated": "ablated-v4"}
+BOOTSTRAP_TOKEN = "bootstrap-v1"
 
 # quarantine-leakage detectors (D3): a transcript or decision log naming
 # quarantined material means the agent saw, or tried to see, what it is
@@ -709,7 +710,8 @@ def main():
             for f in ("decision_log.md", "agent_picks.csv",
                       "condition.txt", "tier.txt", "started_at.txt",
                       "ist_date.txt", "soul_sha256.txt",
-                      "config_sha256.txt", "model_id.txt"):
+                      "config_sha256.txt", "model_id.txt",
+                      "purchase_profile.md"):
                 if (rdir / f).exists():
                     shutil.copy2(rdir / f, sdir / f)
                 elif f in ("decision_log.md", "agent_picks.csv"):
@@ -1114,6 +1116,42 @@ def main():
                  f"{tok or 'MISSING'}, but the run's condition ({cond}) "
                  f"requires {expected_tok} — the agent did not load the "
                  "intended instructions; tell a TA (do not edit the log)")
+
+    # ---- bootstrap phase (D4): the profile writer's record, the frozen
+    #      profile hash, and per-run snapshot verification ----
+    bs_dir = RUNS / "bootstrap"
+    if bs_dir.is_dir():
+        sb = staging / "bootstrap"
+        sb.mkdir(exist_ok=True)
+        for f in ("decision_log.md", "tier.txt", "model_id.txt",
+                  "started_at.txt"):
+            if (bs_dir / f).exists():
+                shutil.copy2(bs_dir / f, sb / f)
+        blog = sb / "decision_log.md"
+        if blog.exists():
+            m = PROTO_RE.search(blog.read_text(encoding="utf-8",
+                                               errors="replace"))
+            tok = m.group(1) if m else None
+            protocol_tokens["bootstrap"] = tok
+            need(tok == BOOTSTRAP_TOKEN,
+                 "bootstrap: decision log PROTOCOL token is "
+                 f"{tok or 'MISSING'}, expected {BOOTSTRAP_TOKEN} — the "
+                 "bootstrap agent did not load the intended "
+                 "instructions; tell a TA (do not edit the log)")
+    frozen_sha_p = HOME / "dtlab" / "purchase_profile.sha256"
+    frozen_sha = (frozen_sha_p.read_text(encoding="utf-8").strip()
+                  if frozen_sha_p.exists() else None)
+    profile_verified = {}
+    if frozen_sha:
+        for rn in sorted(conds):
+            snap = staging / rn / "purchase_profile.md"
+            if snap.exists():
+                okv = sha256(snap) == frozen_sha
+                profile_verified[rn] = okv
+                need(okv,
+                     f"{rn}: the run's purchase-profile snapshot differs "
+                     "from the frozen bootstrap hash — the profile "
+                     "changed between runs; tell a TA")
 
     # ---- #4: hermes session logs; #5: cart evidence; recording note ----
     single_home = RUNS / "single" / "hermes_home"
@@ -1600,6 +1638,8 @@ def main():
         "model_tier": tier,
         "transcript_collection": transcript_collection,
         "protocol_tokens_by_run": protocol_tokens,
+        "purchase_profile_sha256": frozen_sha,
+        "purchase_profile_verified_by_run": profile_verified,
         "task_order": task_order,
         "task_order_expected": expected_order,
         "ablation": ablation_meta,
