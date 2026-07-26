@@ -428,7 +428,7 @@ python3 tools/analyze_cohort.py --zips ~/Downloads/submissions --out cohort_repo
 
 (`pip install pandas plotly`; scipy optional for exact tests.)
 **See [docs/sample_report.html](docs/sample_report.html) for a complete
-sample** — generated from 8 synthetic students fabricated by
+sample** — generated from 10 synthetic students fabricated by
 `tests/test_analyze_cohort.py` and clearly titled as such; every number
 in it is fake, but the layout, charts, statistics, and branding are
 exactly what a real cohort produces. The output
