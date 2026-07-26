@@ -32,6 +32,7 @@ never interpreted beyond the machine-parsed fields the packer validated.
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import math
@@ -272,6 +273,40 @@ def read_submission(path):
     design = "2x2" if four_run else ("2run" if ablation else "single")
     verdicts = man.get("verdicts") or {}
     ratings = man.get("ratings") or {}
+    rationales = man.get("rationales") or {}
+    # verdict_at_utc per (task, condition, tier) from the staged
+    # verdicts.csv (the manifest carries values only)
+    v_at = {}
+    for r in rd_csv("verdicts.csv"):
+        k = (str(r.get("task_id", "")).strip(),
+             (r.get("condition") or "").strip(),
+             (r.get("tier") or "").strip())
+        v_at[k] = (r.get("verdict_at_utc") or "").strip()
+    # TA-authorized amendments: applied LAST-WINS to the analysis values
+    # (research_protocol §6; the original rows stay untouched in the zip)
+    amended_keys = set()
+    n_amendments = 0
+    for r in rd_csv("verdicts_amendments.csv"):
+        t_ = str(r.get("task_id", "")).strip()
+        c_ = (r.get("condition") or "").strip()
+        ti_ = (r.get("tier") or "").strip()
+        field = (r.get("field") or "").strip()
+        val = (r.get("new_value") or "").strip()
+        if not (t_ and c_ and field and val):
+            continue
+        n_amendments += 1
+        key = f"{t_}_{c_}_{ti_}" if four_run else f"{t_}_{c_}"
+        amended_keys.add((t_, c_, ti_))
+        if field == "verdict":
+            verdicts[key] = val
+        elif field in ("rating_self", "rating_agent"):
+            try:
+                ratings.setdefault(key, {})[
+                    field.split("_")[1]] = int(val)
+            except ValueError:
+                pass
+        elif field == "rationale":
+            rationales[key] = val
     hth = (ab.get("head_to_head") or {}) if ablation else {}
     contam = man.get("contamination_index") or {}
     cands = man.get("candidates") or {}
@@ -311,6 +346,16 @@ def read_submission(path):
     run_proc = proc.get("runs") or {}
     # partner-recorded interventions per run (D7; dtlab-cart)
     iv_by_run = man.get("interventions_by_run") or {}
+    env = man.get("environment") or {}
+    model_by_run = env.get("model_id_by_run") or {}
+    soul_by_run = env.get("context_sha256_by_run") or {}
+    cfg_by_run = env.get("config_sha256_by_run") or {}
+    provider = None
+    for cfg_line in (rd("config_snapshot/dtlab_config.env")
+                     or "").splitlines():
+        if cfg_line.strip().startswith("DTLAB_PROVIDER="):
+            provider = cfg_line.split("=", 1)[1].strip().strip("'\"")
+            break
 
     # picks per cell: label -> (condition, tier, run, {task: pick-row})
     cells = {}
@@ -374,7 +419,18 @@ def read_submission(path):
             rows.append({
                 "student": sid, "arm": man.get("arm"),
                 "tier": tier, "condition": cond,
+                "run": rn,
                 "day": day_of(rn) if rn else None,
+                "run_order_in_day": (1 if rn in ("run1", "run3") else 2)
+                if rn else None,
+                "model_id": model_by_run.get(rn) if rn else None,
+                "provider": provider,
+                "hermes_version": env.get("hermes_version"),
+                "soul_sha256": soul_by_run.get(rn) if rn else None,
+                "config_sha256": cfg_by_run.get(rn) if rn else None,
+                "verdict_at_utc": v_at.get((t, cond, tier or "")),
+                "amended": (t, cond, tier or "") in amended_keys,
+                "rationale": rationales.get(key),
                 "ist_date": (rd(f"{rn}/ist_date.txt") or "").strip()
                 or None if rn else None,
                 "task": t, "task_name": TASK_NAMES[t],
@@ -494,8 +550,36 @@ def read_submission(path):
         pool = cand_by_task.get(t_)
         if h_asin and pool and h_asin not in pool:
             stockout += 1
+    def z_sha(suffix):
+        try:
+            n = next(n for n in z.namelist() if n.endswith(suffix))
+        except StopIteration:
+            return None
+        return hashlib.sha256(z.read(n)).hexdigest()
+
+    # head-to-head rows for the dtlab-hth-v1 export
+    hth_rows = []
+    if four_run:
+        for fam, tmap in hth.items():
+            for t_, w_ in (tmap or {}).items():
+                hth_rows.append({"student": sid, "task": t_,
+                                 "contrast": fam, "winner": w_,
+                                 "resolved_from_blind":
+                                     bool(man.get(
+                                         "verdicts_captured_blind"))})
     meta = {
         "student": sid, "arm": man.get("arm"), "tier": man.get("model_tier"),
+        "zip_name": path.name,
+        "packed_at_utc": man.get("packed_at_utc"),
+        "tasks_config_sha256": z_sha("config_snapshot/tasks_config.csv"),
+        "dtlab_config_sha256": z_sha("config_snapshot/dtlab_config.env"),
+        "kit_version": (man.get("environment") or {}).get("kit_version"),
+        "instrument_size": len(rd_csv("persona_survey.csv")) or None,
+        "purchase_profile_sha256": man.get("purchase_profile_sha256"),
+        "verdicts_captured_blind": bool(
+            man.get("verdicts_captured_blind")),
+        "n_amendments": n_amendments,
+        "hth_rows": hth_rows,
         "cand_by_task": {t: sorted(s) for t, s in cand_by_task.items()},
         "viewed_asins": sorted(hviewed),
         "stockout_suspect_n": stockout if cand_by_task else None,
@@ -751,8 +835,21 @@ def main():
                          "assets/ringelai.png; silently skipped if absent)")
     ap.add_argument("--identified", action="store_true",
                     help="INSTRUCTOR-ONLY diagnostic copy: restore student "
-                         "pseudonyms on chart hovers (banner added; never "
-                         "distribute this variant)")
+                         "pseudonyms on chart hovers and tables (banner "
+                         "added; never distribute this variant)")
+    ap.add_argument("--decisions", default=None,
+                    help="decisions.csv (student_id, action "
+                         "{include|exclude}, reason) — instructor "
+                         "overrides applied LAST and echoed verbatim in "
+                         "the report (the audit trail)")
+    ap.add_argument("--export-runs", default=None, metavar="runs.csv",
+                    help="write the dtlab-runs-v1 run-level research "
+                         "export (one record per participant x task x "
+                         "run, confirmatory set only)")
+    ap.add_argument("--export-hth", default=None, metavar="hth.csv",
+                    help="write the dtlab-hth-v1 head-to-head export")
+    ap.add_argument("--allow-mixed", action="store_true",
+                    help="allow exports from mixed schema generations")
     args = ap.parse_args()
     globals()["LOGO_URI"] = load_logo(args.logo)
     if args.identified:
@@ -771,17 +868,113 @@ def main():
     budget_note = "Task budgets: " + "; ".join(
         f"{TASK_NAMES[t]} ₹{BUDGETS[t][0]:,}–₹{BUDGETS[t][1]:,}"
         for t in TASK_IDS) + "."
-    metas, rows, prov_rows = [], [], []
+    parsed = []
     for p in paths:
         r = read_submission(p)
         if r:
-            metas.append(r[0])
-            rows.extend(r[1])
-            prov_rows.extend(r[2])
-    if not rows:
+            parsed.append(r)
+    if not parsed:
         sys.exit("no submissions could be parsed")
-    df = pd.DataFrame(rows)
-    sdf = pd.DataFrame(metas)
+    n_parsed = len(parsed)
+
+    def mask_sid(s):
+        """Class copies carry no pseudonyms (audit 3.5): quarantine and
+        decision tables show a stable anonymous label unless
+        --identified."""
+        if args.identified:
+            return str(s)
+        return "anon-" + hashlib.sha256(str(s).encode()).hexdigest()[:8]
+
+    # ---- duplicate student_ids across zips: latest packed_at_utc wins,
+    # the rest are quarantined entirely (audit 4.7 item 4) ----
+    quarantine = {}          # student -> [machine-readable reasons]
+    by_sid = {}
+    dup_notes = []
+    for meta, rows_, prov_ in parsed:
+        sid_ = meta["student"]
+        prev = by_sid.get(sid_)
+        if prev is None:
+            by_sid[sid_] = (meta, rows_, prov_)
+            continue
+        newer = (meta.get("packed_at_utc") or "") > \
+            (prev[0].get("packed_at_utc") or "")
+        winner, loser = ((meta, rows_, prov_), prev) if newer \
+            else (prev, (meta, rows_, prov_))
+        dup_notes.append(
+            (sid_, f"duplicate_student_id: kept the zip packed at "
+                   f"{winner[0].get('packed_at_utc')}, dropped the one "
+                   f"packed at {loser[0].get('packed_at_utc')}"))
+        by_sid[sid_] = winner
+    metas = [m for m, _, _ in by_sid.values()]
+    rows = [r for _, rows_, _ in by_sid.values() for r in rows_]
+    prov_rows = [r for _, _, prov_ in by_sid.values() for r in prov_]
+    # the superseded zips are quarantined (table rows below); the KEPT
+    # zip's student stays in the confirmatory set
+
+    # ---- cohort homogeneity gates (audit 4.7): confirmatory inputs
+    # must share the modal tasks-config hash + instrument size; invalid
+    # packs (nonzero validation_issues) are quarantined by default ----
+    def modal(vals):
+        c = Counter(v for v in vals if v is not None)
+        return c.most_common(1)[0][0] if c else None
+
+    modal_cfg = modal([m["tasks_config_sha256"] for m in metas])
+    modal_instr = modal([m["instrument_size"] for m in metas])
+    for m in metas:
+        reasons = []
+        if modal_cfg and m["tasks_config_sha256"] != modal_cfg:
+            reasons.append(
+                "tasks_config_sha256_mismatch:"
+                f"{(m['tasks_config_sha256'] or 'absent')[:12]}"
+                f"!={modal_cfg[:12]}")
+        if modal_instr and m["instrument_size"] not in (None,
+                                                        modal_instr):
+            reasons.append(f"instrument_size:{m['instrument_size']}"
+                           f"!={modal_instr}")
+        if m["n_issues"]:
+            reasons.append(f"validation_issues:{m['n_issues']}")
+        for r_ in reasons:
+            quarantine.setdefault(m["student"], []).append(r_)
+
+    # ---- instructor decisions, applied LAST and echoed verbatim ----
+    decisions = []
+    if args.decisions:
+        with open(args.decisions, newline="", encoding="utf-8-sig") as f:
+            decisions = list(csv.DictReader(f))
+        for d in decisions:
+            dsid = (d.get("student_id") or "").strip()
+            act = (d.get("action") or "").strip().lower()
+            if act == "include":
+                quarantine.pop(dsid, None)
+            elif act == "exclude":
+                quarantine.setdefault(dsid, []).append(
+                    "decision:"
+                    + ((d.get("reason") or "").strip() or "excluded"))
+
+    df_all = pd.DataFrame(rows)
+    sdf_all = pd.DataFrame(metas)
+    conf_sids = {m["student"] for m in metas
+                 if m["student"] not in quarantine}
+    df = df_all[df_all["student"].isin(conf_sids)].copy()
+    sdf = sdf_all[sdf_all["student"].isin(conf_sids)].copy()
+    prov_rows = [r for r in prov_rows if r["student"] in conf_sids]
+    if not len(df):
+        # every pack quarantined: emit a DIAGNOSTIC page (instructor
+        # triage — pseudonyms + reasons belong here), never crash
+        outp = Path(args.out)
+        outp.write_text(
+            f'<!doctype html><meta charset="utf-8">'
+            f"<title>{args.title}</title><h1>{args.title}</h1>"
+            f"<p><b>No analyzable packs:</b> {n_parsed} submission "
+            "zip(s) parsed, but none survived the quarantine gates. "
+            "Reasons: "
+            + "; ".join(f"{s}: {', '.join(rs)}"
+                        for s, rs in sorted(quarantine.items()))
+            + ". Overrides go through decisions.csv (--decisions).</p>",
+            encoding="utf-8")
+        print(f"Report -> {outp.resolve()} (no confirmatory packs; "
+              f"{len(quarantine)} quarantined)")
+        return
     ablation = bool(sdf["ablation"].any())
     # four-run 2x2 cohort (grounding x tier)? Mixed cohorts degrade
     # gracefully: 2x2 charts appear when any 2x2 pack is present.
@@ -1879,11 +2072,21 @@ def main():
         robust_rows.append(
             (f"Excl. top-quartile contamination runs (index > {q75:.2f})",
              spec_rates(lowc)))
+    if quarantine:
+        # quarantined packs appear ONLY here — never in confirmatory or
+        # headline outputs
+        robust_rows.append(
+            (f"Including the {len(quarantine)} quarantined "
+             "submission(s) — sensitivity appendix only",
+             spec_rates(df_all.dropna(subset=["verdict"]))))
 
     # ---- data quality ----
     quality = [
-        ("Submissions parsed", f"{len(sdf)} of {len(paths)} zips"),
-        ("Task-level records", str(len(df))),
+        ("Submissions (exact counts, audit 4.7)",
+         f"{n_parsed} parsed of {len(paths)} zips; {len(sdf)} "
+         f"confirmatory; {len(quarantine) + len(dup_notes)} quarantined "
+         "(reasons in the Quarantined submissions table)"),
+        ("Task-level records (confirmatory set)", str(len(df))),
         ("Task set (from config_snapshot/tasks_config.csv)",
          f"{len(TASK_IDS)} tasks: " + ", ".join(
              f"{TASK_NAMES[t]} [{TASK_CLASS[t]}]" for t in TASK_IDS)),
@@ -1948,6 +2151,11 @@ def main():
         f"{int(sdf['n_interventions'].sum())} other intervention(s); "
         f"{int(sdf['has_intervention_log'].sum())} of {len(sdf)} "
         "students have intervention logs on file"))
+    quality.append((
+        "Verdict amendments applied (last-wins; originals untouched "
+        "in the zips)",
+        f"{int(sdf['n_amendments'].sum())} amendment(s) across "
+        f"{int((sdf['n_amendments'] > 0).sum())} student(s)"))
 
     # ---- cards ----
     cards = [("Students", f"{len(sdf)}"),
@@ -2002,7 +2210,9 @@ padding:8px;margin:0 0 8px}}
             'not distribute.</p>' if args.identified else ''}
 <h1>{esc(args.title)}</h1>
 <p class="note">Generated by tools/analyze_cohort.py from
-{len(sdf)} validated submission zips. Agent types in this cohort:
+{n_parsed} parsed submission zips — {len(sdf)} in the confirmatory set,
+{len(quarantine) + len(dup_notes)} quarantined (see the Quarantined
+submissions table). Agent types in this cohort:
 {esc(', '.join(conds))} — persona = grounded in questionnaire + purchase
 profile; ablated = purchase profile only (no questionnaire){
 '; single = the one persona-grounded run of the legacy non-ablation design'
@@ -2067,6 +2277,52 @@ Sandbox packs are excluded.</p>
     parts.append("<h2>Data quality &amp; coverage</h2><table class='st'>" +
                  "".join(f"<tr><td>{esc(a)}</td><td>{esc(b)}</td></tr>"
                          for a, b in quality) + "</table>")
+    # ---- quarantined submissions (audit 4.7): machine-readable reasons;
+    # excluded from every confirmatory and headline output ----
+    parts.append(
+        "<h2>Quarantined submissions</h2>"
+        '<p class="note">Excluded from all confirmatory and headline '
+        "outputs; included only in the sensitivity appendix row of the "
+        "Robustness table. Overrides go through decisions.csv "
+        "(--decisions), applied last and echoed below."
+        + ("" if args.identified else
+           " Labels are anonymized in the class copy "
+           "(--identified restores pseudonyms).") + "</p>")
+    q_table = [(mask_sid(s), "; ".join(rs))
+               for s, rs in sorted(quarantine.items())]
+    q_table += [(mask_sid(s) + " (superseded zip)", note_)
+                for s, note_ in dup_notes]
+    if q_table:
+        parts.append(
+            "<table class='st'><tr><td><b>Submission</b></td>"
+            "<td><b>Machine-readable reasons</b></td></tr>" + "".join(
+                f"<tr><td>{esc(s)}</td><td>{esc(rs)}</td></tr>"
+                for s, rs in q_table) + "</table>")
+    else:
+        parts.append('<p class="note">(none)</p>')
+    if decisions:
+        parts.append(
+            "<h2>Cohort decisions (decisions.csv — the audit trail)</h2>"
+            "<table class='st'><tr><td><b>Submission</b></td>"
+            "<td><b>Action</b></td><td><b>Reason</b></td></tr>" + "".join(
+                f"<tr><td>{esc(mask_sid((d.get('student_id') or '').strip()))}</td>"
+                f"<td>{esc((d.get('action') or '').strip())}</td>"
+                f"<td>{esc((d.get('reason') or '').strip())}</td></tr>"
+                for d in decisions) + "</table>")
+    # ---- version counts (audit 4.7 item 6) ----
+    def vcount(series):
+        return ", ".join(f"{k}: {v}" for k, v in
+                         Counter(series.fillna("unknown")).items())
+    parts.append(
+        "<h2>Version counts</h2><table class='st'>" + "".join(
+            f"<tr><td>{esc(a)}</td><td>{esc(b)}</td></tr>" for a, b in (
+                ("kit_version", vcount(sdf_all["kit_version"])),
+                ("schema generation", vcount(sdf_all["design"])),
+                ("tasks_config sha256 (prefix)",
+                 vcount(sdf_all["tasks_config_sha256"].str[:12])),
+                ("dtlab_config sha256 (prefix)",
+                 vcount(sdf_all["dtlab_config_sha256"].str[:12])),
+            )) + "</table>")
     parts.append('<p class="note">Verdict semantics: better / identical '
                  '(ASIN-verified) / equivalent / inferior, always the '
                  'agent pick relative to the student\'s own pre-registered '
@@ -2081,6 +2337,75 @@ Sandbox packs are excluded.</p>
     out.write_text("\n".join(parts), encoding="utf-8")
     print(f"Report -> {out.resolve()}  ({out.stat().st_size >> 10} KB, "
           f"{len(figs)} charts, {len(sdf)} students)")
+
+    # ---- run-level research export (audit 2.6; research_protocol §6):
+    # dtlab-runs-v1, one record per participant x task x run,
+    # confirmatory set only, amendments already applied last-wins ----
+    if args.export_runs or args.export_hth:
+        gens = sorted(set(sdf["design"]))
+        if len(gens) > 1 and not args.allow_mixed:
+            sys.exit(f"mixed schema generations {gens} in the "
+                     "confirmatory set — pass --allow-mixed to export "
+                     "anyway")
+    if args.export_runs:
+        exp = df[df["condition"].isin(["persona", "ablated", "single"])
+                 & df["run"].notna()].copy()
+        mmap = sdf.set_index("student")
+
+        def mcol(col):
+            return exp["student"].map(mmap[col])
+
+        runs_out = pd.DataFrame({
+            "student_id": exp["student"],
+            "run": exp["run"].str[3:].astype(int),
+            "day": exp["day"],
+            "run_order_in_day": exp["run_order_in_day"],
+            "condition": exp["condition"],
+            "tier": exp["tier"],
+            "model_id": exp["model_id"],
+            "provider": exp["provider"],
+            "hermes_version": exp["hermes_version"],
+            "verdict": exp["verdict"],
+            "rating_self": exp["rating_self"],
+            "rating_agent": exp["rating_agent"],
+            "rationale": exp["rationale"],
+            "verdict_at_utc": exp["verdict_at_utc"],
+            "amended": exp["amended"],
+            "agent_asin": exp["agent_asin"],
+            "agent_price": exp["agent_price"],
+            "human_asin": exp["human_asin"],
+            "human_price": exp["human_price"],
+            "sponsored": exp["sponsored"],
+            "n_candidates": exp["n_candidates"],
+            "n_searches": exp["n_searches"],
+            "contamination_index": exp["contamination"],
+            "task_id": exp["task"],
+            "task_position": exp["task_position"],
+            "category_class": exp["category_class"],
+            "tasks_config_sha256": mcol("tasks_config_sha256"),
+            "soul_sha256": exp["soul_sha256"],
+            "config_sha256": exp["config_sha256"],
+            "purchase_profile_sha256": mcol("purchase_profile_sha256"),
+            "instrument_version": mcol("instrument_size"),
+            "kit_version": mcol("kit_version"),
+            "sensitive_items_excluded": mcol("sensitive_excluded"),
+            "verdicts_captured_blind": mcol("verdicts_captured_blind"),
+        })
+        runs_out.to_csv(args.export_runs, index=False)
+        print(f"Runs export (dtlab-runs-v1) -> {args.export_runs} "
+              f"({len(runs_out)} records)")
+    if args.export_hth:
+        hth_out = [r for m in metas if m["student"] in conf_sids
+                   for r in m.get("hth_rows", [])]
+        with open(args.export_hth, "w", newline="",
+                  encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "student", "task", "contrast", "winner",
+                "resolved_from_blind"])
+            w.writeheader()
+            w.writerows(hth_out)
+        print(f"Head-to-head export (dtlab-hth-v1) -> {args.export_hth} "
+              f"({len(hth_out)} records)")
 
 
 if __name__ == "__main__":

@@ -765,6 +765,15 @@ def main():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
 
+    # consent acknowledgment is BLOCKING on a non-sandbox pack (audit
+    # 4.5/D10b): a pack without the typed AGREE on file cannot enter the
+    # research dataset
+    need(sandbox or (HOME / "dtlab" / ".consent_ack").exists(),
+         "consent acknowledgment missing (~/dtlab/.consent_ack) — "
+         "dtlab-start records the one-time typed AGREE before any real "
+         "run; without it this pack cannot enter the research dataset; "
+         "tell a TA")
+
     ko = HOME / "dtlab" / ".key_override"
     if ko.exists():
         warn("API key was stored WITHOUT live verification (TA override "

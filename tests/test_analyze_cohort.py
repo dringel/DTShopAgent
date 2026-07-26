@@ -142,6 +142,7 @@ def make_zip(path, sid, i, mode, sandbox=False):
           58000 + 900 * i, 1000 + 15 * i]
 
     man = {"student_id": sid, "arm": arm, "sandbox": sandbox,
+           "packed_at_utc": f"2026-09-28T10:{i % 60:02d}:00+00:00",
            "sensitive_items_excluded": i % 5 == 2,
            "model_tier": "economy" if (mode != "4run" and i % 4 == 0)
            else "frontier",
@@ -375,9 +376,144 @@ def test_robustness():
     print("PASS: zero-verdict cohort emits a diagnostic report (exit 0)")
 
 
+def rezip_with(path, member_suffix, new_content):
+    """Rewrite one member of an existing zip (fixture surgery)."""
+    tmpz = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmpz, "w") as zout:
+        for n in zin.namelist():
+            zout.writestr(n, new_content if n.endswith(member_suffix)
+                          else zin.read(n))
+    tmpz.replace(path)
+
+
+def test_quarantine_and_export():
+    """C2.7/C2.8: homogeneity quarantine, duplicate handling, decisions
+    overrides, and the dtlab-runs-v1 / dtlab-hth-v1 exports (H1
+    recomputable from the export alone)."""
+    import re as _re
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        fabricate_cohort(td, mixed=False)          # 10 pure 2x2 packs
+        # mismatched tasks-config hash -> quarantined
+        make_zip(td / "DT2026-200_evidence.zip", "DT2026-200", 20, "4run")
+        rezip_with(td / "DT2026-200_evidence.zip",
+                   "config_snapshot/tasks_config.csv",
+                   TASKS_CFG + "# drifted config\n")
+        # invalid pack (validation_issues) -> quarantined by default,
+        # then rescued by a decisions.csv include
+        make_zip(td / "DT2026-201_evidence.zip", "DT2026-201", 21, "4run")
+        z = zipfile.ZipFile(td / "DT2026-201_evidence.zip")
+        man201 = json.loads(z.read("DT2026-201/manifest.json"))
+        z.close()
+        man201["validation_issues"] = ["fixture issue"]
+        rezip_with(td / "DT2026-201_evidence.zip", "manifest.json",
+                   json.dumps(man201))
+        # duplicate student id: a NEWER zip for DT2026-100 wins
+        make_zip(td / "dup_DT2026-100_evidence.zip", "DT2026-100", 0,
+                 "4run")
+        zdup = td / "dup_DT2026-100_evidence.zip"
+        z = zipfile.ZipFile(zdup)
+        mandup = json.loads(z.read("DT2026-100/manifest.json"))
+        z.close()
+        mandup["packed_at_utc"] = "2026-09-29T09:00:00+00:00"
+        rezip_with(zdup, "manifest.json", json.dumps(mandup))
+        # decisions: exclude one clean student, include the invalid one
+        dec = td / "decisions.csv"
+        dec.write_text("student_id,action,reason\n"
+                       "DT2026-101,exclude,withdrew consent\n"
+                       "DT2026-201,include,issue reviewed and waived\n",
+                       encoding="utf-8")
+        out = td / "report.html"
+        runs_csv = td / "runs.csv"
+        hth_csv = td / "hth.csv"
+        r = subprocess.run(
+            [sys.executable, str(REPO / "tools" / "analyze_cohort.py"),
+             "--zips", str(td), "--out", str(out),
+             "--decisions", str(dec),
+             "--export-runs", str(runs_csv),
+             "--export-hth", str(hth_csv)],
+            capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        html = out.read_text(encoding="utf-8")
+        # confirmatory set: 10 - 1 (excluded) + 1 (included) = 10
+        assert "10 students" in r.stdout, r.stdout
+        assert "Quarantined submissions" in html
+        for marker in ("tasks_config_sha256_mismatch",
+                       "decision:withdrew consent",
+                       "duplicate_student_id",
+                       "sensitivity appendix only",
+                       "issue reviewed and waived",       # decisions echo
+                       "Version counts"):
+            assert marker in html, f"missing C2.7 marker: {marker}"
+        # class copy stays pseudonym-free even with quarantine tables
+        assert not _re.search(r"DT\d{4}-\d{3}", html)
+        assert "anon-" in html
+        # ---- dtlab-runs-v1 export round-trip ----
+        import csv as _csv
+        with open(runs_csv, newline="", encoding="utf-8") as f:
+            rrows = list(_csv.DictReader(f))
+        assert len(rrows) == 10 * 5 * 4, len(rrows)   # students x tasks x runs
+        assert {r_["run"] for r_ in rrows} == {"1", "2", "3", "4"}
+        need_cols = {"student_id", "run", "day", "run_order_in_day",
+                     "condition", "tier", "model_id", "provider",
+                     "hermes_version", "verdict", "rating_self",
+                     "rating_agent", "rationale", "verdict_at_utc",
+                     "amended", "agent_asin", "agent_price",
+                     "human_asin", "human_price", "sponsored",
+                     "n_candidates", "n_searches", "contamination_index",
+                     "task_id", "task_position", "category_class",
+                     "tasks_config_sha256", "soul_sha256",
+                     "config_sha256", "purchase_profile_sha256",
+                     "instrument_version", "kit_version",
+                     "sensitive_items_excluded",
+                     "verdicts_captured_blind"}
+        assert need_cols <= set(rrows[0]), \
+            need_cols - set(rrows[0])
+        # H1 recomputed from the export ALONE must match the report
+        acc = {"better", "identical", "equivalent"}
+        cells = {}
+        for r_ in rrows:
+            k = (r_["student_id"], r_["task_id"], r_["tier"])
+            cells.setdefault(k, {})[r_["condition"]] = \
+                1.0 if r_["verdict"] in acc else 0.0
+        by_student = {}
+        for (sid, _t, _ti), v in cells.items():
+            if {"persona", "ablated"} <= set(v):
+                by_student.setdefault(sid, []).append(
+                    (v["persona"], v["ablated"]))
+        deltas = []
+        for sid, pairs in by_student.items():
+            deltas.append(sum(p for p, _ in pairs) / len(pairs)
+                          - sum(a for _, a in pairs) / len(pairs))
+        h1_export = 100 * sum(deltas) / len(deltas)
+        m = _re.search(r"H1 — Questionnaire effect.*?Δ = "
+                       r"([+-]?\d+\.\d) pp", html, _re.DOTALL)
+        assert m, "H1 row not found in the report"
+        assert abs(h1_export - float(m.group(1))) < 0.06, \
+            (h1_export, m.group(1))
+        # ---- dtlab-hth-v1 export ----
+        with open(hth_csv, newline="", encoding="utf-8") as f:
+            hrows = list(_csv.DictReader(f))
+        assert len(hrows) == 10 * 5 * 4, len(hrows)  # students x tasks x fams
+        assert set(hrows[0]) == {"student", "task", "contrast", "winner",
+                                 "resolved_from_blind"}
+        # mixed generations refuse to export without --allow-mixed
+        make_zip(td / "DT2026-300_evidence.zip", "DT2026-300", 30, "2run")
+        r = subprocess.run(
+            [sys.executable, str(REPO / "tools" / "analyze_cohort.py"),
+             "--zips", str(td), "--out", str(td / "r2.html"),
+             "--export-runs", str(td / "r2.csv")],
+            capture_output=True, text=True, check=False)
+        assert r.returncode != 0 and "mixed schema" in \
+            (r.stdout + r.stderr), (r.returncode, r.stderr[-500:])
+    print("PASS: quarantine gates, decisions overrides, and the "
+          "runs/hth exports round-trip (H1 recomputed from the export)")
+
+
 def main():
     test_parse_price()
     test_robustness()
+    test_quarantine_and_export()
     with tempfile.TemporaryDirectory() as tmp:
         td = Path(tmp)
         n_valid = fabricate_cohort(td)

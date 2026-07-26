@@ -1557,6 +1557,20 @@ m=json.loads(z.read('DT2026-999/manifest.json'))
 assert any('reasoning is very' in w for w in m['warnings']), m['warnings']
 "; check $? 0 "short reasoning recorded as a warning"
 
+echo "[52] C2.7: missing consent ack BLOCKS a non-sandbox pack"
+mkenv
+rm -f "$HOME/dtlab/.consent_ack"
+OUT52="$(python3 "$PACK" 2>&1)"; RC52=$?
+check "$([ "$RC52" -ne 0 ]; echo $?)" 0 "no .consent_ack exits non-zero"
+echo "$OUT52" | grep -q "consent acknowledgment missing"
+check $? 0 "issue names the consent gate"
+echo sandbox > "$HOME/dtlab/sandbox.txt"
+replace "$HOME/dtlab/workspace/agent_picks.csv" "B07GYLZ1ZN" "SBX0001000"
+replace "$HOME/dtlab/quarantine/human/human_picks.csv" "B07GYLZ1ZN" "SBX0001000"
+replace "$HOME/dtlab/quarantine/human/human_session.jsonl" "B07GYLZ1ZN" "SBX0001000"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "sandbox packs stay exempt from the consent-ack gate"
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"
