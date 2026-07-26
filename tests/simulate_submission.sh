@@ -1391,6 +1391,67 @@ DTLAB_REDACT_BUDGET_S=0.000001 python3 "$PACK" 2>&1 \
   | grep -q "redaction scan budget"
 check $? 0 "exhausted scan budget is a loud packaging failure, never a skip"
 
+echo "[48] C2.2: manifest values redacted; final zip scan; inventory coverage"
+mkenv_4run
+rm -f "$HOME/dtlab/workspace/comparison.md"
+mkdir -p "$HOME/dtlab/quarantine/verdicts"
+python3 - <<'PY'   # rationale carrying PII -> parsed into the manifest
+import csv, os
+verdict = {
+    ("1","persona","economy"):"identical",("2","persona","economy"):"inferior",
+    ("3","persona","economy"):"better",("1","ablated","economy"):"identical",
+    ("2","ablated","economy"):"equivalent",("3","ablated","economy"):"inferior",
+    ("1","ablated","frontier"):"equivalent",("2","ablated","frontier"):"equivalent",
+    ("3","ablated","frontier"):"inferior",("1","persona","frontier"):"identical",
+    ("2","persona","frontier"):"better",("3","persona","frontier"):"equivalent",
+}
+vd = os.path.expanduser("~/dtlab/quarantine/verdicts")
+with open(f"{vd}/verdicts.csv","w",newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["student_id","task_id","condition","tier","verdict",
+                "rating_self","rating_agent","rationale"])
+    for (t,c,ti),v in verdict.items():
+        w.writerow(["DT2026-999",t,c,ti,v,"8","5",
+                    "call me at 9876543210 or priya.s@example.in"])
+with open(f"{vd}/head_to_heads.csv","w",newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["task_id","contrast","winner"])
+    for t in ("1","2","3"):
+        w.writerow([t,"grounding_economy","persona"])
+        w.writerow([t,"grounding_frontier","tie"])
+        w.writerow([t,"tier_persona","frontier"])
+        w.writerow([t,"tier_ablated","same"])
+open(f"{vd}/overall_reflections.md","w").write("# Overall reflections\nanswers\n")
+PY
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with PII rationales exits 0 (everything redacted)"
+python3 - <<'PY'; check $? 0 "PII never reaches manifest.json; redaction summary + inventory coverage"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+man_raw=z.read('DT2026-999/manifest.json').decode()
+assert '9876543210' not in man_raw and 'priya.s@example.in' not in man_raw
+assert '[REDACTED-PHONE]' in man_raw and '[REDACTED-EMAIL]' in man_raw
+m=json.loads(man_raw)
+assert m['redaction']['final_scan_clean'] is True
+assert m['redaction'].get('manifest_values_redacted', 0) >= 1
+inv=m['file_inventory']
+assert 'report.html' in inv and 'SUBMISSION_INFO.txt' in inv
+assert 'manifest.json' not in inv          # cannot contain its own hash
+info=z.read('DT2026-999/SUBMISSION_INFO.txt').decode()
+assert 'cannot' in info and 'manifest.json' in info
+assert m['validation_issues']==[], m['validation_issues']
+sys.exit(0)
+PY
+mkenv                                       # unscanned leak -> final scan
+printf 'contact leak.address@example.com\n' \
+  >> "$HOME/dtlab/workspace/purchase_profile.md"
+OUT48="$(DTLAB_REDACT_BUDGET_S=0.0000001 python3 "$PACK" 2>&1)"; RC48=$?
+check "$([ "$RC48" -ne 0 ]; echo $?)" 0 "leak surviving pass1 blocks via the final scan"
+echo "$OUT48" | grep -q "final leak scan"
+check $? 0 "final-scan issue names the leaking file"
+[ -f "$HOME/dtlab/DT2026-999_evidence.zip" ]
+check $? 0 "zip still built for TA review (exit stays non-zero)"
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

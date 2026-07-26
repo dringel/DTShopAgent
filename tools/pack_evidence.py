@@ -264,6 +264,30 @@ KEY_RE = re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}")
 KEYLINE_RE = re.compile(r"(ANTHROPIC_API_KEY\s*[=:]\s*)[^\s\"']+")
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?<!\d)(?:\+91[-\s]?)?[6-9]\d{9}(?!\d)")
+# long hex runs (sha256 etc.): a phone-shaped digit run INSIDE a hash is
+# a false positive that would corrupt the audit trail — phone detection
+# skips matches inside these spans
+HEX_RE = re.compile(r"[0-9a-f]{32,}")
+
+
+def _sub_phones(line, redact=True):
+    """PHONE_RE across a line, skipping matches embedded in long hex
+    runs. redact=True substitutes; redact=False only counts."""
+    hex_spans = [m.span() for m in HEX_RE.finditer(line)]
+    out, last, n = [], 0, 0
+    for m in PHONE_RE.finditer(line):
+        s, e = m.span()
+        if any(hs <= s and e <= he for hs, he in hex_spans):
+            continue
+        n += 1
+        if redact:
+            out.append(line[last:s])
+            out.append("[REDACTED-PHONE]")
+            last = e
+    if not (redact and n):
+        return line, n
+    out.append(line[last:])
+    return "".join(out), n
 # .env included so a key pasted into the staged dtlab_config.env copy is
 # scanned (KEYLINE_RE catches it) before the snapshot enters the zip
 TEXT_SUFFIXES = {".md", ".txt", ".log", ".json", ".jsonl", ".csv", ".html",
@@ -449,7 +473,7 @@ def redact_line(line):
             line, n_email = _sub_email_windows(line)
         else:
             line, n_email = EMAIL_RE.subn("[REDACTED-EMAIL]", line)
-    line, n_phone = PHONE_RE.subn("[REDACTED-PHONE]", line)
+    line, n_phone = _sub_phones(line)
     return line, {"key": n_key + n_line, "email": n_email,
                   "phone": n_phone,
                   "deliver": line.lower().count("deliver to")}, was_long
@@ -518,6 +542,60 @@ def redact_staging(staging):
         if entry:
             report[str(p.relative_to(staging))] = entry
     return report
+
+
+def redact_text(s):
+    """One string -> (redacted, n_hits). The SAME detectors and line
+    discipline as the file pass — used for every free-text value that
+    enters manifest.json (audit 3.3)."""
+    parts, hits = [], 0
+    for line in s.split("\n"):
+        new, counts, _ = redact_line(line)
+        hits += counts["key"] + counts["email"] + counts["phone"]
+        parts.append(new)
+    return "\n".join(parts), hits
+
+
+def redact_obj(o):
+    """Recursively redact every string VALUE in a JSON-serializable
+    structure. Pure-hex strings (hashes) are left alone — a phone-shaped
+    digit run inside a sha256 must never be rewritten."""
+    if isinstance(o, str):
+        if HEX_RE.fullmatch(o):
+            return o, 0
+        return redact_text(o)
+    if isinstance(o, list):
+        out, n = [], 0
+        for v in o:
+            r, k = redact_obj(v)
+            out.append(r)
+            n += k
+        return out, n
+    if isinstance(o, dict):
+        out, n = {}, 0
+        for key, v in o.items():
+            r, k = redact_obj(v)
+            out[key] = r
+            n += k
+        return out, n
+    return o, 0
+
+
+def scan_text_for_leaks(text):
+    """Detection-only counterpart of redact_line — counts raw key/email/
+    phone patterns (same line discipline, linear cost)."""
+    hits = 0
+    for line in text.split("\n"):
+        if "sk-ant-" in line:
+            hits += len(KEY_RE.findall(line))
+        if "@" in line:
+            if len(line) > REDACT_LINE_CAP:
+                _, k = _sub_email_windows(line)
+            else:
+                k = len(EMAIL_RE.findall(line))
+            hits += k
+        hits += _sub_phones(line, redact=False)[1]
+    return hits
 
 
 def run_day(rn):
@@ -1714,8 +1792,32 @@ def main():
     build_report(staging, student_id, sections, inlines, screenshots,
                  sandbox=sandbox)
 
+    # ---- SUBMISSION_INFO before the inventory, so the inventory covers
+    # it (audit 3.3): every generated file except manifest.json itself
+    # gets an inventory entry — the manifest cannot contain its own hash
+    packed_at_utc = datetime.now(timezone.utc).isoformat()
+    environment = env_metadata(tuple(conds) if ablation else ())
+    (staging / "SUBMISSION_INFO.txt").write_text(
+        f"student_id: {student_id}\n"
+        f"packed_at_utc: {packed_at_utc}\n"
+        f"arm: {arm}\nmodel_tier: {tier}\n"
+        f"ablation: {ablation_meta.get('enabled')}"
+        f"{' (design ' + ablation_meta['design'] + ')' if ablation_meta.get('enabled') else ''}\n"
+        f"kit: {environment.get('kit_version')}\n"
+        + ("SANDBOX RUN — practice-store exercise; EXCLUDED from the "
+           "research dataset (graded normally).\n" if sandbox else "")
+        + "Every file in this zip belongs to the student_id above; "
+        "manifest.json carries per-file SHA-256 hashes and timestamps "
+        "for every other file in the zip. manifest.json itself cannot "
+        "contain its own hash, so it is the one file without an "
+        "inventory entry.\n"
+        "Digital Twin Shopping Agent Lab — Daniel M. Ringel "
+        "(ringel.AI)\n")
+
     # every file with size + last-modified + hash: the audit trail of what
-    # the student changed and when (copy2 preserves source mtimes)
+    # the student changed and when (copy2 preserves source mtimes).
+    # Runs AFTER report.html + SUBMISSION_INFO.txt exist and BEFORE
+    # manifest.json is written.
     inventory = {}
     for p in sorted(staging.rglob("*")):
         if p.is_file():
@@ -1724,6 +1826,26 @@ def main():
                 "sha256": sha256(p), "bytes": st.st_size,
                 "mtime_utc": datetime.fromtimestamp(
                     st.st_mtime, timezone.utc).isoformat()}
+
+    # ---- final leak scan, detection-only (audit 3.3): every staged
+    # text file, after all generated files exist (manifest.json is
+    # covered by the zip-level scan below, after it is written) ----
+    final_hits = {}
+    for p in sorted(staging.rglob("*")):
+        if not p.is_file() or p.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        try:
+            h = scan_text_for_leaks(
+                p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        if h:
+            final_hits[str(p.relative_to(staging))] = h
+    for fname, h in sorted(final_hits.items()):
+        need(False,
+             f"final leak scan: {h} raw key/email/phone pattern(s) still "
+             f"in {fname} after redaction — the zip is built but MUST "
+             "NOT be submitted; tell a TA")
 
     if ablation:
         runs_desc = " + ".join(rn for rn in expected_runs if rn in conds)
@@ -1734,7 +1856,7 @@ def main():
         d5 = "agent_picks.csv + screenshots/"
     manifest = {
         "student_id": student_id,
-        "packed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "packed_at_utc": packed_at_utc,
         "sandbox": sandbox,
         "sandbox_runs": sandbox_runs,
         "deliverables": {
@@ -1761,7 +1883,7 @@ def main():
         "task_order": task_order,
         "task_order_expected": expected_order,
         "ablation": ablation_meta,
-        "environment": env_metadata(tuple(conds) if ablation else ()),
+        "environment": environment,
         "verdicts": verdicts,
         "ratings": ratings,
         "rationales": rationales,
@@ -1798,24 +1920,22 @@ def main():
                                    timezone.utc).isoformat()
             if MARKER.exists() else None),
         "redaction_report": redaction_report,
+        "redaction": {"pass1": bool(redaction_report),
+                      "final_scan_clean": not final_hits},
         "validation_issues": issues,
         "sha256": {k: v["sha256"] for k, v in inventory.items()},
         "file_inventory": inventory,
     }
+    # manifest values pass through the SAME redaction as staged files
+    # (audit 3.3: search queries, rationales, candidate fields, warnings
+    # were serialized from pre-redaction parses); pure-hex hashes are
+    # left alone so a phone-shaped digit run inside a sha256 can never
+    # corrupt the audit trail
+    manifest, n_manifest_redacted = redact_obj(manifest)
+    if n_manifest_redacted:
+        manifest["redaction"]["manifest_values_redacted"] = \
+            n_manifest_redacted
     (staging / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    (staging / "SUBMISSION_INFO.txt").write_text(
-        f"student_id: {student_id}\n"
-        f"packed_at_utc: {manifest['packed_at_utc']}\n"
-        f"arm: {arm}\nmodel_tier: {tier}\n"
-        f"ablation: {ablation_meta.get('enabled')}"
-        f"{' (design ' + ablation_meta['design'] + ')' if ablation_meta.get('enabled') else ''}\n"
-        f"kit: {manifest['environment'].get('kit_version')}\n"
-        + ("SANDBOX RUN — practice-store exercise; EXCLUDED from the "
-           "research dataset (graded normally).\n" if sandbox else "")
-        + "Every file in this zip belongs to the student_id above; "
-        "manifest.json carries per-file SHA-256 hashes and timestamps.\n"
-        "Digital Twin Shopping Agent Lab — Daniel M. Ringel "
-        "(ringel.AI)\n")
 
     out = HOME / "dtlab" / f"{student_id}_evidence.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1823,6 +1943,23 @@ def main():
             if p.is_file():
                 z.write(p, f"{student_id}/{p.relative_to(staging)}")
     shutil.rmtree(staging)
+
+    # ---- LAST gate (audit 3.3): re-read the zip itself — namelist +
+    # every text member, manifest.json included ----
+    zip_hits = {}
+    with zipfile.ZipFile(out) as z:
+        for zn in z.namelist():
+            if zn.rsplit(".", 1)[-1].lower() not in {
+                    s.lstrip(".") for s in TEXT_SUFFIXES}:
+                continue
+            h = scan_text_for_leaks(
+                z.read(zn).decode("utf-8", "replace"))
+            if h:
+                zip_hits[zn] = h
+    for zn, h in sorted(zip_hits.items()):
+        need(False,
+             f"zip-content leak scan: {h} raw key/email/phone pattern(s) "
+             f"in {zn} — the zip MUST NOT be submitted; tell a TA")
 
     print(f"\nPacked -> {out}")
     if warnings_:
