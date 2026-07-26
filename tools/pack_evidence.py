@@ -1021,6 +1021,55 @@ def main():
                  "grid don't open product pages; recorded for review")
     else:
         n_search = n_views = 0
+    # ---- picks validation (audit 4.2): the task-id MULTISET must equal
+    # the active task set exactly (duplicates and substitutions are
+    # blocking, not just row counts), headers must match the schema
+    # exactly, and prices must be positive numbers ----
+    AGENT_HEADER = "task_id,title,asin,price_inr,sponsored"
+    HUMAN_HEADER = "task_id,title,asin,url,price_inr,reasoning"
+
+    def check_task_set(rows_, tag):
+        got = Counter(str(r.get("task_id", "")).strip() for r in rows_)
+        wantt = Counter(TASK_IDS)
+        if got != wantt:
+            dupes = sorted(t for t, n in got.items() if n > 1)
+            miss = sorted(t for t in TASK_IDS if not got.get(t))
+            unknown = sorted(t for t in got if t not in wantt)
+            need(False,
+                 f"picks{tag}: task set must be each active task exactly "
+                 f"once (duplicates {dupes or 'none'}, missing "
+                 f"{miss or 'none'}, unknown {unknown or 'none'})")
+
+    def check_header(path, expected, tag):
+        if not path.exists():
+            return
+        try:
+            with open(path, encoding="utf-8-sig") as hf:
+                first = hf.readline().strip()
+        except OSError:
+            return
+        need(first == expected,
+             f"{tag}: header must be exactly '{expected}' "
+             f"(got '{first[:90]}')")
+
+    def check_price(r, tag):
+        praw = (r.get("price_inr") or "").strip().replace(",", "")
+        try:
+            pv = float(praw)
+        except ValueError:
+            pv = None
+        need(pv is not None and pv > 0,
+             f"pick{tag} task {r.get('task_id')}: price_inr "
+             f"'{r.get('price_inr')}' must be a positive number")
+
+    for rn in conds:
+        check_header(staging / rn / "agent_picks.csv", AGENT_HEADER,
+                     f"{rn}/agent_picks.csv")
+    if not ablation:
+        check_header(staging / "agent_picks.csv", AGENT_HEADER,
+                     "agent_picks.csv")
+    check_header(staging / "human_picks.csv", HUMAN_HEADER,
+                 "human_picks.csv")
     for label, rows_ in pick_sets.items():
         if four_run and label:
             tag = " ({} run, {})".format(*label.split("_"))
@@ -1030,16 +1079,32 @@ def main():
             tag = ""
         need(len(rows_) == NT,
              f"agent_picks.csv{tag} has {len(rows_)} rows, need {NT}")
+        check_task_set(rows_, tag)
         for r in rows_:
             need(ASIN_RE.fullmatch(r.get("asin", "").strip() or ""),
                  f"agent pick task {r.get('task_id')}{tag}: bad/missing ASIN")
+            check_price(r, tag)
     need(len(human) == NT,
          f"human_picks.csv has {len(human)} rows, need {NT}")
     need(not any("REPLACE" in json.dumps(r) for r in human),
          "human_picks.csv still contains REPLACE placeholders")
+    check_task_set(human, " (human)")
     for r in human:
-        need(ASIN_RE.fullmatch(r.get("asin", "").strip() or ""),
+        asin_h = (r.get("asin") or "").strip()
+        need(ASIN_RE.fullmatch(asin_h or ""),
              f"human pick task {r.get('task_id')}: bad/missing ASIN")
+        check_price(r, " (human)")
+        url_h = (r.get("url") or "").strip()
+        if url_h and asin_h:
+            need(f"/dp/{asin_h}" in url_h,
+                 f"human pick task {r.get('task_id')}: url does not "
+                 f"carry /dp/{asin_h} — pick and link disagree")
+        why_h = (r.get("reasoning") or "").strip()
+        need(bool(why_h),
+             f"human pick task {r.get('task_id')}: reasoning is empty")
+        if why_h and len(why_h) < 15:
+            warn(f"human pick task {r.get('task_id')}: reasoning is very "
+                 f"short ('{why_h}') — recorded for review")
 
     def key_of(task, label):
         """Verdict/rating key for a task within a pick-set label."""

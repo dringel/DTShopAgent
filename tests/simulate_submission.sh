@@ -68,7 +68,7 @@ printf "log citing D01 and PP; candidates search#1..4\n" > decision_log.md
 printf "task_id,title,asin,price_inr,sponsored\n1,A,B07GYLZ1ZN,299,0\n2,B,B08YRWN3RD,1299,1\n3,C,B00R9QLRRO,1450,0\n" > agent_picks.csv
 printf "# c\n## Task 1\nVerdict: identical\nMy pick rating (1-10): 7\nAgent pick rating (1-10): 9\nt\n## Task 2\nVerdict: inferior\nt\n## Task 3\nVerdict: better\nt\n## Overall\nall answered\n" > comparison.md
 printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asin":"B09YLFGBLL"}\n{"type":"product_view","asin":"B07D75V2GH"}\n' > "$HOME/dtlab/quarantine/human/human_session.jsonl"
-printf "task_id,title,asin,url,price_inr,reasoning\n1,A,B07GYLZ1ZN,u,299,r\n2,S,B09YLFGBLL,u,1490,r\n3,K,B07D75V2GH,u,780,r\n" > "$HOME/dtlab/quarantine/human/human_picks.csv"
+printf "task_id,title,asin,url,price_inr,reasoning\n1,A,B07GYLZ1ZN,https://www.amazon.in/dp/B07GYLZ1ZN,299,fits my needs and budget well\n2,S,B09YLFGBLL,https://www.amazon.in/dp/B09YLFGBLL,1490,fits my needs and budget well\n3,K,B07D75V2GH,https://www.amazon.in/dp/B07D75V2GH,780,fits my needs and budget well\n" > "$HOME/dtlab/quarantine/human/human_picks.csv"
 echo H_FIRST > "$HOME/dtlab/arm.txt"
 date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
 date -u +%FT%TZ > "$HOME/dtlab/.spend_limit_ack"
@@ -1522,6 +1522,40 @@ assert iv=={'run1':{'captchas':2,'interventions':1,'note':'one captcha loop','re
 assert 'DT2026-999/screenshots/interventions_run1.json' in z.namelist()
 sys.exit(0)
 PY
+
+echo "[51] C2.6: picks task-set equality + field validation"
+mkenv
+printf "task_id,title,asin,price_inr,sponsored\n1,A,B07GYLZ1ZN,299,0\n2,B,B08YRWN3RD,1299,1\n2,B2,B08YRWN3RX,1299,0\n" > "$HOME/dtlab/workspace/agent_picks.csv"
+OUT51="$(python3 "$PACK" 2>&1)"; RC51=$?
+check "$([ "$RC51" -ne 0 ]; echo $?)" 0 "duplicate + missing task ids block"
+echo "$OUT51" | grep -q "duplicates \['2'\], missing \['3'\]"
+check $? 0 "issue names the duplicated and missing tasks"
+mkenv
+replace "$HOME/dtlab/workspace/agent_picks.csv" "task_id,title,asin,price_inr,sponsored" "task_id,title,asin,price,sponsored"
+python3 "$PACK" 2>&1 | grep -q "header must be exactly"
+check $? 0 "wrong header column blocks with the expected schema"
+mkenv
+replace "$HOME/dtlab/workspace/agent_picks.csv" "1,A,B07GYLZ1ZN,299,0" "1,A,B07GYLZ1ZN,-5,0"
+python3 "$PACK" 2>&1 | grep -q "price_inr '-5' must be a positive number"
+check $? 0 "non-positive price blocks"
+mkenv
+replace "$HOME/dtlab/quarantine/human/human_picks.csv" "https://www.amazon.in/dp/B09YLFGBLL" "https://www.amazon.in/dp/B0WRONGID9"
+python3 "$PACK" 2>&1 | grep -q "url does not"
+check $? 0 "human url disagreeing with the pick ASIN blocks"
+mkenv
+replace "$HOME/dtlab/quarantine/human/human_picks.csv" "780,fits my needs and budget well" "780,"
+python3 "$PACK" 2>&1 | grep -q "reasoning is empty"
+check $? 0 "empty human reasoning blocks"
+mkenv
+replace "$HOME/dtlab/quarantine/human/human_picks.csv" "780,fits my needs and budget well" "780,ok"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "short reasoning never blocks"
+python3 -c "
+import json,zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert any('reasoning is very' in w for w in m['warnings']), m['warnings']
+"; check $? 0 "short reasoning recorded as a warning"
 
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
