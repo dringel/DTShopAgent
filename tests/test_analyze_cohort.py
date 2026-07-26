@@ -476,9 +476,28 @@ def main():
                        "own deduplicated per task"):
             assert marker in html, f"missing B12 marker: {marker}"
         assert out.stat().st_size > 100_000, "report suspiciously small"
+        # C2.4: the CLASS report carries zero pseudonyms (course pattern)
+        import re as _re
+        idpat = _re.compile(r"DT\d{4}-\d{3}")
+        leak = idpat.search(html)
+        assert not leak, f"pseudonym leaked into the class report: " \
+                         f"{leak.group(0)}"
+        out_id = td / "report_identified.html"
+        r = subprocess.run(
+            [sys.executable, str(REPO / "tools" / "analyze_cohort.py"),
+             "--zips", str(td), "--out", str(out_id), "--identified"],
+            capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        html_id = out_id.read_text(encoding="utf-8")
+        assert idpat.search(html_id), \
+            "--identified must restore hover pseudonyms"
+        assert "IDENTIFIED COPY" in html_id and "do \nnot distribute" \
+            .replace("\n", "") in html_id.replace("\n", " ") \
+            .replace("  ", " "), "identified banner missing"
         print(f"PASS: report generated ({out.stat().st_size >> 10} KB) "
               f"from {n_valid} students (2x2 + legacy + renamed zip; "
-              "sandbox excluded) with all sections present")
+              "sandbox excluded), zero pseudonyms in the class copy, "
+              "--identified banner present")
 
 
 if __name__ == "__main__":
