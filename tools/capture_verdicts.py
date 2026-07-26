@@ -26,8 +26,8 @@ then the per-task head-to-heads as pairwise Run-X-vs-Run-Y questions
 are captured, the Overall reflection questions.
 
 Writes (schema dtlab-verdicts-v2, research_protocol.md §6) into
-~/dtlab/verdicts/ — OUTSIDE the agent workspace, so a Friday agent can
-never read Thursday's judgments:
+~/dtlab/quarantine/verdicts/ — under the quarantine root every agent
+path is barred from, so no agent can ever read stored judgments:
   verdicts.csv             student_id, task_id, condition, tier, verdict,
                            rating_self, rating_agent, rationale,
                            verdict_at_utc  (condition/tier resolved
@@ -57,9 +57,20 @@ from pathlib import Path
 
 HOME = Path.home()
 WS = HOME / "dtlab" / "workspace"
-VD = HOME / "dtlab" / "verdicts"     # agent-quarantined verdict store
-HU = HOME / "dtlab" / "human"
-HOLD = HOME / "dtlab" / "persona_hold"
+QUAR = HOME / "dtlab" / "quarantine"   # root the agent is barred from
+
+
+def _qdir(name):
+    """Quarantine path for `name`, falling back to the pre-quarantine
+    location when only that exists (legacy layouts keep working)."""
+    p = QUAR / name
+    legacy = HOME / "dtlab" / name
+    return p if (p.exists() or not legacy.exists()) else legacy
+
+
+VD = QUAR / "verdicts"               # agent-quarantined verdict store
+HU = _qdir("human")
+HOLD = _qdir("persona_hold")
 RUNSDIR = HOME / "dtlab" / "runs"
 VERDICTS = ("better", "identical", "equivalent", "inferior")
 VERDICT_HELP = ("better     = the agent's choice is BETTER for me than my own pick\n"
@@ -211,8 +222,14 @@ def ask_block(prompt, current=None):
 
 
 def migrate_legacy_locations():
-    """Verdict artifacts written before the quarantine move lived in the
-    agent workspace; pull them into ~/dtlab/verdicts/ once."""
+    """Verdict artifacts written before the quarantine root lived in the
+    agent workspace (oldest layout) or at ~/dtlab/verdicts/ (pre-C1.3);
+    pull both into ~/dtlab/quarantine/verdicts/ once."""
+    legacy_vd = HOME / "dtlab" / "verdicts"
+    if legacy_vd.is_dir() and not VD.exists():
+        VD.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy_vd), str(VD))
+        print(f"  [..] moved ~/dtlab/verdicts -> {VD}")
     VD.mkdir(parents=True, exist_ok=True)
     for name in ("verdicts.csv", "head_to_heads.csv",
                  "overall_reflections.md"):

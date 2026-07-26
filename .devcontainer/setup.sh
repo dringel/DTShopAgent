@@ -127,9 +127,11 @@ cp -v "$KIT/provisioning/student_start.sh" "$HOME/dtlab/tools/"
   cp -v "$KIT/templates/tasks.md"          "$HOME/dtlab/workspace/tasks.md"
 [ -f "$HOME/dtlab/workspace/comparison.md" ] || \
   cp -v "$KIT/templates/comparison.md"     "$HOME/dtlab/workspace/comparison.md"
-mkdir -p "$HOME/dtlab/human"
+# quarantine root: human picks, verdicts, held persona files — the one
+# tree every agent path is barred from (SOUL boundary + leakage scan)
+mkdir -p "$HOME/dtlab/quarantine/human"
 cp -v "$KIT/templates/human_picks.csv" \
-      "$HOME/dtlab/human/human_picks.TEMPLATE.csv"
+      "$HOME/dtlab/quarantine/human/human_picks.TEMPLATE.csv"
 find "$HOME/dtlab/tools" -name '*.sh' -exec chmod +x {} +
 
 echo "== [2/5] Commands (local) =="

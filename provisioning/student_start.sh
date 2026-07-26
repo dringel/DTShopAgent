@@ -44,7 +44,18 @@ DAY1_TIER="${DTLAB_DAY1_TIER:-economy}"
 DAY2_TIER="${DTLAB_DAY2_TIER:-frontier}"
 SANDBOX="${DTLAB_SANDBOX:-0}"
 RUNSDIR="$HOME/dtlab/runs"
-HOLD="$HOME/dtlab/persona_hold"
+# ---- quarantine root (D3): everything the agent must never see —
+# human picks, verdicts, held persona files — lives under ONE root,
+# ~/dtlab/quarantine/, which every SOUL bars by path. Migration shim:
+# pre-C1 layouts moved once, silently idempotent.
+QUAR="$HOME/dtlab/quarantine"
+mkdir -p "$QUAR"
+for _qd in human verdicts persona_hold; do
+  if [ -d "$HOME/dtlab/$_qd" ] && [ ! -e "$QUAR/$_qd" ]; then
+    mv "$HOME/dtlab/$_qd" "$QUAR/$_qd"
+  fi
+done
+HOLD="$QUAR/persona_hold"
 RUN=""; COND=""; TIER=""; FRESH_RUN=0; MODEL_ID=""; RUN_HOME=""
 GREEN='\033[0;32m'; RED='\033[0;31m'; YEL='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}  [ok]${NC} $1"; }
@@ -381,7 +392,7 @@ if [ -f "$WS/tasks.md" ] && ! grep -q "INSTRUCTOR_TASK" "$WS/tasks.md"; then
 else
   bad "tasks.md missing or still contains template placeholders"
 fi
-HU="$HOME/dtlab/human"
+HU="$QUAR/human"
 # The order-arm factor is retired: ALL students are human-first (picks
 # committed Wednesday). arm.txt is still written for manifest backward
 # compatibility, but there is nothing to choose.
@@ -474,7 +485,8 @@ import csv
 from pathlib import Path
 home = Path.home()
 for p in (home / "dtlab" / "workspace" / "persona_survey.csv",
-          home / "dtlab" / "persona_hold" / "persona_survey.csv"):
+          home / "dtlab" / "quarantine" / "persona_hold"
+          / "persona_survey.csv"):
     try:
         with open(p, newline="", encoding="utf-8-sig") as f:
             rows = list(csv.DictReader(f))
@@ -578,7 +590,7 @@ PY
   fi
 fi
 [ -f "$WS/human_picks.csv" ] \
-  && bad "human_picks.csv found in the AGENT workspace — move it to ~/dtlab/human/ (the agent must not see your picks)"
+  && bad "human_picks.csv found in the AGENT workspace — move it to ~/dtlab/quarantine/human/ (the agent must not see your picks)"
 # persona file may legitimately sit in the hold dir during an ablated run
 PSF="$WS/persona_survey.md"
 [ -f "$PSF" ] || PSF="$HOLD/persona_survey.md"
@@ -610,7 +622,8 @@ from pathlib import Path
 ws = Path(sys.argv[1])
 dt = ws.parent
 sid = ""
-for p in (ws / "persona_survey.csv", dt / "persona_hold" / "persona_survey.csv"):
+for p in (ws / "persona_survey.csv",
+          dt / "quarantine" / "persona_hold" / "persona_survey.csv"):
     try:
         with open(p, newline="", encoding="utf-8-sig") as f:
             rows = list(csv.DictReader(f))

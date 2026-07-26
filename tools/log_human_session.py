@@ -25,9 +25,10 @@ logged.
 At the end the script walks the student through confirming their final pick
 per task (offering the products they viewed) and writes human_picks.csv.
 
-EVERYTHING is written to ~/dtlab/human/ — a directory the agent is barred
-from reading (SOUL.md hard boundary + pre-flight check), so the agent's run
-cannot be contaminated by the human's choices.
+EVERYTHING is written to ~/dtlab/quarantine/human/ — under the quarantine
+root the agent is barred from reading (SOUL hard boundary + pre-flight
+check + pack-time leakage scan), so the agent's run cannot be
+contaminated by the human's choices.
 
 USAGE
   python3 log_human_session.py --student-id DT2026-042
@@ -55,7 +56,15 @@ except ImportError:
     # even where the browser stack is absent
     sync_playwright = None
 
-HUMAN_DIR = Path.home() / "dtlab" / "human"
+# quarantine root: the agent is barred from ~/dtlab/quarantine/ by SOUL
+# boundary + pre-flight check + pack-time leakage scan
+HUMAN_DIR = Path.home() / "dtlab" / "quarantine" / "human"
+_legacy_human = Path.home() / "dtlab" / "human"
+if _legacy_human.is_dir() and not HUMAN_DIR.exists():
+    # pre-quarantine layout: migrate once (dtlab-shop can run before
+    # dtlab-start's shim ever fires)
+    HUMAN_DIR.parent.mkdir(parents=True, exist_ok=True)
+    _legacy_human.rename(HUMAN_DIR)
 ASIN_RE = re.compile(r"(?:/dp/|/gp/product/)([A-Z0-9]{10})")
 ASIN_FULL_RE = re.compile(r"[A-Z0-9]{10}")
 BLOCK_PATHS = ("/gp/buy", "/checkout", "/payments", "/ap/")  # never log these
@@ -428,7 +437,8 @@ def main():
     log.emit("session_end")
     confirm_picks(log, args.student_id)
     print("\nDone. Next step: dtlab-start (the agent run).")
-    print("Your picks live in ~/dtlab/human/ — the agent cannot read them.")
+    print("Your picks live in ~/dtlab/quarantine/human/ — the agent "
+          "cannot read them.")
 
 
 if __name__ == "__main__":

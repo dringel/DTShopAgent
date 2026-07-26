@@ -39,7 +39,7 @@ PY
 mkenv(){
 guard
 rm -rf "$HOME/dtlab" "$HOME/.hermes"
-mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/evidence" "$HOME/dtlab/human" \
+mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/evidence" "$HOME/dtlab/quarantine/human" \
          "$HOME/.hermes/sessions"
 cp "$REPO/dtlab_config.env" "$HOME/dtlab/dtlab_config.env"
 # fixtures use their OWN compact 3-task config: the validation chain is
@@ -56,8 +56,8 @@ printf "# soul stub for hashing\n" > SOUL.md
 printf "log citing D01 and PP; candidates search#1..4\n" > decision_log.md
 printf "task_id,title,asin,price_inr,sponsored\n1,A,B07GYLZ1ZN,299,0\n2,B,B08YRWN3RD,1299,1\n3,C,B00R9QLRRO,1450,0\n" > agent_picks.csv
 printf "# c\n## Task 1\nVerdict: identical\nMy pick rating (1-10): 7\nAgent pick rating (1-10): 9\nt\n## Task 2\nVerdict: inferior\nt\n## Task 3\nVerdict: better\nt\n## Overall\nall answered\n" > comparison.md
-printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asin":"B09YLFGBLL"}\n{"type":"product_view","asin":"B07D75V2GH"}\n' > "$HOME/dtlab/human/human_session.jsonl"
-printf "task_id,title,asin,url,price_inr,reasoning\n1,A,B07GYLZ1ZN,u,299,r\n2,S,B09YLFGBLL,u,1490,r\n3,K,B07D75V2GH,u,780,r\n" > "$HOME/dtlab/human/human_picks.csv"
+printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asin":"B09YLFGBLL"}\n{"type":"product_view","asin":"B07D75V2GH"}\n' > "$HOME/dtlab/quarantine/human/human_session.jsonl"
+printf "task_id,title,asin,url,price_inr,reasoning\n1,A,B07GYLZ1ZN,u,299,r\n2,S,B09YLFGBLL,u,1490,r\n3,K,B07D75V2GH,u,780,r\n" > "$HOME/dtlab/quarantine/human/human_picks.csv"
 echo H_FIRST > "$HOME/dtlab/arm.txt"
 date -u +%FT%TZ > "$HOME/dtlab/.consent_ack"
 sleep 0.2; touch "$HOME/dtlab/.run_started"; sleep 0.1
@@ -73,7 +73,7 @@ PY
 
 mkenv_ablation(){
 mkenv
-mkdir -p "$HOME/dtlab/runs/run1" "$HOME/dtlab/runs/run2" "$HOME/dtlab/persona_hold"
+mkdir -p "$HOME/dtlab/runs/run1" "$HOME/dtlab/runs/run2" "$HOME/dtlab/quarantine/persona_hold"
 echo P_FIRST > "$HOME/dtlab/persona_order.txt"
 echo persona > "$HOME/dtlab/runs/run1/condition.txt"
 echo ablated > "$HOME/dtlab/runs/run2/condition.txt"
@@ -84,8 +84,8 @@ mv "$HOME/dtlab/workspace/agent_picks.csv" "$HOME/dtlab/runs/run1/"
 printf "log citing PP only; candidates search#1..4\n" > "$HOME/dtlab/workspace/decision_log.md"
 printf "task_id,title,asin,price_inr,sponsored\n1,A,B07GYLZ1ZN,299,0\n2,X,B0AAAA1111,1200,0\n3,Y,B0BBBB2222,1400,0\n" > "$HOME/dtlab/workspace/agent_picks.csv"
 # P_FIRST ends on the ablated run -> persona files sit in the hold dir
-mv "$HOME/dtlab/workspace/persona_survey.csv" "$HOME/dtlab/persona_hold/"
-mv "$HOME/dtlab/workspace/persona_survey.md"  "$HOME/dtlab/persona_hold/"
+mv "$HOME/dtlab/workspace/persona_survey.csv" "$HOME/dtlab/quarantine/persona_hold/"
+mv "$HOME/dtlab/workspace/persona_survey.md"  "$HOME/dtlab/quarantine/persona_hold/"
 cat > "$HOME/dtlab/workspace/comparison.md" <<'EOF'
 # c
 ## Task 1 (persona run)
@@ -120,7 +120,7 @@ mkenv_4run(){
 mkenv
 mkdir -p "$HOME/dtlab/runs/run1" "$HOME/dtlab/runs/run2" \
          "$HOME/dtlab/runs/run3" "$HOME/dtlab/runs/run4" \
-         "$HOME/dtlab/persona_hold"
+         "$HOME/dtlab/quarantine/persona_hold"
 echo P_FIRST  > "$HOME/dtlab/persona_order_day1.txt"
 echo NP_FIRST > "$HOME/dtlab/persona_order_day2.txt"
 # day 1 (economy): run1 persona, run2 ablated; day 2 (frontier, NP_FIRST):
@@ -234,7 +234,7 @@ mkenv; replace "$HOME/dtlab/workspace/comparison.md" "Verdict: identical" "Verdi
 python3 "$PACK" 2>&1 | grep -q "must be 'identical'"; check $? 0 "same-ASIN wrong verdict caught"
 
 echo "[3] bias quarantine"
-mkenv; cp "$HOME/dtlab/human/human_picks.csv" "$HOME/dtlab/workspace/"
+mkenv; cp "$HOME/dtlab/quarantine/human/human_picks.csv" "$HOME/dtlab/workspace/"
 python3 "$PACK" 2>&1 | grep -q "quarantine violated"; check $? 0 "leak into agent workspace caught"
 
 echo "[4] A_FIRST ordering violation (backdated human session)"
@@ -242,7 +242,7 @@ mkenv; echo A_FIRST > "$HOME/dtlab/arm.txt"
 python3 - <<'PY'
 import os,time
 t=time.time()-7200
-os.utime(os.path.expanduser('~/dtlab/human/human_session.jsonl'),(t,t))
+os.utime(os.path.expanduser('~/dtlab/quarantine/human/human_session.jsonl'),(t,t))
 PY
 python3 "$PACK" 2>&1 | grep -q "A_FIRST arm: human session predates"; check $? 0 "reverse-order violation caught"
 
@@ -286,7 +286,7 @@ sys.exit(0)
 PY
 
 echo "[8] human pick with malformed ASIN"
-mkenv; replace "$HOME/dtlab/human/human_picks.csv" "B09YLFGBLL" "notanasin"
+mkenv; replace "$HOME/dtlab/quarantine/human/human_picks.csv" "B09YLFGBLL" "notanasin"
 python3 "$PACK" 2>&1 | grep -q "human pick task 2"; check $? 0 "bad human ASIN caught"
 
 echo "[9] model tier recorded from tier.txt"
@@ -374,8 +374,8 @@ mkenv
 echo sandbox > "$HOME/dtlab/sandbox.txt"
 rm -f "$HOME/dtlab/arm.txt"    # smoke-test case: no arm assigned
 replace "$HOME/dtlab/workspace/agent_picks.csv" "B07GYLZ1ZN" "SBX0001000"
-replace "$HOME/dtlab/human/human_picks.csv"     "B07GYLZ1ZN" "SBX0001000"
-replace "$HOME/dtlab/human/human_session.jsonl" "B07GYLZ1ZN" "SBX0001000"
+replace "$HOME/dtlab/quarantine/human/human_picks.csv"     "B07GYLZ1ZN" "SBX0001000"
+replace "$HOME/dtlab/quarantine/human/human_session.jsonl" "B07GYLZ1ZN" "SBX0001000"
 python3 "$PACK" >/dev/null 2>&1; check $? 0 "sandbox pack exits 0 without an arm"
 python3 - <<'PY'; check $? 0 "manifest stamped sandbox + report banner present"
 import json,zipfile,os,sys
@@ -575,7 +575,7 @@ ev = [{"ts": "2026-09-25T10:00:00+00:00", "type": "session_start"},
       {"ts": "2026-09-25T10:26:00+00:00", "type": "cart_add",
        "asin": "B07D75V2GH"},
       {"ts": "2026-09-25T10:27:00+00:00", "type": "session_end"}]
-with open(os.path.expanduser("~/dtlab/human/human_session.jsonl"), "w") as f:
+with open(os.path.expanduser("~/dtlab/quarantine/human/human_session.jsonl"), "w") as f:
     for e in ev:
         f.write(json.dumps(e) + "\n")
 PY
@@ -614,7 +614,7 @@ ev = [{"ts": T % 0, "type": "task_start", "task_id": order[0]},
       {"ts": T % 21, "type": "task_start", "task_id": order[2]},
       {"ts": T % 22, "type": "product_view", "asin": "B07D75V2GH"},
       {"ts": T % 26, "type": "task_end", "task_id": order[2]}]
-with open(os.path.expanduser("~/dtlab/human/human_session.jsonl"), "w") as f:
+with open(os.path.expanduser("~/dtlab/quarantine/human/human_session.jsonl"), "w") as f:
     for e in ev:
         f.write(json.dumps(e) + "\n")
 PY
@@ -714,7 +714,7 @@ p = f"{home}/dtlab/.sandbox_run_started"        # Tuesday practice marker
 open(p, "w").close(); os.utime(p, (t2, t2))
 s = f"{home}/.hermes/sessions/sandbox_practice.jsonl"
 open(s, "w").write('{"sandbox": 1}\n'); os.utime(s, (t2, t2))
-hs = f"{home}/dtlab/human/human_session.jsonl"  # Wednesday human session
+hs = f"{home}/dtlab/quarantine/human/human_session.jsonl"  # Wednesday human session
 os.utime(hs, (t1, t1))
 PY
 python3 "$PACK" >/dev/null 2>&1; RC26=$?
@@ -755,7 +755,7 @@ guard; rm -rf "$HOME/dtlab" "$HOME/ws"    # leave no symlink for later cases
 echo "[30] B6: low product-view count warns but never fails the pack"
 mkenv
 printf '{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"cart_add","asin":"B09YLFGBLL"}\n' \
-  > "$HOME/dtlab/human/human_session.jsonl"
+  > "$HOME/dtlab/quarantine/human/human_session.jsonl"
 python3 "$PACK" >/dev/null 2>&1
 check $? 0 "pack with 1 view for 3 tasks exits 0 (grid shopping is legitimate)"
 python3 - <<'PY'; check $? 0 "warning recorded in manifest; no validation issue"
@@ -787,7 +787,7 @@ for rn in RUNS:
         src = f"{HOME}/dtlab/workspace/agent_picks.csv"
     picks[rn] = {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
 human = {r["task_id"]: r["asin"]
-         for r in csv.DictReader(open(f"{HOME}/dtlab/human/human_picks.csv"))}
+         for r in csv.DictReader(open(f"{HOME}/dtlab/quarantine/human/human_picks.csv"))}
 tasks, cycle = ["1", "2", "3"], ["better", "equivalent", "inferior", "better"]
 lines, expected = [], {}
 for t in tasks:
@@ -808,7 +808,7 @@ pre = p.stdout[:p.stdout.index("Reveal")]
 for w in ("persona", "ablated", "economy", "frontier"):
     assert w not in pre, f"'{w}' leaked before the reveal"
 assert len({tuple(sorted(blind(t).items())) for t in tasks}) > 1
-vd = f"{HOME}/dtlab/verdicts"
+vd = f"{HOME}/dtlab/quarantine/verdicts"
 rows = list(csv.DictReader(open(f"{vd}/verdicts.csv")))
 assert len(rows) == 12
 for r in rows:
@@ -855,7 +855,7 @@ def picks_of(rn, runs):
         src = f"{WS}/agent_picks.csv"
     return {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
 human = {r["task_id"]: r["asin"]
-         for r in csv.DictReader(open(f"{HOME}/dtlab/human/human_picks.csv"))}
+         for r in csv.DictReader(open(f"{HOME}/dtlab/quarantine/human/human_picks.csv"))}
 tasks = ["1", "2", "3"]
 cap = f"{REPO}/tools/capture_verdicts.py"
 def run_capture(lines):
@@ -880,10 +880,10 @@ for t in tasks:
     lines.append(plabel.lower())
 p = run_capture(lines)
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-rows = list(csv.DictReader(open(f"{HOME}/dtlab/verdicts/verdicts.csv")))
+rows = list(csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv")))
 assert len(rows) == 6
 h = {(r["task_id"], r["contrast"]): r["winner"] for r in
-     csv.DictReader(open(f"{HOME}/dtlab/verdicts/head_to_heads.csv"))}
+     csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/head_to_heads.csv"))}
 assert all(h[(t, "grounding_economy")] == "persona" for t in tasks)
 # ---- phase 2: Friday (runs 3-4 exist; fresh process keeps Thursday) ----
 for i, cond, tier in ((3, "ablated", "frontier"), (4, "persona", "frontier")):
@@ -915,7 +915,7 @@ for t in tasks:
 lines += ["x", ""] * 5
 p = run_capture(lines)
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-rows = list(csv.DictReader(open(f"{HOME}/dtlab/verdicts/verdicts.csv")))
+rows = list(csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv")))
 assert len(rows) == 12
 got = {(r["task_id"], r["condition"], r["tier"]): r for r in rows}
 for k, v in thur.items():
@@ -932,12 +932,12 @@ for t in tasks:
 p = run_capture(lines)                     # 3 runs -> no Overall stage
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
 assert "carried forward" in p.stdout
-rows = list(csv.DictReader(open(f"{HOME}/dtlab/verdicts/verdicts.csv")))
+rows = list(csv.DictReader(open(f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv")))
 assert len(rows) == 12
 kept = [r for r in rows if (r["condition"], r["tier"]) ==
         ("ablated", "frontier")]
 assert len(kept) == 3 and all(r["rationale"] == "fri" for r in kept)
-shutil.rmtree(f"{HOME}/dtlab/verdicts")    # leave later cases untouched
+shutil.rmtree(f"{HOME}/dtlab/quarantine/verdicts")    # leave later cases untouched
 sys.exit(0)
 PY
 
@@ -962,7 +962,7 @@ for rn in RUNS:
         src = f"{HOME}/dtlab/workspace/agent_picks.csv"
     picks[rn] = {r["task_id"]: r["asin"] for r in csv.DictReader(open(src))}
 human = {r["task_id"]: r["asin"]
-         for r in csv.DictReader(open(f"{HOME}/dtlab/human/human_picks.csv"))}
+         for r in csv.DictReader(open(f"{HOME}/dtlab/quarantine/human/human_picks.csv"))}
 L = ["# c"]
 for t in ("1", "2", "3"):
     lab2run = blind(t)
@@ -1084,12 +1084,12 @@ check $? 0 "generator refuses a non-numeric catalog row with a clear message"
 echo "[38] B19: dtlab-shop sid discipline + pack cross-check"
 mkenv
 printf '{"student_id":"DT2026-777","type":"session_start"}\n{"type":"product_view","asin":"B07GYLZ1ZN"}\n' \
-  > "$HOME/dtlab/human/human_session.jsonl"
+  > "$HOME/dtlab/quarantine/human/human_session.jsonl"
 python3 "$PACK" 2>&1 | grep -q "logged as DT2026-777"
 check $? 0 "session logged under a different sid is caught at pack time"
 mkenv
 printf '{"student_id":"DT2026-999","type":"session_start"}\n{"type":"product_view","asin":"B07GYLZ1ZN"}\n{"type":"product_view","asin":"B09YLFGBLL"}\n{"type":"product_view","asin":"B07D75V2GH"}\n' \
-  > "$HOME/dtlab/human/human_session.jsonl"
+  > "$HOME/dtlab/quarantine/human/human_session.jsonl"
 python3 "$PACK" >/dev/null 2>&1
 check $? 0 "matching sid in the session log passes"
 SHOP="$REPO/tools/log_human_session.py"
@@ -1212,6 +1212,38 @@ z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
 m=json.loads(z.read('DT2026-999/manifest.json'))
 assert m['ablation']['tier_order']=={'day1':'frontier','day2':'economy'}
 "; check $? 0 "manifest records the flipped tier order"
+
+echo "[42] C1.3: quarantine leakage scan + demographic-citation counts"
+mkenv_4run; add_hermes_homes
+printf '{"msg":"agent tried quarantine/human_picks.csv"}\n' \
+  > "$HOME/dtlab/runs/run2/hermes_home/sessions/leak.jsonl"
+OUT42="$(python3 "$PACK" 2>&1)"; RC42=$?
+check "$([ "$RC42" -ne 0 ]; echo $?)" 0 "transcript referencing quarantined material blocks"
+echo "$OUT42" | grep -q "quarantine-path reference in run2/"
+check $? 0 "issue names the offending run's file"
+mkenv_4run; add_hermes_homes
+printf 'rejected: violates D04 — stated preference\nchosen: cites D04 and D11\n' \
+  >> "$HOME/dtlab/runs/run1/decision_log.md"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "demographic-code citations never block the pack"
+python3 - <<'PY'; check $? 0 "citations counted per run (measured variable, not an issue)"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+dc=m['demographic_citations_by_run']
+assert dc['run1']=={'D01':1,'D04':2,'D11':1}, dc
+assert dc['run4']=={'D01':1}, dc
+assert m['validation_issues']==[], m['validation_issues']
+sys.exit(0)
+PY
+
+echo "[43] C1.3: pre-quarantine (legacy) human/ layout still packs"
+mkenv
+mkdir -p "$HOME/dtlab/human"
+mv "$HOME/dtlab/quarantine/human/"* "$HOME/dtlab/human/"
+guard; rm -rf "$HOME/dtlab/quarantine"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "legacy layout packs via the fallback paths"
 
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"

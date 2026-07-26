@@ -46,20 +46,31 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 HOME = Path.home()
 WS = HOME / "dtlab" / "workspace"
 EV = HOME / "dtlab" / "evidence"
-HU = HOME / "dtlab" / "human"      # human shopping log + picks (agent-quarantined)
 MARKER = HOME / "dtlab" / ".run_started"   # touched at FIRST agent-run start
 SANDBOX_MARKER = HOME / "dtlab" / "sandbox.txt"   # smoke test / fallback run
-# questionnaire-ablation factor: per-run archives + the hold dir where
-# persona files sit while an ablated run is in progress
 RUNS = HOME / "dtlab" / "runs"
-HOLD = HOME / "dtlab" / "persona_hold"
-VD = HOME / "dtlab" / "verdicts"   # dtlab-verdict output (agent-quarantined)
+# quarantine root: human picks, verdicts, and held persona files live
+# under ~/dtlab/quarantine/ (every agent path is barred from it); packs
+# from before the move fall back to the legacy locations
+QUAR = HOME / "dtlab" / "quarantine"
+
+
+def _qdir(name):
+    p = QUAR / name
+    legacy = HOME / "dtlab" / name
+    return p if (p.exists() or not legacy.exists()) else legacy
+
+
+HU = _qdir("human")      # human shopping log + picks
+HOLD = _qdir("persona_hold")   # persona files during an ablated run
+VD = _qdir("verdicts")   # dtlab-verdict output
 RUN_NAMES = ("run1", "run2", "run3", "run4")
 
 
@@ -127,6 +138,18 @@ def derived_task_order(student_id, task_ids):
 # loaded the intended instructions, machine-checked per run.
 PROTO_RE = re.compile(r"(?m)^\s*PROTOCOL\s*\|\s*soul=([\w.-]+)")
 SOUL_TOKENS = {"persona": "persona-v3", "ablated": "ablated-v3"}
+
+# quarantine-leakage detectors (D3): a transcript or decision log naming
+# quarantined material means the agent saw, or tried to see, what it is
+# barred from. Patterns name SUBpaths and files — the SOUL's own
+# hard-boundary sentence quotes the bare root ("~/dtlab/quarantine/")
+# and may echo into transcripts, so the bare root is not a detector.
+QUAR_LEAK_RE = re.compile(
+    r"quarantine/(?:human|verdicts|persona_hold)|human_picks|"
+    r"persona_hold|verdicts\.csv|head_to_heads")
+# demographic item codes D01-D15: citations counted per run into the
+# manifest (D6 measured variable — descriptive, never blocking)
+DEMO_CODE_RE = re.compile(r"\bD(?:0[1-9]|1[0-5])\b")
 
 # machine-parsed candidate lines the ECP requires in decision_log.md:
 # CAND | task=<n> | asin=<...> | category=<...> | price=<...> | ...
@@ -603,7 +626,7 @@ def main():
                          for rn in runs_present)
 
     # ---- #1, #2, #3, #4(decision log), #5(picks), #7: copy from WS ----
-    # dtlab-verdict artifacts live in ~/dtlab/verdicts/ (quarantined from
+    # dtlab-verdict artifacts live under the quarantine root (barred from
     # the agent workspace); the workspace location is the legacy fallback
     verdict_dir = VD if (VD / "verdicts.csv").exists() else WS
     verdicts_csv = verdict_dir / "verdicts.csv"  # dtlab-verdict (primary)
@@ -730,12 +753,14 @@ def main():
     # human-side artifacts live OUTSIDE the agent workspace (bias quarantine)
     for name in ("human_picks.csv", "human_session.jsonl"):
         src = HU / name
-        if need(src.exists(), f"missing {name} in ~/dtlab/human/ "
+        if need(src.exists(), f"missing {name} in "
+                              "~/dtlab/quarantine/human/ "
                               "(run dtlab-shop first)") and src.exists():
             shutil.copy2(src, staging / name)
     need(not (WS / "human_picks.csv").exists(),
          "human_picks.csv found INSIDE the agent workspace — bias "
-         "quarantine violated; keep human files in ~/dtlab/human/ only")
+         "quarantine violated; keep human files in "
+         "~/dtlab/quarantine/human/ only")
     # the sid the human session was LOGGED under must be the sid this
     # pack belongs to — a typo'd --student-id would silently
     # desynchronize the human task order from every agent run
@@ -1123,6 +1148,7 @@ def main():
     #      tokens); any checkout-shaped amazon.in URL is a blocking
     #      issue, blocked.html sightings are guard-fired evidence.
     checkout_attempts = {}
+    demographic_citations = {}
 
     def scan_checkout(src_name, path):
         try:
@@ -1141,18 +1167,39 @@ def main():
                  "it, but the attempt must be reviewed (tell a TA; do "
                  "not edit the log)")
 
+    def scan_leak(src_name, path):
+        """Quarantine-leakage scan (D3): any reference to quarantined
+        material in an agent-side file is a blocking review issue."""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        hits = sorted({m.group(0) for m in QUAR_LEAK_RE.finditer(text)})
+        if hits:
+            need(False,
+                 f"quarantine-path reference in {src_name} "
+                 f"({', '.join(hits[:4])}) — the agent read or "
+                 "referenced quarantined material; tell a TA (do not "
+                 "edit the log)")
+
     for rn in conds:
         logp = staging / rn / "decision_log.md"
         if logp.exists():
             scan_checkout(f"{rn}/decision_log.md", logp)
+            scan_leak(f"{rn}/decision_log.md", logp)
+            demographic_citations[rn] = dict(Counter(
+                DEMO_CODE_RE.findall(logp.read_text(
+                    encoding="utf-8", errors="replace"))))
     if (staging / "decision_log.md").exists():
         scan_checkout("decision_log.md", staging / "decision_log.md")
+        scan_leak("decision_log.md", staging / "decision_log.md")
     log_dirs = [staging / "hermes_logs"] + \
         [staging / rn / "hermes_logs" for rn in sorted(conds)]
     for d in log_dirs:
         for f in sorted(d.glob("*")) if d.is_dir() else ():
             if f.is_file():
                 scan_checkout(str(f.relative_to(staging)), f)
+                scan_leak(str(f.relative_to(staging)), f)
     screenshots = sorted(list(EV.glob("*.png")) + list(EV.glob("*.jpg")))
     cart_verified = {}
     if four_run:
@@ -1564,6 +1611,7 @@ def main():
                            else "comparison_md"),
         "verdicts_captured_blind": verdicts_captured_blind,
         "checkout_attempts": checkout_attempts,
+        "demographic_citations_by_run": demographic_citations,
         # the typed pre-run acknowledgment (consent capture layer 2 of 3,
         # research_protocol §3) — recorded by dtlab-start, audited here
         "consent_ack_utc": (

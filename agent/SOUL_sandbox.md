@@ -71,5 +71,5 @@ For every task, append to `decision_log.md` in this workspace:
   decision log and move on.
 - Stay on books.toscrape.com. Do not visit amazon.in or any other site
   in sandbox mode.
-- Never read, list, or reference anything under ~/dtlab/human/ or
-  ~/dtlab/persona_hold/.
+- Never read, list, or reference anything under ~/dtlab/quarantine/ or
+  ~/dtlab/runs/.

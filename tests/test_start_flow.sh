@@ -24,7 +24,7 @@ guard(){ case "$HOME" in "$SANDBOX_HOME"*) ;; *)
 mkenv(){  # persona_factor(0/1) as $1
 guard
 rm -rf "$HOME/dtlab" "$HOME/.dtlab_env" "$HOME/.bashrc"
-mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/soul" "$HOME/dtlab/human" \
+mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/soul" "$HOME/dtlab/quarantine/human" \
          "$HOME/dtlab/evidence"
 sed -e "s/DTLAB_PERSONA_FACTOR='1'/DTLAB_PERSONA_FACTOR='$1'/" \
     -e "s/DTLAB_MODEL_ECONOMY='PIN-AT-DRYRUN'/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/" \
@@ -45,8 +45,8 @@ printf '## Task 1\nfilled, no placeholders here\n' \
 for i in $(seq 1 113); do echo "- **X$i** q"; done \
   > "$HOME/dtlab/workspace/persona_survey.md"
 echo "student_id,answer" > "$HOME/dtlab/workspace/persona_survey.csv"
-touch "$HOME/dtlab/human/human_picks.csv" \
-      "$HOME/dtlab/human/human_session.jsonl"
+touch "$HOME/dtlab/quarantine/human/human_picks.csv" \
+      "$HOME/dtlab/quarantine/human/human_session.jsonl"
 printf 'export ANTHROPIC_API_KEY=sk-ant-test0000000000000000000000\n' \
   > "$HOME/.dtlab_env"
 chmod 600 "$HOME/.dtlab_env"
@@ -76,7 +76,7 @@ check "$(cat "$HOME/dtlab/tier.txt")" "frontier" "tier defaulted silently"
 
 echo "[2] human-first is a hard gate (no dtlab-shop -> refuse)"
 mkenv 1
-rm -f "$HOME/dtlab/human/human_picks.csv"
+rm -f "$HOME/dtlab/quarantine/human/human_picks.csv"
 rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
 check "$rc" 1 "exit 1"
 grep -q "dtlab-shop" "$HOME/last_out.txt"
@@ -137,7 +137,7 @@ check "$(cat "$HOME/dtlab/runs/run2/tier.txt")" "economy" "run2 still economy"
 check $? 0 "run-1 log archived before run 2"
 [ ! -f "$HOME/dtlab/workspace/decision_log.md" ]
 check $? 0 "workspace log cleared for run 2"
-[ -f "$HOME/dtlab/persona_hold/persona_survey.md" ] \
+[ -f "$HOME/dtlab/quarantine/persona_hold/persona_survey.md" ] \
   && [ ! -f "$HOME/dtlab/workspace/persona_survey.md" ]
 check $? 0 "persona files physically moved to the hold dir"
 grep -q 'MARK-ABLATED' "$HOME/dtlab/workspace/SOUL.md"
@@ -205,7 +205,7 @@ echo "[10] sandbox mode: soft gates, sandbox SOUL, marker hygiene"
 mkenv 0
 rm -f "$HOME/dtlab/workspace/persona_survey.md" \
       "$HOME/dtlab/workspace/tasks.md" \
-      "$HOME/dtlab/human/human_picks.csv"
+      "$HOME/dtlab/quarantine/human/human_picks.csv"
 rc=$(run '\n' DTLAB_SANDBOX=1)
 check "$rc" 0 "smoke test passes without persona/tasks/human files"
 [ -f "$HOME/dtlab/sandbox.txt" ]; check $? 0 "sandbox marker written"
@@ -694,6 +694,33 @@ check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
 [ -f "$HOME/hermes_ran" ]
 check $? 0 "Hermes started after the state write"
 guard; rm -rf "${HOME:?}/bin" "$HOME/hermes_ran"
+
+echo "[26] C1.3: quarantine migration shim + workspace human_picks refusal"
+mkenv 1
+# fabricate the PRE-quarantine layout: human/, verdicts/, persona_hold/
+# directly under ~/dtlab
+rm -rf "$HOME/dtlab/quarantine"
+mkdir -p "$HOME/dtlab/human" "$HOME/dtlab/persona_hold" \
+         "$HOME/dtlab/verdicts"
+printf 'task_id\n' > "$HOME/dtlab/human/human_picks.csv"
+touch "$HOME/dtlab/human/human_session.jsonl"
+printf 'v\n' > "$HOME/dtlab/verdicts/verdicts.csv"
+printf 'p\n' > "$HOME/dtlab/persona_hold/old_persona.md"
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
+check "$rc" 0 "pre-quarantine layout run exits 0 (shim migrates)"
+[ -f "$HOME/dtlab/quarantine/human/human_picks.csv" ] \
+  && [ -f "$HOME/dtlab/quarantine/verdicts/verdicts.csv" ] \
+  && [ -f "$HOME/dtlab/quarantine/persona_hold/old_persona.md" ]
+check $? 0 "human, verdicts, and persona_hold migrated under quarantine/"
+[ ! -d "$HOME/dtlab/human" ] && [ ! -d "$HOME/dtlab/verdicts" ] \
+  && [ ! -d "$HOME/dtlab/persona_hold" ]
+check $? 0 "old locations gone after the shim"
+mkenv 1
+cp "$HOME/dtlab/quarantine/human/human_picks.csv" "$HOME/dtlab/workspace/"
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
+check "$rc" 1 "human_picks.csv inside the AGENT workspace refuses to launch"
+grep -q "quarantine/human" "$HOME/last_out.txt"
+check $? 0 "refusal names the quarantine location"
 
 guard
 rm -rf "$SANDBOX_HOME"

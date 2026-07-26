@@ -123,6 +123,7 @@ For every task, append to `decision_log.md` in this workspace:
   "proceed to checkout"), note it in the decision log and move on.
 - If a CAPTCHA or verification challenge appears, stop and ask the human.
 - Stay on amazon.in. Do not visit other retail sites or price comparators.
-- Never read, list, or reference anything under ~/dtlab/human/ or any file
-  containing the user's own task selections. Your choices must come only
-  from persona_survey.md, purchase_profile.md, and amazon.in itself.
+- Never read, list, or reference anything under ~/dtlab/quarantine/ or
+  ~/dtlab/runs/, or any file containing the user's own task selections.
+  Your choices must come only from persona_survey.md,
+  purchase_profile.md, and amazon.in itself.
