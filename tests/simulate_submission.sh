@@ -1571,6 +1571,52 @@ replace "$HOME/dtlab/quarantine/human/human_session.jsonl" "B07GYLZ1ZN" "SBX0001
 python3 "$PACK" >/dev/null 2>&1
 check $? 0 "sandbox packs stay exempt from the consent-ack gate"
 
+echo "[53] C2.14: human session is ONE committed attempt (TA resets only)"
+mkenv
+SHOP="$REPO/tools/log_human_session.py"
+printf '2026-09-24T10:00:00+00:00 DT2026-999\n' \
+  > "$HOME/dtlab/quarantine/human/.attempt_1_committed"
+OUT53="$(cd "$HOME" && python3 "$SHOP" 2>&1)"; RC53=$?
+check "$([ "$RC53" -ne 0 ]; echo $?)" 0 "re-run with a committed attempt refuses"
+echo "$OUT53" | grep -q -- "--reset-attempt"
+check $? 0 "refusal names the TA reset path"
+(cd "$HOME" && DTLAB_TA_TOKEN=WRONG python3 "$SHOP" --reset-attempt >/dev/null 2>&1 <<< "why"); RC53B=$?
+check "$([ "$RC53B" -ne 0 ]; echo $?)" 0 "reset with a wrong token refuses"
+[ -f "$HOME/dtlab/quarantine/human/human_picks.csv" ]
+check $? 0 "nothing archived on a refused reset"
+printf 'sekrit-53\n' > "$HOME/dtlab/.ta_token"
+(cd "$HOME" && DTLAB_TA_TOKEN=sekrit-53 python3 "$SHOP" --reset-attempt >/dev/null 2>&1 <<< "recorder crashed mid-session"); RC53C=$?
+check "$RC53C" 0 "TA-token reset succeeds"
+[ -f "$HOME/dtlab/quarantine/human/attempt_1/human_picks.csv" ] \
+  && [ -f "$HOME/dtlab/quarantine/human/attempt_1/human_session.jsonl" ] \
+  && [ ! -f "$HOME/dtlab/quarantine/human/human_picks.csv" ]
+check $? 0 "attempt-1 files ARCHIVED (append-only), not overwritten"
+grep -q "recorder crashed mid-session" \
+  "$HOME/dtlab/quarantine/human/.attempt_resets"
+check $? 0 "reset recorded with the reason"
+# the student re-runs (attempt 2) and the pack accepts the audited trail
+cp "$HOME/dtlab/quarantine/human/attempt_1/human_picks.csv" \
+   "$HOME/dtlab/quarantine/human/human_picks.csv"
+cp "$HOME/dtlab/quarantine/human/attempt_1/human_session.jsonl" \
+   "$HOME/dtlab/quarantine/human/human_session.jsonl"
+printf '2026-09-24T15:00:00+00:00 DT2026-999\n' \
+  > "$HOME/dtlab/quarantine/human/.attempt_2_committed"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack after a RECORDED reset exits 0"
+python3 -c "
+import json,zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+ha=m['human_attempts']
+assert ha['committed']==2 and len(ha['resets'])==1
+assert ha['resets'][0]['reason']=='recorder crashed mid-session'
+"; check $? 0 "manifest records attempt count + reset audit trail"
+mkenv                                      # >1 attempt, NO reset record
+printf 'x DT2026-999\n' > "$HOME/dtlab/quarantine/human/.attempt_1_committed"
+printf 'y DT2026-999\n' > "$HOME/dtlab/quarantine/human/.attempt_2_committed"
+python3 "$PACK" 2>&1 | grep -q "committed human-session attempts but"
+check $? 0 "multiple committed attempts without a reset record BLOCK"
+
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"

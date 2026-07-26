@@ -40,6 +40,7 @@ USAGE
 import argparse
 import csv
 import json
+import os
 import re
 import shutil
 import sys
@@ -74,9 +75,11 @@ BLOCK_PATHS = ("/gp/buy", "/checkout", "/payments", "/ap/")  # never log these
 # through the tasks ONE AT A TIME in their assigned order, so every
 # event — search, view, filter, time — is attributable to its task
 # exactly); v1.4 also captures listing-page Add-to-Cart clicks (results
-# grid), carrying the ASIN from the nearest data-asin ancestor. All
+# grid), carrying the ASIN from the nearest data-asin ancestor; v1.5
+# adds `attempt_id` on every event (audit 5.9: the session is ONE
+# committed attempt; TA-token resets archive and re-number). All
 # additive.
-SCHEMA = "dtlab-humanlog-v1.4"
+SCHEMA = "dtlab-humanlog-v1.5"
 REF_RE = re.compile(r"/ref=([^/?#]+)")
 
 
@@ -161,17 +164,19 @@ def amazon_host(url):
 
 
 class Logger:
-    def __init__(self, out_path, student_id):
+    def __init__(self, out_path, student_id, attempt_id=1):
         self.f = open(out_path, "a", encoding="utf-8")
         self.lock = threading.Lock()
         self.student_id = student_id
+        self.attempt_id = attempt_id
         self.viewed = {}   # asin -> latest title (for pick confirmation)
         self.counts = {}   # type -> count (live end-of-session summary)
         self._last = ("", 0.0)   # (url, monotonic) — dedupe double page_load
 
     def emit(self, type_, **kw):
         rec = {"ts": datetime.now(timezone.utc).isoformat(),
-               "student_id": self.student_id, "type": type_, **kw}
+               "student_id": self.student_id,
+               "attempt_id": self.attempt_id, "type": type_, **kw}
         with self.lock:
             self.counts[type_] = self.counts.get(type_, 0) + 1
             self.f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -326,6 +331,57 @@ def find_student_id():
     return None
 
 
+def committed_attempts():
+    return sorted(HUMAN_DIR.glob(".attempt_*_committed"))
+
+
+def reset_records():
+    p = HUMAN_DIR / ".attempt_resets"
+    if not p.exists():
+        return []
+    out = []
+    for ln in p.read_text(encoding="utf-8").splitlines():
+        if ln.strip():
+            out.append(ln)
+    return out
+
+
+def reset_attempt(sid):
+    """TA-authorized reset (audit 5.9): archives the committed attempt's
+    files into attempt_N/ (append-only, never overwritten) and records
+    the reset; the next dtlab-shop run becomes attempt N+1."""
+    n_committed = len(committed_attempts())
+    if n_committed <= len(reset_records()):
+        sys.exit("no committed attempt to reset — just run dtlab-shop")
+    tokfile = Path.home() / "dtlab" / ".ta_token"
+    expected = tokfile.read_text(encoding="utf-8").strip() \
+        if tokfile.exists() else None
+    supplied = os.environ.get("DTLAB_TA_TOKEN") \
+        or input("TA token: ").strip()
+    if not expected or supplied != expected:
+        sys.exit("TA token missing or wrong — attempt resets require a "
+                 "TA (~/dtlab/.ta_token, installed at setup); the "
+                 "committed session stays as-is.")
+    reason = input("One-line reason for the reset: ").strip()
+    if not reason:
+        sys.exit("a reason is required for the audit trail")
+    arch = HUMAN_DIR / f"attempt_{n_committed}"
+    arch.mkdir(parents=True, exist_ok=True)
+    for name in ("human_session.jsonl", "human_picks.csv"):
+        src = HUMAN_DIR / name
+        if src.exists():
+            shutil.move(str(src), str(arch / name))
+    with open(HUMAN_DIR / ".attempt_resets", "a",
+              encoding="utf-8") as f:
+        f.write(json.dumps({
+            "reset_at_utc": datetime.now(timezone.utc).isoformat(),
+            "student_id": sid, "reason": reason,
+            "from_attempt": n_committed}) + "\n")
+    print(f"Attempt {n_committed} archived to {arch} (append-only). "
+          f"Re-run dtlab-shop for attempt {n_committed + 1}.")
+    return 0
+
+
 def resolve_student_id(arg_sid):
     """Default from persona_survey.csv; validate the pattern; refuse a
     typed id that contradicts the persona — a silent typo here would
@@ -354,14 +410,31 @@ def main():
     ap.add_argument("--student-id", default=None,
                     help="course pseudonym; defaults to the one in "
                          "persona_survey.csv")
+    ap.add_argument("--reset-attempt", action="store_true",
+                    help="TA-ONLY: archive the committed session "
+                         "(append-only) and allow a re-run; requires the "
+                         "TA token and a one-line reason")
     args = ap.parse_args()
     sid = resolve_student_id(args.student_id)
     args.student_id = sid
+    HUMAN_DIR.mkdir(parents=True, exist_ok=True)
+    if args.reset_attempt:
+        return reset_attempt(sid)
+    # ONE committed attempt (audit 5.9): the session is un-redoable
+    # evidence — a second run without a recorded TA reset never starts
+    n_committed = len(committed_attempts())
+    if n_committed > len(reset_records()):
+        sys.exit("Your own shopping session is already committed "
+                 f"(attempt {n_committed}) — it happens ONCE. If a "
+                 "re-run is genuinely needed, a TA can authorize it: "
+                 "dtlab-shop --reset-attempt (TA token required; the "
+                 "committed attempt is archived, never overwritten).")
+    attempt_id = n_committed + 1
     if sync_playwright is None:
         sys.exit("playwright missing — run this via the dtlab-shop alias "
                  "(it uses the provisioned environment).")
-    HUMAN_DIR.mkdir(parents=True, exist_ok=True)
-    log = Logger(HUMAN_DIR / "human_session.jsonl", args.student_id)
+    log = Logger(HUMAN_DIR / "human_session.jsonl", args.student_id,
+                 attempt_id)
     log.emit("session_start", schema=SCHEMA)
 
     # Same binary the agent session uses, so the shared profile never sees
@@ -436,6 +509,11 @@ def main():
 
     log.emit("session_end")
     confirm_picks(log, args.student_id)
+    # the attempt is COMMITTED once the picks are on file — from here a
+    # re-run requires a recorded TA reset
+    (HUMAN_DIR / f".attempt_{attempt_id}_committed").write_text(
+        f"{datetime.now(timezone.utc).isoformat()} {args.student_id}\n",
+        encoding="utf-8")
     print("\nDone. Next step: dtlab-start (the agent run).")
     print("Your picks live in ~/dtlab/quarantine/human/ — the agent "
           "cannot read them.")

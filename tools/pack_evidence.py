@@ -967,6 +967,28 @@ def main():
          "human_picks.csv found INSIDE the agent workspace — bias "
          "quarantine violated; keep human files in "
          "~/dtlab/quarantine/human/ only")
+    # ---- human-session immutability (audit 5.9): ONE committed attempt;
+    # extra attempts need a recorded TA reset (humanlog v1.5) ----
+    committed_m = sorted(HU.glob(".attempt_*_committed"))
+    reset_lines = []
+    if (HU / ".attempt_resets").exists():
+        for ln in (HU / ".attempt_resets").read_text(
+                encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            try:
+                reset_lines.append(json.loads(ln))
+            except json.JSONDecodeError:
+                reset_lines.append({"raw": ln})
+    human_attempts = None
+    if committed_m:
+        human_attempts = {"committed": len(committed_m),
+                          "resets": reset_lines}
+        need(len(committed_m) <= len(reset_lines) + 1,
+             f"{len(committed_m)} committed human-session attempts but "
+             f"only {len(reset_lines)} TA reset record(s) — the session "
+             "happens ONCE; tell a TA (dtlab-shop --reset-attempt is "
+             "the only re-run path)")
     # the sid the human session was LOGGED under must be the sid this
     # pack belongs to — a typo'd --student-id would silently
     # desynchronize the human task order from every agent run
@@ -2006,6 +2028,7 @@ def main():
         "verdicts_single_session": verdicts_single_session,
         "checkout_attempts": checkout_attempts,
         "interventions_by_run": interventions_by_run,
+        "human_attempts": human_attempts,
         "demographic_citations_by_run": demographic_citations,
         # the typed pre-run acknowledgment (consent capture layer 2 of 3,
         # research_protocol §3) — recorded by dtlab-start, audited here
