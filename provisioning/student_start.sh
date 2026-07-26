@@ -41,7 +41,7 @@ DAY2_TIER="${DTLAB_DAY2_TIER:-frontier}"
 SANDBOX="${DTLAB_SANDBOX:-0}"
 RUNSDIR="$HOME/dtlab/runs"
 HOLD="$HOME/dtlab/persona_hold"
-RUN=""; COND=""; TIER=""; FRESH_RUN=0
+RUN=""; COND=""; TIER=""; FRESH_RUN=0; MODEL_ID=""; RUN_HOME=""
 GREEN='\033[0;32m'; RED='\033[0;31m'; YEL='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}  [ok]${NC} $1"; }
 bad()  { echo -e "${RED}  [!!]${NC} $1"; FAIL=1; }
@@ -125,6 +125,77 @@ canary_gate() {
   echo -e "Close ALL lab-browser windows and re-run dtlab-start; if this"
   echo -e "repeats, call a TA before any agent run.${NC}"
   return 1
+}
+
+# ---- per-run Hermes home (treatment delivery) ----
+# Hermes loads SOUL.md ONLY from $HERMES_HOME/SOUL.md (never from the
+# working directory) and selects its model via $HERMES_HOME/config.yaml.
+# Each run therefore gets its own FRESH home carrying exactly two files:
+# the condition's SOUL and a config generated from the kit template with
+# the run's pinned model ID. Fresh home per run = no memory store and no
+# session history crossing runs. The workspace SOUL.md copy stays for
+# student inspection only; the home is the authoritative delivery.
+sha256_file() {
+  python3 -c 'import hashlib, sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"
+}
+
+resolve_model() {  # $1 = tier -> stdout: exact model id (rc 1 = unpinned)
+  local m
+  case "$1" in
+    economy)  m="${DTLAB_MODEL_ECONOMY:-PIN-AT-DRYRUN}" ;;
+    frontier) m="${DTLAB_MODEL_FRONTIER:-PIN-AT-DRYRUN}" ;;
+    *)        m="PIN-AT-DRYRUN" ;;
+  esac
+  if [ -z "$m" ] || [ "$m" = "PIN-AT-DRYRUN" ]; then
+    if [ "${DTLAB_TEST:-0}" = "1" ]; then m="test-model-$1"
+    elif [ "${DTLAB_ALLOW_UNPINNED:-0}" = "1" ]; then m="UNPINNED-$1"
+    else return 1; fi
+  fi
+  printf '%s\n' "$m"
+}
+
+pin_gate() {  # $1 = tier -> sets MODEL_ID, or exits 1 (fail closed)
+  if ! MODEL_ID=$(resolve_model "$1"); then
+    echo ""
+    echo -e "${RED}ERROR: no pinned model ID for the '$1' tier —"
+    echo -e "dtlab_config.env still reads PIN-AT-DRYRUN."
+    echo -e "Pin DTLAB_MODEL_ECONOMY / DTLAB_MODEL_FRONTIER first"
+    echo -e "(TA_ONBOARDING.md > Instructor-only work items), or export"
+    echo -e "DTLAB_ALLOW_UNPINNED=1 for a throwaway test build.${NC}"
+    exit 1
+  fi
+}
+
+make_hermes_home() {  # $1 = home dir, $2 = SOUL variant file, $3 = model id
+  local hh="$1" soul="$2" model="$3"
+  local tpl="$HOME/dtlab/hermes_config.template.yaml"
+  if [ ! -f "$tpl" ]; then
+    echo -e "${RED}hermes_config.template.yaml missing from ~/dtlab/ —"
+    echo -e "re-run provisioning, or tell a TA.${NC}"
+    return 1
+  fi
+  mkdir -p "$hh"
+  cp "$soul" "$hh/SOUL.md"
+  sed -e "s|{{PROVIDER}}|${DTLAB_PROVIDER:-anthropic}|g" \
+      -e "s|{{MODEL_ID}}|$model|g" "$tpl" > "$hh/config.yaml"
+}
+
+# Effective-config verification, FAIL CLOSED: re-read the file Hermes
+# will actually load and assert it names the assigned provider + model.
+# Kept as ONE function so the dry run can extend it to the live
+# /api/model read if the pinned release exposes one.
+verify_hermes_config() {  # $1 = home dir, $2 = provider, $3 = model id
+  grep -qF -- "$3" "$1/config.yaml" 2>/dev/null \
+    && grep -qF -- "$2" "$1/config.yaml" 2>/dev/null
+}
+
+config_mismatch_abort() {
+  echo ""
+  echo -e "${RED}The model configuration generated for this run does not"
+  echo -e "match your assigned tier — tell a TA. Nothing was started and"
+  echo -e "no run state was written.${NC}"
+  exit 1
 }
 
 echo "=============================================="
@@ -235,6 +306,23 @@ if [ "$SANDBOX" = "1" ]; then
     echo -e "${RED}Fix the [!!] items above, then re-run.${NC}"
     exit 1
   fi
+  # per-run Hermes home for the sandbox session: a substituted mid-week
+  # run uses its run slot's day tier; a pure practice run uses the day-1
+  # (economy) tier — sandbox output is excluded from the dataset either
+  # way, and the cheap tier keeps practice spend low
+  if [ -n "${SBRUN:-}" ]; then
+    RUN_HOME="$RUNSDIR/run$SBRUN/hermes_home"
+    if [ "$SBRUN" -le 2 ]; then SBTIER="$DAY1_TIER"
+    else SBTIER="$DAY2_TIER"; fi
+  else
+    RUN_HOME="$RUNSDIR/sandbox_home"
+    SBTIER="$DAY1_TIER"
+  fi
+  pin_gate "$SBTIER"
+  make_hermes_home "$RUN_HOME" "$HOME/dtlab/soul/SOUL_sandbox.md" \
+    "$MODEL_ID" || exit 1
+  verify_hermes_config "$RUN_HOME" "${DTLAB_PROVIDER:-anthropic}" \
+    "$MODEL_ID" || config_mismatch_abort
   echo ""
   echo -e "${YEL}SANDBOX RUN — practice store only (books.toscrape.com)."
   echo -e "This run is stamped for EXCLUSION from the research dataset.${NC}"
@@ -250,7 +338,7 @@ if [ "$SANDBOX" = "1" ]; then
     >/dev/null 2>&1 &
   wait_cdp || exit 1
   canary_gate || exit 1
-  cd "$WS" && exec hermes
+  cd "$WS" && HERMES_HOME="$RUN_HOME" exec hermes
 fi
 # a stale sandbox marker must never leak into a real run's manifest
 if [ -f "$HOME/dtlab/sandbox.txt" ]; then
@@ -367,6 +455,9 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
   fi
   DAY=$(run_day "$RUN")
   TIER=$(run_tier "$RUN")
+  # model pinning gate: fail closed BEFORE any prompt or run state while
+  # the tier's model ID is unpinned (sets MODEL_ID for the run's home)
+  pin_gate "$TIER"
   ORDERFILE="$HOME/dtlab/persona_order_day$DAY.txt"
   if [ ! -f "$ORDERFILE" ]; then
     # the kit-baked counterbalance sheet (same file as the LMS artifact,
@@ -645,21 +736,48 @@ read -rp "Press Enter to open the browser and start Hermes... "
 # check key off the earliest start, so never re-touch it; sandbox runs
 # stamp .sandbox_run_started instead and never touch this one)
 [ -f "$HOME/dtlab/.run_started" ] || touch "$HOME/dtlab/.run_started"
-# Hermes transcript-dir probe: record where transcripts actually live so
-# dtlab-pack collects from reality, not a guess — a wrong guess must
-# surface on lab day 1, not at Sunday pack time.
+# Hermes transcript-dir probe (LEGACY packs only): with per-run homes,
+# transcripts land inside $HERMES_HOME and dtlab-pack collects them from
+# each run's home directly. Global dirs are still recorded when present
+# so pre-per-run-home evidence remains collectable.
 HD_FOUND=""
 for d in $(echo "${DTLAB_HERMES_DIRS:-}" | tr ':' ' ') \
          "$HOME/.hermes" "$HOME/.config/hermes"; do
   [ -d "$d" ] && HD_FOUND="${HD_FOUND:+$HD_FOUND:}$d"
 done
-if [ -n "$HD_FOUND" ]; then
-  echo "$HD_FOUND" > "$HOME/dtlab/.hermes_dirs"
-elif [ -n "$RUN" ] && [ "$RUN" -ge 2 ] \
-     && [ ! -f "$HOME/dtlab/.hermes_dirs" ]; then
-  note "no Hermes transcript directory found yet (~/.hermes,
-       ~/.config/hermes) — tell a TA TODAY; dtlab-pack collects the
-       session transcripts from there"
+[ -n "$HD_FOUND" ] && echo "$HD_FOUND" > "$HOME/dtlab/.hermes_dirs"
+# ---- per-run Hermes home: generated and VERIFIED before any run state
+# is written — a config mismatch must never leave a phantom "started"
+# run ----
+if [ -n "$RUN" ]; then
+  if [ "$COND" = "persona" ]; then SOUL_SRC="$HOME/dtlab/soul/SOUL.md"
+  else SOUL_SRC="$HOME/dtlab/soul/SOUL_ablated.md"; fi
+  RUN_HOME="$RUNSDIR/run$RUN/hermes_home"
+  if [ -d "$RUN_HOME" ]; then
+    # crash-resume: refresh SOUL + config in place, keep the transcripts
+    make_hermes_home "$RUN_HOME" "$SOUL_SRC" "$MODEL_ID" || exit 1
+    verify_hermes_config "$RUN_HOME" "${DTLAB_PROVIDER:-anthropic}" \
+      "$MODEL_ID" || config_mismatch_abort
+  else
+    HH_STAGE="$RUNSDIR/.pending_hermes_home"
+    rm -rf "$HH_STAGE"
+    make_hermes_home "$HH_STAGE" "$SOUL_SRC" "$MODEL_ID" || exit 1
+    verify_hermes_config "$HH_STAGE" "${DTLAB_PROVIDER:-anthropic}" \
+      "$MODEL_ID" || { rm -rf "$HH_STAGE"; config_mismatch_abort; }
+    mkdir -p "$RUNSDIR/run$RUN"
+    mv "$HH_STAGE" "$RUN_HOME"
+  fi
+else
+  # legacy single-run flow (factor off): one home under runs/single/
+  LEGACY_TIER="$(cat "$HOME/dtlab/tier.txt" 2>/dev/null || echo frontier)"
+  case "$LEGACY_TIER" in economy|frontier) ;; *) LEGACY_TIER=frontier ;; esac
+  pin_gate "$LEGACY_TIER"
+  RUN_HOME="$RUNSDIR/single/hermes_home"
+  SOUL_SRC="$HOME/dtlab/soul/SOUL.md"
+  [ -f "$SOUL_SRC" ] || SOUL_SRC="$WS/SOUL.md"
+  make_hermes_home "$RUN_HOME" "$SOUL_SRC" "$MODEL_ID" || exit 1
+  verify_hermes_config "$RUN_HOME" "${DTLAB_PROVIDER:-anthropic}" \
+    "$MODEL_ID" || config_mismatch_abort
 fi
 # run state is written HERE — every gate above has passed, so a refused
 # gate can never leave a phantom run; started_at/ist_date are guarded so
@@ -672,6 +790,12 @@ if [ -n "$RUN" ]; then
     date -u +%FT%TZ > "$RUNSDIR/run$RUN/started_at.txt"
   [ -f "$RUNSDIR/run$RUN/ist_date.txt" ] || \
     TZ=Asia/Kolkata date +%F > "$RUNSDIR/run$RUN/ist_date.txt"
+  # context/config hashes + model id: the audit record of exactly which
+  # SOUL and model config THIS run's Hermes loaded
+  sha256_file "$RUN_HOME/SOUL.md" > "$RUNSDIR/run$RUN/soul_sha256.txt"
+  sha256_file "$RUN_HOME/config.yaml" \
+    > "$RUNSDIR/run$RUN/config_sha256.txt"
+  echo "$MODEL_ID" > "$RUNSDIR/run$RUN/model_id.txt"
 fi
 # per-run tier is authoritative (runs/runN/tier.txt); ~/dtlab/tier.txt is
 # kept for manifest backward compatibility only
@@ -686,4 +810,6 @@ echo "(After the day's runs: dtlab-verdict, and on the final day dtlab-pack.)"
 bash "$HOME/dtlab/tools/dtlab_browser.sh" "https://www.amazon.in" >/dev/null 2>&1 &
 wait_cdp || exit 1
 canary_gate || exit 1
-cd "$WS" && exec hermes
+# HERMES_HOME is the treatment delivery: Hermes loads $HERMES_HOME/SOUL.md
+# and $HERMES_HOME/config.yaml (per-run condition SOUL + pinned model)
+cd "$WS" && HERMES_HOME="$RUN_HOME" exec hermes

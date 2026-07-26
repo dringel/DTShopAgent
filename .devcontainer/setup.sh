@@ -95,6 +95,12 @@ cp -v "$KIT/templates/comparison_ablation.md" \
       "$HOME/dtlab/comparison_ablation.TEMPLATE.md"
 cp -v "$KIT/dtlab_config.env"              "$HOME/dtlab/dtlab_config.env"
 cp -v "$KIT/tasks_config.csv"              "$HOME/dtlab/tasks_config.csv"
+# per-run Hermes config template: dtlab-start generates each run's
+# $HERMES_HOME/config.yaml from this (provider + pinned model per tier);
+# no interactive `hermes setup` provider choice is needed — the per-run
+# config is authoritative
+cp -v "$KIT/provisioning/hermes_config.template.yaml" \
+      "$HOME/dtlab/hermes_config.template.yaml"
 # counterbalance sheet (pseudonyms only): placed at the repo root by the
 # instructor before the freeze (tools/make_counterbalance.py); the
 # pre-flight looks each student's day order up here

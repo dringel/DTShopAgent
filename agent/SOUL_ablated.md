@@ -81,6 +81,9 @@ rejection and every selection must cite evidence — in this run, the
 purchase profile (PP) or the task text, since persona item codes are
 deliberately unavailable — never a demographic inference or a stereotype.
 For every task, append to `decision_log.md` in this workspace:
+0. THE VERY FIRST LINE of `decision_log.md` — written once, before any
+   task entry — must be exactly:
+   `PROTOCOL | soul=ablated-v3`
 1. Task restatement and budget.
 2. Candidate set considered. For EVERY candidate you open, write first
    ONE machine-parsed line in exactly this format (then any prose notes):

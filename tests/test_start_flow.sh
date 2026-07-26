@@ -26,9 +26,12 @@ guard
 rm -rf "$HOME/dtlab" "$HOME/.dtlab_env" "$HOME/.bashrc"
 mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/soul" "$HOME/dtlab/human" \
          "$HOME/dtlab/evidence"
-sed "s/DTLAB_PERSONA_FACTOR='1'/DTLAB_PERSONA_FACTOR='$1'/" \
+sed -e "s/DTLAB_PERSONA_FACTOR='1'/DTLAB_PERSONA_FACTOR='$1'/" \
+    -e "s/DTLAB_MODEL_ECONOMY='PIN-AT-DRYRUN'/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/" \
+    -e "s/DTLAB_MODEL_FRONTIER='PIN-AT-DRYRUN'/DTLAB_MODEL_FRONTIER='claude-fro-test-1'/" \
     "$REPO/dtlab_config.env" > "$HOME/dtlab/dtlab_config.env"
 cp "$REPO/tasks_config.csv" "$HOME/dtlab/"
+cp "$REPO/provisioning/hermes_config.template.yaml" "$HOME/dtlab/"
 printf '# MARK-STANDARD\n' >  "$HOME/dtlab/soul/SOUL.md"
 printf '# MARK-ABLATED\n'  >  "$HOME/dtlab/soul/SOUL_ablated.md"
 printf '# MARK-SANDBOX\n'  >  "$HOME/dtlab/soul/SOUL_sandbox.md"
@@ -97,6 +100,21 @@ check $? 0 "comparison swapped to the ablation template (blind labels)"
 check $? 0 ".bak of the original comparison kept"
 [ -f "$HOME/dtlab/runs/run1/started_at.txt" ]
 check $? 0 "run1 start time recorded"
+grep -q 'MARK-STANDARD' "$HOME/dtlab/runs/run1/hermes_home/SOUL.md"
+check $? 0 "run-1 hermes home carries the condition (standard) SOUL"
+grep -q 'claude-eco-test-1' "$HOME/dtlab/runs/run1/hermes_home/config.yaml" \
+  && grep -q 'anthropic' "$HOME/dtlab/runs/run1/hermes_home/config.yaml"
+check $? 0 "run-1 generated config pins the economy model + provider"
+check "$(find "$HOME/dtlab/runs/run1/hermes_home" -mindepth 1 \
+           -exec basename {} \; | sort | tr '\n' ' ')" \
+      "SOUL.md config.yaml " "fresh run home holds ONLY SOUL.md + config.yaml"
+H1=$(python3 -c "import hashlib,os;print(hashlib.sha256(open(os.path.expanduser('~/dtlab/runs/run1/hermes_home/SOUL.md'),'rb').read()).hexdigest())")
+check "$(cat "$HOME/dtlab/runs/run1/soul_sha256.txt")" "$H1" \
+      "per-run SOUL hash = hash of the file Hermes actually loads"
+[ -s "$HOME/dtlab/runs/run1/config_sha256.txt" ]
+check $? 0 "per-run config hash recorded"
+check "$(cat "$HOME/dtlab/runs/run1/model_id.txt")" "claude-eco-test-1" \
+      "run-1 model id recorded"
 
 echo "[4] crash-resume: answering N stays on run 1, archives nothing"
 printf 'log\n' > "$HOME/dtlab/workspace/decision_log.md"
@@ -124,6 +142,10 @@ check $? 0 "workspace log cleared for run 2"
 check $? 0 "persona files physically moved to the hold dir"
 grep -q 'MARK-ABLATED' "$HOME/dtlab/workspace/SOUL.md"
 check $? 0 "ablated SOUL in workspace"
+grep -q 'MARK-ABLATED' "$HOME/dtlab/runs/run2/hermes_home/SOUL.md"
+check $? 0 "run-2 hermes home carries the ABLATED SOUL"
+grep -q 'claude-eco-test-1' "$HOME/dtlab/runs/run2/hermes_home/config.yaml"
+check $? 0 "run-2 config still pins the economy model"
 
 echo "[6] run 3 needs the day-2 order and the Friday re-pause gate"
 finish_run
@@ -148,6 +170,10 @@ check "$rc" 0 "exit 0 with typed EARLY"
 check "$(cat "$HOME/dtlab/runs/run3/condition.txt")" "ablated" "run3 = ablated (day-2 NP_FIRST)"
 check "$(cat "$HOME/dtlab/runs/run3/tier.txt")" "frontier" "run3 = frontier tier"
 check "$(cat "$HOME/dtlab/tier.txt")" "frontier" "legacy tier.txt now frontier"
+grep -q 'claude-fro-test-1' "$HOME/dtlab/runs/run3/hermes_home/config.yaml"
+check $? 0 "run-3 config pins the frontier model"
+check "$(cat "$HOME/dtlab/runs/run3/model_id.txt")" "claude-fro-test-1" \
+      "run-3 model id recorded"
 [ -f "$HOME/dtlab/runs/run2/decision_log.md" ]
 check $? 0 "run-2 log archived before run 3"
 grep -q 'MARK-ABLATED' "$HOME/dtlab/workspace/SOUL.md"
@@ -163,6 +189,9 @@ check "$(cat "$HOME/dtlab/runs/run4/tier.txt")" "frontier" "run4 = frontier tier
 check $? 0 "persona files restored to the workspace"
 grep -q 'MARK-STANDARD' "$HOME/dtlab/workspace/SOUL.md"
 check $? 0 "standard SOUL for run 4"
+grep -q 'MARK-STANDARD' "$HOME/dtlab/runs/run4/hermes_home/SOUL.md" \
+  && grep -q 'claude-fro-test-1' "$HOME/dtlab/runs/run4/hermes_home/config.yaml"
+check $? 0 "run-4 hermes home: standard SOUL + frontier model"
 
 echo "[9] all four runs done: refusing resume points at the next steps"
 finish_run
@@ -187,6 +216,8 @@ check $? 0 "sandbox SOUL in workspace"
 check $? 0 "sandbox stamps its OWN marker (.sandbox_run_started)"
 [ ! -f "$HOME/dtlab/.run_started" ]
 check $? 0 "sandbox NEVER touches .run_started (real-run marker)"
+grep -q 'MARK-SANDBOX' "$HOME/dtlab/runs/sandbox_home/SOUL.md"
+check $? 0 "sandbox hermes home carries the sandbox SOUL"
 mkenv 0
 echo sandbox > "$HOME/dtlab/sandbox.txt"     # stale marker from earlier
 cp "$HOME/dtlab/soul/SOUL_sandbox.md" "$HOME/dtlab/workspace/SOUL.md"
@@ -425,6 +456,8 @@ rc=$(run '\n' DTLAB_SANDBOX=1)          # flagged-account fallback
 check "$rc" 0 "sandbox fallback exits 0"
 [ -f "$HOME/dtlab/runs/run2/sandbox.txt" ]
 check $? 0 "sandbox stamped on run2 only"
+grep -q 'MARK-SANDBOX' "$HOME/dtlab/runs/run2/hermes_home/SOUL.md"
+check $? 0 "substituted run gets a per-run home with the sandbox SOUL"
 [ ! -f "$HOME/dtlab/sandbox.txt" ]
 check $? 0 "no GLOBAL sandbox marker when real runs exist"
 [ -f "$HOME/dtlab/runs/run1/decision_log.md" ]
@@ -534,6 +567,46 @@ rc=$(run 'y\ny\ny\n\n')
 check "$rc" 0 "run 2 proceeds"
 ! grep -q "One-time acknowledgment" "$HOME/last_out.txt"
 check $? 0 "never asked again once recorded"
+
+echo "[23] C1.1: unpinned model IDs fail closed before any prompt or state"
+mkenv 1
+# restore the shipped fail-closed placeholders (mkenv pins test dummies);
+# run WITHOUT DTLAB_TEST so the gate is exercised as shipped
+sed "s/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/DTLAB_MODEL_ECONOMY='PIN-AT-DRYRUN'/" \
+    "$HOME/dtlab/dtlab_config.env" > "$HOME/dtlab/cfg.tmp" \
+  && mv "$HOME/dtlab/cfg.tmp" "$HOME/dtlab/dtlab_config.env"
+printf '' | bash "$START" > "$HOME/last_out.txt" 2>&1
+rc=$?
+check "$rc" 1 "PIN-AT-DRYRUN model id exits 1"
+grep -q "PIN-AT-DRYRUN" "$HOME/last_out.txt"
+check $? 0 "gate names the placeholder and the pin procedure"
+grep -q "DTLAB_ALLOW_UNPINNED" "$HOME/last_out.txt"
+check $? 0 "gate names the throwaway-test escape"
+[ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "no run state written on the pin gate"
+rc=$(run 'P_FIRST\ny\ny\n\n')      # DTLAB_TEST=1 substitutes dummy ids
+check "$rc" 0 "test mode proceeds on dummy model ids"
+check "$(cat "$HOME/dtlab/runs/run1/model_id.txt")" "test-model-economy" \
+      "dummy id recorded in test mode"
+
+echo "[24] C1.1: generated-config mismatch fails closed, leaves no run state"
+mkenv 1
+# tampered template: hardcoded model instead of the {{MODEL_ID}} slot
+printf 'model:\n  provider: "anthropic"\n  id: "some-other-model"\n' \
+  > "$HOME/dtlab/hermes_config.template.yaml"
+rc=$(run 'P_FIRST\ny\ny\n\n')
+check "$rc" 1 "config that does not name the assigned model exits 1"
+grep -q "does not" "$HOME/last_out.txt" \
+  && grep -q "tell a TA" "$HOME/last_out.txt"
+check $? 0 "student-legible mismatch message"
+[ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "no phantom run state after a config mismatch"
+rm -rf "$HOME/dtlab/runs"          # missing template also fails closed
+rm -f "$HOME/dtlab/hermes_config.template.yaml"
+rc=$(run 'y\ny\n\n')
+check "$rc" 1 "missing template exits 1"
+grep -q "re-run provisioning" "$HOME/last_out.txt"
+check $? 0 "missing template points at provisioning"
 
 guard
 rm -rf "$SANDBOX_HOME"

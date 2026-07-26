@@ -90,6 +90,10 @@ cp -v "$KIT/templates/comparison_ablation.md" \
       "$HOME/dtlab/comparison_ablation.TEMPLATE.md"
 cp -v "$KIT/dtlab_config.env"              "$HOME/dtlab/dtlab_config.env"
 cp -v "$KIT/tasks_config.csv"              "$HOME/dtlab/tasks_config.csv"
+# per-run Hermes config template: dtlab-start generates each run's
+# $HERMES_HOME/config.yaml from this (provider + pinned model per tier)
+cp -v "$KIT/provisioning/hermes_config.template.yaml" \
+      "$HOME/dtlab/hermes_config.template.yaml"
 # counterbalance sheet (pseudonyms only): placed at the repo root by the
 # instructor before the freeze (tools/make_counterbalance.py)
 if [ -f "$KIT/counterbalance.csv" ]; then
@@ -172,8 +176,11 @@ chmod +x "$HOME/.local/bin/dtlab-start" "$HOME/.local/bin/dtlab-record" \
          "$HOME/.local/bin/dtlab-cart" "$HOME/.local/bin/dtlab-verdict"
 
 echo "== [7/7] Done =="
-echo "Now configure Hermes ONCE interactively so setup screens are cached:"
-echo "  hermes setup    (choose Anthropic as provider; leave API key BLANK —"
-echo "                   students insert their own via dtlab-start)"
-echo "  enable browser automation in LOCAL browser mode (not cloud backends)"
+echo "Provider + model selection is PER-RUN: dtlab-start writes each run's"
+echo "\$HERMES_HOME (condition SOUL + config.yaml with the pinned model) —"
+echo "no interactive 'hermes setup' provider choice is needed. If the pinned"
+echo "Hermes release requires a global ~/.hermes/config.yaml to exist, create"
+echo "a minimal one at the dry run (TA_ONBOARDING.md > Instructor-only work"
+echo "items #1). Enable browser automation in LOCAL browser mode. Leave the"
+echo "API key BLANK everywhere — students insert their own via dtlab-start."
 echo "Then: clear shell history, remove any test keys, snapshot, export .ova."

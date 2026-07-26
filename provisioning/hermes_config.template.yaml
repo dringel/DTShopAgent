@@ -1,0 +1,28 @@
+# hermes_config.template.yaml — per-run Hermes model configuration.
+#
+# dtlab-start generates each run's $HERMES_HOME/config.yaml from this
+# file, filling {{PROVIDER}} and {{MODEL_ID}} with the pinned values for
+# the run's assigned tier (dtlab_config.env: DTLAB_PROVIDER,
+# DTLAB_MODEL_ECONOMY / DTLAB_MODEL_FRONTIER). The launcher then re-reads
+# the generated file and fails closed unless it names exactly the
+# assigned provider + model — the run never starts on a mismatch.
+#
+# SINGLE PATCH POINT (dry run): validate this schema against the PINNED
+# Hermes release (TA_ONBOARDING.md > Instructor-only work items #1) and
+# adjust the keys here if that release expects different ones. The
+# launcher substitutes the placeholders wherever they appear and does
+# not depend on the key names, so this file is the only thing to edit.
+#
+# The auxiliary model is pinned to the SAME id as the main model on
+# purpose: an auxiliary model from a different tier would contaminate
+# the tier manipulation.
+#
+# NEVER put an API key in this file. Hermes reads ANTHROPIC_API_KEY from
+# the environment (~/.dtlab_env); pack-time redaction treats any key in
+# a config as a leak.
+model:
+  provider: "{{PROVIDER}}"
+  id: "{{MODEL_ID}}"
+auxiliary:
+  provider: "{{PROVIDER}}"
+  id: "{{MODEL_ID}}"

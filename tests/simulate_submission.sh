@@ -195,6 +195,37 @@ open(os.path.expanduser("~/dtlab/workspace/comparison.md"), "w").write("\n".join
 PY
 }
 
+add_hermes_homes(){  # per-run HERMES_HOME layout on top of mkenv_4run
+python3 - <<'PY'
+import hashlib, os
+home = os.path.expanduser("~")
+for i in (1, 2, 3, 4):
+    d = f"{home}/dtlab/runs/run{i}"
+    hh = f"{d}/hermes_home"
+    os.makedirs(f"{hh}/sessions", exist_ok=True)
+    model = "claude-eco-test-1" if i <= 2 else "claude-fro-test-1"
+    cond = "persona" if i in (1, 4) else "ablated"
+    with open(f"{hh}/SOUL.md", "w") as f:
+        f.write(f"# {cond} soul variant\n")
+    with open(f"{hh}/config.yaml", "w") as f:
+        f.write(f'model:\n  provider: "anthropic"\n  id: "{model}"\n')
+    with open(f"{hh}/sessions/run{i}.jsonl", "w") as f:
+        f.write('{"run": %d}\n' % i)
+    for name, src in (("soul_sha256.txt", f"{hh}/SOUL.md"),
+                      ("config_sha256.txt", f"{hh}/config.yaml")):
+        h = hashlib.sha256(open(src, "rb").read()).hexdigest()
+        open(f"{d}/{name}", "w").write(h + "\n")
+    open(f"{d}/model_id.txt", "w").write(model + "\n")
+    # PROTOCOL token: the SOUL variant's canary opens the decision log
+    token = "persona-v3" if cond == "persona" else "ablated-v3"
+    logp = f"{d}/decision_log.md"
+    if not os.path.exists(logp):        # run-4 log still in the workspace
+        logp = f"{home}/dtlab/workspace/decision_log.md"
+    body = open(logp).read()
+    open(logp, "w").write(f"PROTOCOL | soul={token}\n" + body)
+PY
+}
+
 echo "[1] happy path (H_FIRST)"
 mkenv; python3 "$PACK" >/dev/null 2>&1; check $? 0 "valid pack exits 0"
 
@@ -407,6 +438,7 @@ assert ab['manipulation_check_cited_codes']=={'run2':[],'run3':[]}
 assert ab['cart_verified']=={'run1':True,'run2':False,'run3':None,'run4':None}
 assert set(m['contamination_index'])=={'persona_economy','ablated_economy','ablated_frontier','persona_frontier'}
 assert m['environment']['model_id_by_run']=={'run1':'claude-haiku-x','run2':'claude-haiku-x','run3':'claude-sonnet-y','run4':'claude-sonnet-y'}
+assert m['transcript_collection']=='legacy_pool'   # no per-run homes here
 assert 'run4/decision_log.md' in m['sha256'] and 'run3/agent_picks.csv' in m['sha256']
 assert 'screenshots/cart_run1.json' in m['sha256']
 sys.exit(0)
@@ -1108,7 +1140,43 @@ assert m['validation_issues']==[], m['validation_issues']
 sys.exit(0)
 PY
 
-echo "[23] legacy two-run pack still validates (backward compatibility)"
+echo "[40] C1.1: per-run transcript collection + PROTOCOL token validation"
+mkenv_4run; add_hermes_homes
+python3 "$PACK" >/dev/null 2>&1; check $? 0 "per-run home layout packs clean"
+python3 - <<'PY'; check $? 0 "per-run transcripts staged; model ids + hashes from run files; tokens recorded"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['transcript_collection']=='per_run'
+for i in (1,2,3,4):
+    assert f'DT2026-999/run{i}/hermes_logs/sessions__run{i}.jsonl' \
+        in z.namelist(), i
+    assert f'run{i}/soul_sha256.txt' in m['sha256'], i
+env=m['environment']
+assert env['model_id_by_run']=={'run1':'claude-eco-test-1','run2':'claude-eco-test-1','run3':'claude-fro-test-1','run4':'claude-fro-test-1'}
+assert set(env['context_sha256_by_run'])=={'run1','run2','run3','run4'}
+assert set(env['config_sha256_by_run'])=={'run1','run2','run3','run4'}
+assert m['protocol_tokens_by_run']=={'run1':'persona-v3','run2':'ablated-v3','run3':'ablated-v3','run4':'persona-v3'}
+assert m['validation_issues']==[], m['validation_issues']
+# the delivery files themselves are hashed, never packed as transcripts
+assert not any(n.endswith('hermes_logs/hermes_home__SOUL.md')
+               for n in z.namelist())
+sys.exit(0)
+PY
+mkenv_4run; add_hermes_homes           # wrong token: ablated run claims persona
+replace "$HOME/dtlab/runs/run2/decision_log.md" "soul=ablated-v3" "soul=persona-v3"
+OUT40="$(python3 "$PACK" 2>&1)"; RC40=$?
+check "$([ "$RC40" -ne 0 ]; echo $?)" 0 "mismatched PROTOCOL token blocks"
+echo "$OUT40" | grep -q "run2: decision log PROTOCOL token"
+check $? 0 "issue names the run and both tokens"
+mkenv_4run; add_hermes_homes           # token absent entirely
+replace "$HOME/dtlab/runs/run3/decision_log.md" "PROTOCOL | soul=ablated-v3" "no token here"
+python3 "$PACK" 2>&1 | grep -q "run3: decision log PROTOCOL token is MISSING"
+check $? 0 "absent PROTOCOL token blocks, naming the run"
+mkenv_4run; add_hermes_homes           # completed run with zero transcripts
+rm -f "$HOME/dtlab/runs/run1/hermes_home/sessions/run1.jsonl"
+python3 "$PACK" 2>&1 | grep -q "run1: completed run .* ZERO collected Hermes transcripts"
+check $? 0 "completed run without transcripts is a blocking issue"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
 python3 - <<'PY'; check $? 0 "legacy manifest keeps the 2run shape"
 import json,zipfile,os,sys

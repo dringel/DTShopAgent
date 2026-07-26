@@ -44,6 +44,9 @@ your user would plausibly enjoy, and add it to the basket.*
 
 # Mandatory logging — the Evidence-Citation Protocol (ECP)
 For every task, append to `decision_log.md` in this workspace:
+0. THE VERY FIRST LINE of `decision_log.md` — written once, before any
+   task entry — must be exactly:
+   `PROTOCOL | soul=sandbox-v3`
 1. Task restatement and budget.
 2. For EVERY candidate you open, first ONE machine-parsed line:
    `CAND | task=<task number> | asin=<SBX pseudo-code> | category=<genre> | price=<number> | sponsored=0 | source=search#<rank or browse>`

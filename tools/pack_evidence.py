@@ -121,6 +121,13 @@ def derived_task_order(student_id, task_ids):
     return sorted(task_ids, key=lambda t: hashlib.sha256(
         f"{student_id}|{t}".encode()).hexdigest())
 
+# PROTOCOL canary token (per-run HERMES_HOME layout): every SOUL variant
+# instructs the agent to open decision_log.md with
+# "PROTOCOL | soul=<token>" — the per-variant token proves the agent
+# loaded the intended instructions, machine-checked per run.
+PROTO_RE = re.compile(r"(?m)^\s*PROTOCOL\s*\|\s*soul=([\w.-]+)")
+SOUL_TOKENS = {"persona": "persona-v3", "ablated": "ablated-v3"}
+
 # machine-parsed candidate lines the ECP requires in decision_log.md:
 # CAND | task=<n> | asin=<...> | category=<...> | price=<...> | ...
 CAND_RE = re.compile(r"(?m)^\s*CAND\s*\|(.+)$")
@@ -324,6 +331,49 @@ def collect_hermes_logs(staging):
     return n
 
 
+def collect_home_logs(home, out):
+    """Per-run transcript collection (per-run HERMES_HOME layout): the
+    run's home contains only what THIS run wrote, so no mtime window is
+    needed. Same newest-first size cap + destination-name dedupe as the
+    legacy pool, but the cap applies PER RUN."""
+    out.mkdir(parents=True, exist_ok=True)
+    files = []
+    for f in home.rglob("*"):
+        if not f.is_file():
+            continue
+        if f.suffix.lower() not in {".jsonl", ".json", ".log", ".md",
+                                    ".txt"}:
+            continue
+        if f.name in ("SOUL.md", "AGENTS.md"):
+            continue           # delivery files — hashed separately
+        if any(s in f.name.lower() for s in
+               ("key", "secret", "credential", "auth", "env", "config")):
+            continue
+        files.append(f)
+    files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    n, total, dropped, seen = 0, 0, 0, set()
+    for f in files:
+        size = f.stat().st_size
+        if total + size > MAX_LOG_MB * (1 << 20):
+            dropped += 1
+            continue
+        total += size
+        dest = f"{f.parent.name}__{f.name}"
+        k = 2
+        while dest in seen:
+            p = Path(f"{f.parent.name}__{f.name}")
+            dest = f"{p.stem}__{k}{p.suffix}"
+            k += 1
+        seen.add(dest)
+        shutil.copy2(f, out / dest)
+        n += 1
+    if dropped:
+        warn(f"{home.parent.name} transcripts exceed the {MAX_LOG_MB} MB "
+             f"per-run cap — kept the {n} newest file(s), dropped "
+             f"{dropped} older one(s)")
+    return n
+
+
 def redact_staging(staging):
     """Redact API keys, email addresses, and Indian mobile numbers out of
     every staged text file (written back in place, counts kept for the
@@ -374,19 +424,36 @@ def env_metadata(runs_present=()):
                                 if (r.stdout or r.stderr).strip() else None)
     except Exception:
         md["hermes_version"] = None
-    # TODO(dry-run): confirm how to read the model ID Hermes actually used;
-    # until then the course exports DTLAB_MODEL_ID_DAY1/DAY2 (per lab day)
-    # or DTLAB_MODEL_ID for the manifest.
+    # per-run model_id.txt (written by dtlab-start at launch, from the
+    # pinned tier model that also went into the run's config.yaml) is
+    # the model record; the DTLAB_MODEL_ID* env plumbing remains as the
+    # fallback for packs from before the per-run HERMES_HOME layout.
     md["model_id"] = os.environ.get("DTLAB_MODEL_ID")
     if runs_present:
-        md["model_id_by_run"] = {
-            rn: os.environ.get(f"DTLAB_MODEL_ID_DAY{run_day(rn)}")
-            or md["model_id"] for rn in runs_present}
+        by_run = {}
+        for rn in runs_present:
+            mid = RUNS / rn / "model_id.txt"
+            if mid.exists():
+                by_run[rn] = mid.read_text(encoding="utf-8").strip()
+            else:
+                by_run[rn] = os.environ.get(
+                    f"DTLAB_MODEL_ID_DAY{run_day(rn)}") or md["model_id"]
+        md["model_id_by_run"] = by_run
+        # hashes of the SOUL + config the run's Hermes ACTUALLY loaded
+        # (the per-run HERMES_HOME files, not the workspace copy)
+        md["context_sha256_by_run"] = {
+            rn: (RUNS / rn / "soul_sha256.txt")
+            .read_text(encoding="utf-8").strip()
+            for rn in runs_present
+            if (RUNS / rn / "soul_sha256.txt").exists()}
+        md["config_sha256_by_run"] = {
+            rn: (RUNS / rn / "config_sha256.txt")
+            .read_text(encoding="utf-8").strip()
+            for rn in runs_present
+            if (RUNS / rn / "config_sha256.txt").exists()}
     kv = HOME / "dtlab" / "kit_version.txt"
     md["kit_version"] = kv.read_text().strip() if kv.exists() else None
     md["devcontainer_image"] = os.environ.get("DTLAB_IMAGE_TAG")
-    soul = WS / "SOUL.md"
-    md["soul_sha256"] = sha256(soul) if soul.exists() else None
     tasks_p = WS / "tasks.md"
     if tasks_p.exists():
         ttext = tasks_p.read_text(encoding="utf-8")
@@ -529,6 +596,11 @@ def main():
     expected_runs = tuple(
         rn for rn in (RUN_NAMES if four_run else ("run1", "run2"))
         if rn not in sandbox_runs)
+    # per-run HERMES_HOME layout marker: any run carrying its own home
+    # was launched with the per-run treatment delivery; packs without it
+    # predate the layout and use the legacy global transcript pool
+    per_run_layout = any((RUNS / rn / "hermes_home").is_dir()
+                         for rn in runs_present)
 
     # ---- #1, #2, #3, #4(decision log), #5(picks), #7: copy from WS ----
     # dtlab-verdict artifacts live in ~/dtlab/verdicts/ (quarantined from
@@ -613,7 +685,8 @@ def main():
             sdir.mkdir(exist_ok=True)
             for f in ("decision_log.md", "agent_picks.csv",
                       "condition.txt", "tier.txt", "started_at.txt",
-                      "ist_date.txt"):
+                      "ist_date.txt", "soul_sha256.txt",
+                      "config_sha256.txt", "model_id.txt"):
                 if (rdir / f).exists():
                     shutil.copy2(rdir / f, sdir / f)
                 elif f in ("decision_log.md", "agent_picks.csv"):
@@ -980,10 +1053,53 @@ def main():
                  f"codes {cited[:5]} — the ablation condition was "
                  "violated; tell a TA (do not edit the log)")
 
+    # ---- PROTOCOL canary tokens (per-run home layout): validate that
+    #      each run's decision log opens with the token of the SOUL the
+    #      run was supposed to load ----
+    protocol_tokens = {}
+    if ablation and per_run_layout:
+        for rn, cond in sorted(conds.items()):
+            logp = staging / rn / "decision_log.md"
+            if not logp.exists():
+                continue      # missing log is already a blocking issue
+            m = PROTO_RE.search(logp.read_text(encoding="utf-8",
+                                               errors="replace"))
+            tok = m.group(1) if m else None
+            protocol_tokens[rn] = tok
+            expected_tok = SOUL_TOKENS.get(cond)
+            need(tok == expected_tok,
+                 f"{rn}: decision log PROTOCOL token is "
+                 f"{tok or 'MISSING'}, but the run's condition ({cond}) "
+                 f"requires {expected_tok} — the agent did not load the "
+                 "intended instructions; tell a TA (do not edit the log)")
+
     # ---- #4: hermes session logs; #5: cart evidence; recording note ----
-    n_logs = collect_hermes_logs(staging)
-    need(n_logs > 0, "no Hermes session logs found since run start "
-                     "(did dtlab-start create the run marker?)")
+    single_home = RUNS / "single" / "hermes_home"
+    if per_run_layout:
+        transcript_collection = "per_run"
+        n_logs = 0
+        for rn in expected_runs:
+            if rn not in conds:
+                continue
+            n = collect_home_logs(RUNS / rn / "hermes_home",
+                                  staging / rn / "hermes_logs")
+            n_logs += n
+            completed = (RUNS / rn / "started_at.txt").exists() \
+                and (staging / rn / "agent_picks.csv").exists()
+            need(not (completed and n == 0),
+                 f"{rn}: completed run (started + picks on file) with "
+                 "ZERO collected Hermes transcripts — the session record "
+                 "is missing from the run's hermes_home; tell a TA")
+    elif not ablation and single_home.is_dir():
+        transcript_collection = "per_run"
+        n_logs = collect_home_logs(single_home, staging / "hermes_logs")
+        need(n_logs > 0, "no Hermes session logs found in the run's "
+                         "hermes_home (did the agent session start?)")
+    else:
+        transcript_collection = "legacy_pool"
+        n_logs = collect_hermes_logs(staging)
+        need(n_logs > 0, "no Hermes session logs found since run start "
+                         "(did dtlab-start create the run marker?)")
 
     # ---- checkout-attempt scan (B22): decision logs + collected
     #      transcripts. Query strings are stripped (they may embed
@@ -1014,9 +1130,12 @@ def main():
             scan_checkout(f"{rn}/decision_log.md", logp)
     if (staging / "decision_log.md").exists():
         scan_checkout("decision_log.md", staging / "decision_log.md")
-    for f in sorted((staging / "hermes_logs").glob("*")):
-        if f.is_file():
-            scan_checkout(f"hermes_logs/{f.name}", f)
+    log_dirs = [staging / "hermes_logs"] + \
+        [staging / rn / "hermes_logs" for rn in sorted(conds)]
+    for d in log_dirs:
+        for f in sorted(d.glob("*")) if d.is_dir() else ():
+            if f.is_file():
+                scan_checkout(str(f.relative_to(staging)), f)
     screenshots = sorted(list(EV.glob("*.png")) + list(EV.glob("*.jpg")))
     cart_verified = {}
     if four_run:
@@ -1414,6 +1533,8 @@ def main():
         },
         "arm": arm,
         "model_tier": tier,
+        "transcript_collection": transcript_collection,
+        "protocol_tokens_by_run": protocol_tokens,
         "task_order": task_order,
         "task_order_expected": expected_order,
         "ablation": ablation_meta,
