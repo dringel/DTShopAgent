@@ -208,7 +208,7 @@ anything else.
    the real **115 items** (15 demographics, 57 validated-scale items from 12
    published scales, 22 amazon.in behavior, 12 values/constraints with
    VC01–VC05 flagged `constraint=1`, 9 predictive), generated from the
-   authoritative `questionnaire_instrument_source.md`. Any instrument change
+   authoritative `questionnaire/questionnaire_instrument_source.md`. Any instrument change
    goes into the source doc first, then the CSV (the two must never
    diverge). Import the CSV into a Google Sheet (tab "items"), paste
    `build_form.gs` into Apps Script, run `buildForm()`. Link responses to a
@@ -486,7 +486,7 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
 6. **Instrument lockstep** — the real 115 items are in place (the EX0x
    hard-fail guards in the Form builder and persona generator now pass, and
    remain as protection against accidental reversion). The CSV is generated
-   from `questionnaire_instrument_source.md`; any edit that touches only one
+   from `questionnaire/questionnaire_instrument_source.md`; any edit that touches only one
    of the two creates silent drift — always change the source doc first,
    re-transfer, and keep `EXPECTED_ITEMS=115` in sync.
 

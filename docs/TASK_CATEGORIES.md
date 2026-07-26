@@ -27,11 +27,18 @@ under `SOUL.md`'s targeted rules (browsing-history-derived modules
 banned, candidates provenance-logged), and students shop
 naturalistically.
 
-**Classification is measured, not just cited.** The cohort's own HED/UT
-scores for the chosen categories are collected with the Voss, Spangenberg
-& Grohmann (2003) 10-item semantic differential (TA work item in
-`TA_ONBOARDING.md`) and reported alongside the category-class analysis —
-the same enforce-or-measure principle that governs the rest of the kit.
+**Classification: literature-based labels, cohort-validated by poll.**
+The category-class labels below rest on the published
+utilitarian/hedonic literature. The cohort's own HED/UT scores for the
+five active categories are collected in a 2-minute in-class poll
+(Session 10 opener) using the Voss, Spangenberg
+& Grohmann (2003) 10-item semantic differential — instrument and
+procedure in `questionnaire/HEDUT_POLL.md`, ingested by
+`tools/analyze_cohort.py --hedut` — and, once collected, those measured
+scores are the classification of record for the category-class
+analysis, which is reported as exploratory task-category heterogeneity
+either way (the two classes contain different categories, so a class
+contrast also reflects the particular categories chosen).
 
 **Evidence base in brief.** Population evidence combines the student
 literature — Jadhav & Khanna (2016), Mumbai college students, whose

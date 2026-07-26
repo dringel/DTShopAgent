@@ -111,7 +111,7 @@ def load_task_ids():
     """Task ids from ~/dtlab/tasks_config.csv (single source for the task
     structure); a generic three-task fallback when the file is absent. Rows whose
     task_id starts with '#' are inactive catalog entries (activate by
-    removing the '#'; see docs/TASK_CATEGORIES_10.md)."""
+    removing the '#'; see docs/TASK_CATEGORIES.md)."""
     p = HOME / "dtlab" / "tasks_config.csv"
     ids = []
     if p.exists():

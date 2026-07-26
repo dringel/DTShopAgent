@@ -118,7 +118,9 @@ def main():
         w.writeheader()
         w.writerows(rows_out)
 
-    Path(Path(args.out).stem + "_provenance.json").write_text(json.dumps({
+    outp = Path(args.out)
+    # sidecar lands NEXT TO the output, never in the CWD
+    (outp.parent / (outp.stem + "_provenance.json")).write_text(json.dumps({
         "schema_version": SCHEMA_VERSION,
         "tool": "clean_privacy_export 1.0 (2026-07)",
         "student_id": args.student_id,

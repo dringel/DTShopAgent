@@ -42,6 +42,9 @@ jobs:
       - name: python compile check
         run: python -m compileall -q tools questionnaire tests data-pipeline
 
+      - name: doc-checker (links, stale terms, instrument-source refs)
+        run: python tests/check_docs.py
+
       - name: instrument lockstep test (N1/N3)
         run: python tests/test_instrument_lockstep.py
 

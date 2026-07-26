@@ -119,8 +119,10 @@ def base_files(sid, i, human, hp):
                 for j, a in enumerate(human + [ASINS[i + 5]])) + "\n"}
 
 
-def make_zip(path, sid, i, mode, sandbox=False):
-    """mode: '4run' | '2run' | 'single' (manifest generations)."""
+def make_zip(path, sid, i, mode, sandbox=False, checkout_fixture=False):
+    """mode: '4run' | '2run' | 'single' (manifest generations).
+    checkout_fixture plants one guard-blocked checkout attempt — only
+    the mixed TEST cohort uses it; clean/sample packs carry none."""
     # the order-arm factor is retired (all 2x2 packs are human-first);
     # legacy packs keep their historical arm values for backward compat
     arm = "H_FIRST" if (mode == "4run" or i % 2) else "A_FIRST"
@@ -144,6 +146,9 @@ def make_zip(path, sid, i, mode, sandbox=False):
     man = {"student_id": sid, "arm": arm, "sandbox": sandbox,
            "packed_at_utc": f"2026-09-28T10:{i % 60:02d}:00+00:00",
            "sensitive_items_excluded": i % 5 == 2,
+           # top-level tier is the legacy-compat field; for 2x2 packs it
+           # mirrors the LAST run's tier (what dtlab-start leaves in
+           # ~/dtlab/tier.txt), set from the per-run cells below
            "model_tier": "economy" if (mode != "4run" and i % 4 == 0)
            else "frontier",
            "human_process": {"searches": 5 + i, "product_views": 8 + i},
@@ -162,6 +167,7 @@ def make_zip(path, sid, i, mode, sandbox=False):
                  ("ablated", t1): ("run2", ae, [1, 0, 0, 0, 1]),
                  ("ablated", t2): ("run3", af, [0, 0, 0, 0, 0]),
                  ("persona", t2): ("run4", pf, [0, 1, 0, 1, 0])}
+        man["model_tier"] = t2          # run4's tier (9.17)
         man["verdicts"], man["contamination_index"] = {}, {}
         man["candidates"] = {}
         hth = {"grounding_economy": {}, "grounding_frontier": {},
@@ -215,7 +221,7 @@ def make_zip(path, sid, i, mode, sandbox=False):
             "runs": {rn: {"duration_min":
                           (15.0 if tier == "economy" else 23.0) + i}
                      for (cond, tier), (rn, _, _) in cells.items()}}
-        if i == 1:
+        if checkout_fixture:
             # one student's agent tried a checkout (guard blocked it) —
             # the cohort report must surface the count
             man["checkout_attempts"] = {
@@ -312,7 +318,8 @@ def fabricate_cohort(td, mixed=True):
         return n
     for i in range(6):                       # plan-of-record 2x2 packs
         sid = f"DT2026-{100 + i:03d}"
-        make_zip(td / f"{sid}_evidence.zip", sid, i, "4run")
+        make_zip(td / f"{sid}_evidence.zip", sid, i, "4run",
+                 checkout_fixture=(i == 1))
         n += 1
     for i in (6, 7):                         # legacy 2-run packs
         sid = f"DT2026-{100 + i:03d}"

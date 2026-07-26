@@ -2,7 +2,8 @@
 # State-machine test for provisioning/student_start.sh: drives the
 # interactive pre-flight with scripted answers inside a throwaway sandbox
 # HOME and asserts the resulting workspace/hold/runs state after each
-# transition (W2; four-run 2x2 per docs/WORK_ORDER_4RUN.md). DTLAB_TEST=1
+# transition (W2; four-run 2x2 per docs/archive/WORK_ORDER_4RUN.md,
+# archived). DTLAB_TEST=1
 # stops the script right before it would launch the browser/Hermes.
 #
 # Run from repo root:  bash tests/test_start_flow.sh

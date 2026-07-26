@@ -11,10 +11,11 @@ USAGE (from repo root)
 
 Writes: templates/tasks.md, templates/comparison.md,
 templates/comparison_ablation.md. Run it AFTER editing the config, commit
-the result, and re-run the test harness. The shipped 3-task templates ARE
-this generator's output for tasks_config.csv — the harness round-trip
-check keeps them byte-identical; the packer validates submissions against
-the config either way.
+the result, and re-run the test harness. The shipped templates for the
+active 5-task self-purchase set ARE this generator's output for
+tasks_config.csv — the harness round-trip check keeps them identical to
+the generator; the packer validates submissions against the config
+either way.
 """
 
 import argparse
@@ -28,7 +29,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 def load(path):
     """Active rows only: task_ids starting with '#' are inactive catalog
-    entries (see docs/TASK_CATEGORIES_10.md for the activation workflow)."""
+    entries (see docs/TASK_CATEGORIES.md for the activation workflow)."""
     with open(path, newline="", encoding="utf-8-sig") as f:
         rows = [r for r in csv.DictReader(f)
                 if r.get("task_id", "").strip()
