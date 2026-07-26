@@ -414,6 +414,21 @@ if [ -f "$HOME/dtlab/sandbox.txt" ]; then
   note "stale sandbox marker removed (previous run was a sandbox run)"
 fi
 
+# Kit-commit check (audit 8.1): a frozen course pins the exact commit;
+# a codespace restored from a stale prebuild must surface NOW, not as
+# subtle mid-week drift.
+if [ -n "${DTLAB_EXPECTED_COMMIT:-}" ]; then
+  KITC=$(sed -n 's/^commit=\([0-9a-f]*\).*/\1/p' \
+    "$HOME/dtlab/kit_version.txt" 2>/dev/null | head -1)
+  if [ "$KITC" = "$DTLAB_EXPECTED_COMMIT" ]; then
+    ok "kit commit matches the course freeze ($KITC)"
+  else
+    bad "this environment was built from commit '${KITC:-unknown}' but the course freeze expects '$DTLAB_EXPECTED_COMMIT' — stale prebuild; rebuild the container (tell a TA)"
+  fi
+else
+  note "kit-commit check skipped (DTLAB_EXPECTED_COMMIT not set — pre-freeze build)"
+fi
+
 # 2. Required workspace files
 if [ -f "$WS/SOUL.md" ]; then ok "SOUL.md (agent identity) present"
 else bad "SOUL.md missing from $WS"; fi

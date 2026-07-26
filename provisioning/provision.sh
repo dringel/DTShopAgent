@@ -57,6 +57,13 @@ sudo apt-get install -y git curl python3 python3-pip python3-venv \
     ffmpeg jq unzip
 
 echo "== [2/7] uv + Playwright (for the capture scripts) =="
+if [ -z "$PLAYWRIGHT_PIN" ] && [ "${DTLAB_ALLOW_UNPINNED:-0}" != "1" ]; then
+  echo "ERROR: PLAYWRIGHT_PIN is empty — a build must never silently"
+  echo "install the latest playwright. Pin the exact version (e.g."
+  echo "PLAYWRIGHT_PIN='==1.55.0'; TA_ONBOARDING.md), or export"
+  echo "DTLAB_ALLOW_UNPINNED=1 for a throwaway test build."
+  exit 1
+fi
 fetch_verified "$UV_INSTALLER_URL" "$UV_INSTALLER_SHA256" /tmp/uv-install.sh
 sh /tmp/uv-install.sh && rm -f /tmp/uv-install.sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -100,6 +107,13 @@ cp -v "$KIT/provisioning/hermes_config.template.yaml" \
 # instructor before the freeze (tools/make_counterbalance.py)
 if [ -f "$KIT/counterbalance.csv" ]; then
   cp -v "$KIT/counterbalance.csv"          "$HOME/dtlab/counterbalance.csv"
+elif [ "${DTLAB_ALLOW_NO_COUNTERBALANCE:-0}" = "1" ]; then
+  echo "WARNING: counterbalance.csv absent (pre-freeze build)."
+else
+  echo "ERROR: counterbalance.csv missing at the repo root. Generate it"
+  echo "from the final roster (tools/make_counterbalance.py) before the"
+  echo "freeze, or export DTLAB_ALLOW_NO_COUNTERBALANCE=1."
+  exit 1
 fi
 mkdir -p "$HOME/dtlab/assets"
 cp -v "$KIT/assets/ringelai.png"           "$HOME/dtlab/assets/" 2>/dev/null || true

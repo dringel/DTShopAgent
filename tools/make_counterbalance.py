@@ -32,10 +32,63 @@ USAGE
 
 import argparse
 import csv
+import hashlib
 import random
 import sys
 from collections import Counter
 from pathlib import Path
+
+
+def validate(roster_path, cb_path):
+    """Freeze gate (audit 8.2): full roster coverage, per-section
+    balance of grounding AND tier orders, and the sheet's sha256 for
+    the freeze record. Exit non-zero on any problem."""
+    with open(roster_path, newline="", encoding="utf-8-sig") as f:
+        roster = [r for r in csv.DictReader(f)
+                  if (r.get("student_id") or "").strip()]
+    with open(cb_path, newline="", encoding="utf-8-sig") as f:
+        cb = [r for r in csv.DictReader(f)
+              if (r.get("student_id") or "").strip()]
+    r_ids = {r["student_id"].strip() for r in roster}
+    c_ids = {r["student_id"].strip() for r in cb}
+    problems = []
+    if r_ids - c_ids:
+        problems.append("roster students missing from the sheet: "
+                        f"{sorted(r_ids - c_ids)[:8]}")
+    if c_ids - r_ids:
+        problems.append("sheet students not on the roster: "
+                        f"{sorted(c_ids - r_ids)[:8]}")
+    by_section = {}
+    for r in cb:
+        by_section.setdefault(
+            (r.get("section") or "").strip() or "ALL", []).append(r)
+    checks = (("day1_order", "P_FIRST", "NP_FIRST"),
+              ("day2_order", "P_FIRST", "NP_FIRST"),
+              ("tier_day1", "economy", "frontier"))
+    for section, members in sorted(by_section.items()):
+        for col, va, vb in checks:
+            c = Counter((m.get(col) or "").strip() for m in members)
+            if c[va] + c[vb] != len(members):
+                problems.append(f"section {section}: {col} has "
+                                f"non-{va}/{vb} values")
+            elif abs(c[va] - c[vb]) > 1:
+                problems.append(f"section {section}: {col} unbalanced "
+                                f"({va} {c[va]} vs {vb} {c[vb]})")
+    for r in cb:
+        if {(r.get("tier_day1") or "").strip(),
+                (r.get("tier_day2") or "").strip()} != {"economy",
+                                                        "frontier"}:
+            problems.append(f"{r['student_id']}: tier_day1/tier_day2 "
+                            "are not complementary")
+            break
+    sha = hashlib.sha256(Path(cb_path).read_bytes()).hexdigest()
+    print(f"counterbalance.csv sha256: {sha}  (record at freeze)")
+    if problems:
+        for pr in problems:
+            print(f"INVALID: {pr}")
+        sys.exit(1)
+    print(f"VALID: {len(cb)} students, full roster coverage, grounding "
+          "and tier orders balanced within every section.")
 
 
 def assign_day(sids, seed, day):
@@ -62,11 +115,21 @@ def assign_tier_order(sids, seed):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--roster", required=True,
+    ap.add_argument("--roster",
                     help="CSV with student_id, section (optional pair_id)")
     ap.add_argument("--out", default="counterbalance.csv")
     ap.add_argument("--seed", type=int, default=2026)
+    ap.add_argument("--validate", nargs=2,
+                    metavar=("roster.csv", "counterbalance.csv"),
+                    help="freeze gate: assert full roster coverage and "
+                         "per-section balance of grounding + tier "
+                         "orders; prints the sheet's sha256 for the "
+                         "freeze record")
     args = ap.parse_args()
+    if args.validate:
+        return validate(*args.validate)
+    if not args.roster:
+        ap.error("--roster is required (or use --validate)")
 
     with open(args.roster, newline="", encoding="utf-8-sig") as f:
         roster = [r for r in csv.DictReader(f)

@@ -423,6 +423,19 @@ check $? 0 "balanced P/NP within each section per day; pair carried; tier order 
 python3 "$REPO/tools/make_counterbalance.py" --roster "$HOME/roster.csv" \
   --out "$HOME/cb3.csv" --seed 7 | grep -q "2x2 crosstab"
 check $? 0 "tier-order x grounding crosstab printed (orthogonality auditable)"
+python3 "$REPO/tools/make_counterbalance.py" \
+  --validate "$HOME/roster.csv" "$HOME/cb1.csv" > "$HOME/val_out.txt" 2>&1
+check $? 0 "--validate passes a well-formed sheet"
+grep -q "sha256:" "$HOME/val_out.txt"
+check $? 0 "--validate prints the sheet hash for the freeze record"
+grep -v "DT2026-005" "$HOME/cb1.csv" > "$HOME/cb_broken.csv"
+RCV=0
+python3 "$REPO/tools/make_counterbalance.py" \
+  --validate "$HOME/roster.csv" "$HOME/cb_broken.csv" \
+  > "$HOME/val_out.txt" 2>&1 || RCV=$?
+check "$([ "$RCV" -ne 0 ]; echo $?)" 0 "--validate fails on missing coverage"
+grep -q "missing from the sheet" "$HOME/val_out.txt"
+check $? 0 "--validate names the uncovered students"
 mkenv 1
 cp "$HOME/cb1.csv" "$HOME/dtlab/counterbalance.csv"
 printf 'student_id,item_code\nDT2026-999,D01\n' \
@@ -852,6 +865,44 @@ rc=$(run 'y\ny\n\n')
 check "$rc" 0 "second start does not re-ask (one-time gate)"
 ! grep -q "spend limit" "$HOME/last_out.txt"
 check $? 0 "no spend-limit prompt once recorded"
+
+echo "[30] C2.15: reproducibility pins + kit-commit freeze check"
+grep -q 'devcontainers/python@sha256:' "$REPO/.devcontainer/devcontainer.json"
+check $? 0 "devcontainer base image pinned by digest"
+grep -q 'desktop-lite:1\.' "$REPO/.devcontainer/devcontainer.json"
+check $? 0 "desktop-lite feature version pinned explicitly"
+grep -q 'actions/checkout@[0-9a-f]\{40\}' "$REPO/.github/workflows/ci.yml" \
+  && grep -q 'actions/setup-python@[0-9a-f]\{40\}' "$REPO/.github/workflows/ci.yml"
+check $? 0 "GitHub actions pinned by commit SHA"
+grep -q 'PLAYWRIGHT_PIN is empty' "$REPO/.devcontainer/setup.sh" \
+  && grep -q 'PLAYWRIGHT_PIN is empty' "$REPO/provisioning/provision.sh"
+check $? 0 "empty PLAYWRIGHT_PIN fails both builds (unpinned-gate style)"
+grep -q 'counterbalance.csv missing at the repo root' \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -q 'counterbalance.csv missing at the repo root' \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "missing counterbalance sheet fails both builds"
+mkenv 1
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
+check "$rc" 0 "blank DTLAB_EXPECTED_COMMIT: check skipped, run proceeds"
+grep -q "kit-commit check skipped" "$HOME/last_out.txt"
+check $? 0 "skip is announced, never silent"
+mkenv 1
+sed "s/DTLAB_EXPECTED_COMMIT=''/DTLAB_EXPECTED_COMMIT='abc1234'/" \
+    "$HOME/dtlab/dtlab_config.env" > "$HOME/dtlab/cfg.tmp" \
+  && mv "$HOME/dtlab/cfg.tmp" "$HOME/dtlab/dtlab_config.env"
+printf 'commit=fff9999 built=2026-09-01 route=codespaces\n' \
+  > "$HOME/dtlab/kit_version.txt"
+rc=$(run 'P_FIRST\neconomy\ny\ny\n\n')
+check "$rc" 1 "stale prebuild (commit mismatch) refuses to run"
+grep -q "stale prebuild" "$HOME/last_out.txt"
+check $? 0 "mismatch names the stale prebuild and the fix"
+printf 'commit=abc1234 built=2026-09-01 route=codespaces\n' \
+  > "$HOME/dtlab/kit_version.txt"
+rc=$(run 'y\ny\n\n')     # order/tier already stored by the refused run
+check "$rc" 0 "matching commit proceeds"
+grep -q "kit commit matches" "$HOME/last_out.txt"
+check $? 0 "match is confirmed"
 
 guard
 rm -rf "$SANDBOX_HOME"

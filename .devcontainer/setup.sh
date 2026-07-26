@@ -107,6 +107,18 @@ cp -v "$KIT/provisioning/hermes_config.template.yaml" \
 # pre-flight looks each student's day order up here
 if [ -f "$KIT/counterbalance.csv" ]; then
   cp -v "$KIT/counterbalance.csv"          "$HOME/dtlab/counterbalance.csv"
+elif [ "${DTLAB_ALLOW_NO_COUNTERBALANCE:-0}" = "1" ] \
+     || [ "${DTLAB_TEST:-0}" = "1" ]; then
+  echo "WARNING: counterbalance.csv absent (pre-freeze/test build) —"
+  echo "the pre-flight cannot look up assignments until it exists."
+else
+  # counterbalance gate (audit 8.2): a frozen build without the sheet
+  # would make every student type their own assignment — fail the build
+  echo "ERROR: counterbalance.csv missing at the repo root. Generate it"
+  echo "from the final roster (tools/make_counterbalance.py) and commit"
+  echo "it before the freeze, or export DTLAB_ALLOW_NO_COUNTERBALANCE=1"
+  echo "for a pre-freeze build."
+  exit 1
 fi
 mkdir -p "$HOME/dtlab/assets"
 cp -v "$KIT/assets/ringelai.png"           "$HOME/dtlab/assets/" 2>/dev/null || true
@@ -187,6 +199,14 @@ if [ "$PHASE" = "onCreate" ]; then
     echo "== [3/5] DTLAB_TEST=1 — skipping network install steps (test build) =="
   else
     echo "== [3/5] Packages (network) =="
+    if [ -z "$PLAYWRIGHT_PIN" ] && [ "${DTLAB_ALLOW_UNPINNED:-0}" != "1" ]; then
+      echo "ERROR: PLAYWRIGHT_PIN is empty — a build must never silently"
+      echo "install the latest playwright. Pin the exact version (e.g."
+      echo "PLAYWRIGHT_PIN='==1.55.0'; TA_ONBOARDING.md > Updating"
+      echo "installer pins), or export DTLAB_ALLOW_UNPINNED=1 for a"
+      echo "throwaway test build."
+      exit 1
+    fi
     sudo apt-get update
     sudo apt-get install -y chromium ffmpeg jq unzip
     pip install --user "playwright$PLAYWRIGHT_PIN"
@@ -212,7 +232,7 @@ echo "== [3/5] Kit version stamp (per-codespace reproducibility metadata) =="
 printf 'commit=%s built=%s route=codespaces image=%s\n' \
   "$(git -C "$KIT" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
   "$(date -u +%Y-%m-%dT%H:%MZ)" \
-  "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm" \
+  "mcr.microsoft.com/devcontainers/python@sha256:7876580d (tag 1-3.12-bookworm at pin time)" \
   > "$HOME/dtlab/kit_version.txt"
 
 echo "== [4/5] Desktop password (per-codespace, replaces the shipped default) =="
