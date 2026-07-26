@@ -510,9 +510,72 @@ def test_quarantine_and_export():
           "runs/hth exports round-trip (H1 recomputed from the export)")
 
 
+def test_null_signflip():
+    """C2.9 Type-I guard: fabricated NULL cohorts (no true effect, but
+    within-student correlation via a per-student leniency) must reject
+    H1 at roughly alpha — the analyzer's sign-flip p is calibrated."""
+    import numpy as np
+    ac = _load_module("tools/analyze_cohort.py")
+    rng = np.random.default_rng(7)
+    reps, rejects = 200, 0
+    for rep in range(reps):
+        n_students = 24
+        q = rng.beta(2, 2, size=n_students)   # per-student leniency
+        darr = np.array([
+            rng.binomial(1, q[i], size=10).mean()
+            - rng.binomial(1, q[i], size=10).mean()
+            for i in range(n_students)])
+        if ac.signflip_p(darr, n_flips=1000, seed=rep) < 0.05:
+            rejects += 1
+    rate = rejects / reps
+    assert 0.01 <= rate <= 0.10, \
+        f"null rejection rate {rate} outside [0.01, 0.10]"
+    print(f"PASS: null-cohort sign-flip rejection rate {rate:.3f} "
+          f"({reps} replications, alpha=.05) — Type-I guard holds")
+
+
+def test_hedut():
+    """C2.11: the Session-10 HED/UT poll becomes the classification of
+    record when supplied; absence stays graceful (covered by the main
+    cohort test's literature-label marker)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        fabricate_cohort(td, mixed=False)
+        hed = td / "hedut_responses.csv"
+        lines = ["student_id,task_id," + ",".join(
+            f"HU{i:02d}" for i in range(1, 11))]
+        for i in range(10):
+            sid = f"DT2026-{100 + i:03d}"
+            for t in T5:
+                hvals = [str(3 + (i + int(t)) % 4)] * 5
+                uvals = [str(4 + (i + int(t)) % 3)] * 5
+                lines.append(f"{sid},{t}," + ",".join(hvals + uvals))
+        hed.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        out = td / "report.html"
+        r = subprocess.run(
+            [sys.executable, str(REPO / "tools" / "analyze_cohort.py"),
+             "--zips", str(td), "--out", str(out),
+             "--hedut", str(hed)],
+            capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        html = out.read_text(encoding="utf-8")
+        for marker in ("Cohort-measured HED/UT scores",
+                       "classification of \nrecord".replace("\n", ""),
+                       "HU01-HU05", "Voss 2003"):
+            assert marker in html or marker in html.replace("\n", " "), \
+                f"missing HED/UT marker: {marker}"
+        assert "when collected" not in html, \
+            "literature-label fallback text must not survive when the " \
+            "poll is supplied"
+    print("PASS: HED/UT poll ingested — measured scores become the "
+          "classification of record")
+
+
 def main():
     test_parse_price()
     test_robustness()
+    test_null_signflip()
+    test_hedut()
     test_quarantine_and_export()
     with tempfile.TemporaryDirectory() as tmp:
         td = Path(tmp)
@@ -568,12 +631,15 @@ def main():
             assert marker in html, f"missing section: {marker}"
         assert "nan" not in html.split("Statistics")[1].split(
             "Robustness")[0].lower(), "nan leaked into the stats table"
-        # B9: pooled-count tests are gone from inference; p is cluster-level
+        # B9/C2.9: pooled-count tests and the bootstrap-p machinery are
+        # gone from inference; p is sign-flip permutation over students
         assert "McNemar" not in html, \
-            "pooled McNemar label must not survive (cluster-level p now)"
-        assert "computed \nat the CLUSTER level".replace("\n", "") in \
-            html.replace("\n", " ").replace("  ", " ") or \
-            "CLUSTER level" in html, "cluster-level p note missing"
+            "pooled McNemar label must not survive"
+        assert "sign-flip" in html and "students as units" in html, \
+            "sign-flip permutation p note missing"
+        assert "bootstrap of per-student mean differences" not in html, \
+            "old cboot_p label text must not survive"
+        assert "p (sign-flip; Holm)" in html
         assert "no naive p" in html, \
             "Spearman must report a cluster-bootstrap CI, not a naive p"
         assert "(descriptive)" in html, \
@@ -594,8 +660,20 @@ def main():
         # day-counterbalanced now)
         for marker in ("ONE blind",
                        "captured on different days",
-                       "Likely stock-outs"):
-            assert marker in html, f"missing B15 marker: {marker}"
+                       "Human pick absent from all logged agent "
+                       "candidate sets",
+                       "not evidence about \navailability"
+                       .replace("\n", ""),
+                       "matched \nfour-cell task records"
+                       .replace("\n", ""),
+                       "Missing verdicts by condition x tier",
+                       "H1 sensitivity",
+                       "heuristic title-token match",
+                       "listed-price budget compliance",
+                       "classification of record when \ncollected"
+                       .replace("\n", "")):
+            assert marker in html or marker in html.replace(
+                "\n", " "), f"missing B15/C2 marker: {marker}"
         assert "confounded with day" not in html, \
             "day-confound caveat must not survive the counterbalance"
         assert "verdict occasion tracks tier" not in html, \

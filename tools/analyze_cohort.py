@@ -36,6 +36,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 import sys
 import zipfile
@@ -188,6 +189,19 @@ def parse_profile(text):
             if p:
                 prices.append(p)
     return n, sorted(set(brands)), prices
+
+
+def brand_in_title(brands, title):
+    """Heuristic title-token match (audit 4.9): casefolded, punctuation
+    and non-ASCII stripped, word-boundary regex on tokens, brand length
+    >= 3 — substring hits like 'ora' in 'oral-b' no longer count."""
+    t = re.sub(r"[^0-9a-z]+", " ", str(title).casefold())
+    for b in brands:
+        nb = re.sub(r"[^0-9a-z]+", " ", str(b).casefold()).strip()
+        if len(nb) >= 3 and re.search(
+                rf"\b{re.escape(nb)}\b", t):
+            return True
+    return False
 
 
 def bucket_source(raw):
@@ -459,7 +473,7 @@ def read_submission(path):
                 "sponsored": str(a.get("sponsored", "")).strip() == "1",
                 "budget_ok": (ap is not None and lo <= ap <= hi)
                 if ap is not None else None,
-                "brand_aligned": any(b in title for b in brands)
+                "brand_aligned": brand_in_title(brands, title)
                 if (brands and title) else None,
                 # None (not False) when either side is unknown, so shares
                 # are computed over informative rows only
@@ -512,7 +526,7 @@ def read_submission(path):
             "sponsored": None,
             "budget_ok": (lo <= hp_price <= hi)
             if hp_price is not None else None,
-            "brand_aligned": any(b in htitle for b in brands)
+            "brand_aligned": brand_in_title(brands, htitle)
             if (brands and htitle) else None,
             "price_in_profile_range": (
                 (p_lo <= hp_price <= p_hi)
@@ -632,7 +646,7 @@ def binom_p(k, n):
     when scipy is present; otherwise a NORMAL APPROXIMATION (never label
     the fallback 'exact'). Valid only for independent trials, so no
     confirmatory contrast uses it on pooled task-level rows (tasks
-    cluster within students — see cboot_p)."""
+    cluster within students — see signflip_p)."""
     if not n:
         return float("nan")
     if sps:
@@ -679,23 +693,28 @@ def cboot(fn, n_units, ci=95, n_boot=BOOT_N, seed=BOOT_SEED):
     return float(lo), float(hi)
 
 
-def cboot_p(arr, n_boot=BOOT_N, seed=BOOT_SEED):
-    """Cluster-level two-sided bootstrap p for a paired mean difference:
-    resample the per-student differences (students are the sampling
-    units), p = 2 x the smaller tail share of resampled means crossing 0
-    (add-one smoothed so p is never exactly 0). This is the p that
-    matches the cluster-bootstrap CIs; pooled task-level sign tests
-    (McNemar-style) overstate n because tasks cluster within students."""
+# Confirmatory p-values: SIGN-FLIP PERMUTATION over students (audit
+# 6.1). Each student contributes one mean difference; under H0 its sign
+# is exchangeable, so p = share of |sign-flipped mean| >= |observed|
+# (add-one smoothed, seeded, two-sided). Configurable via
+# DTLAB_SIGNFLIP_N; bootstrap CIs stay exactly as they are.
+SIGNFLIP_N = int(os.environ.get("DTLAB_SIGNFLIP_N", "10000"))
+
+
+def signflip_p(arr, n_flips=None, seed=BOOT_SEED):
+    """Two-sided sign-flip permutation p on per-student differences
+    (students as the exchangeable units)."""
     arr = np.asarray(arr, dtype=float)
     arr = arr[~np.isnan(arr)]
     if arr.size == 0 or np.abs(arr).sum() == 0:
         return float("nan")
+    n_flips = n_flips or SIGNFLIP_N
     rng = np.random.default_rng(seed)
-    means = np.array([arr[rng.integers(0, arr.size, arr.size)].mean()
-                      for _ in range(n_boot)])
-    lo = (np.sum(means <= 0) + 1) / (n_boot + 1)
-    hi = (np.sum(means >= 0) + 1) / (n_boot + 1)
-    return float(min(1.0, 2 * min(lo, hi)))
+    obs = abs(arr.mean())
+    signs = rng.choice(np.array([-1.0, 1.0]),
+                       size=(n_flips, arr.size))
+    perm = np.abs((signs * arr).mean(axis=1))
+    return float((np.sum(perm >= obs) + 1) / (n_flips + 1))
 
 
 def kn_by_student(sub, col="acceptable"):
@@ -850,6 +869,12 @@ def main():
                     help="write the dtlab-hth-v1 head-to-head export")
     ap.add_argument("--allow-mixed", action="store_true",
                     help="allow exports from mixed schema generations")
+    ap.add_argument("--hedut", default=None,
+                    metavar="hedut_responses.csv",
+                    help="Session-10 HED/UT poll (long form: student_id, "
+                         "task_id or category short_name, HU01..HU10) — "
+                         "cohort-measured category classification "
+                         "(questionnaire/HEDUT_POLL.md)")
     args = ap.parse_args()
     globals()["LOGO_URI"] = load_logo(args.logo)
     if args.identified:
@@ -868,6 +893,64 @@ def main():
     budget_note = "Task budgets: " + "; ".join(
         f"{TASK_NAMES[t]} ₹{BUDGETS[t][0]:,}–₹{BUDGETS[t][1]:,}"
         for t in TASK_IDS) + "."
+
+    # ---- HED/UT poll (D8; questionnaire/HEDUT_POLL.md): the cohort-
+    # measured classification of the task categories. Long form:
+    # student_id, task_id (or category short_name), HU01..HU10 (1-7).
+    hedut_per = []          # (student, task, hed_mean, ut_mean)
+    if args.hedut:
+        short2id = {TASK_NAMES[t].split(" ", 1)[1].strip().lower(): t
+                    for t in TASK_IDS}
+        hed_items = [f"HU{i:02d}" for i in range(1, 6)]
+        ut_items = [f"HU{i:02d}" for i in range(6, 11)]
+        with open(args.hedut, newline="", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                t_ = str(r.get("task_id") or "").strip()
+                if t_ not in TASK_IDS:
+                    t_ = short2id.get(
+                        (r.get("category") or r.get("short_name")
+                         or "").strip().lower(), "")
+                if not t_:
+                    continue
+
+                def sub_mean(items_):
+                    vals = []
+                    for c_ in items_:
+                        try:
+                            v_ = float((r.get(c_) or "").strip())
+                        except ValueError:
+                            continue
+                        if 1 <= v_ <= 7:
+                            vals.append(v_)
+                    return sum(vals) / len(vals) if vals else None
+
+                hm, um = sub_mean(hed_items), sub_mean(ut_items)
+                if hm is not None and um is not None:
+                    hedut_per.append(
+                        ((r.get("student_id") or "").strip(), t_, hm,
+                         um))
+    hedut_scores = {}
+    if hedut_per:
+        hp_df = pd.DataFrame(hedut_per, columns=["student", "task",
+                                                 "hed", "ut"])
+        for t_, g in hp_df.groupby("task"):
+            hs = g.groupby("student")["hed"].mean().to_numpy(float)
+            us = g.groupby("student")["ut"].mean().to_numpy(float)
+            hlo_, hhi_ = cboot(lambda ix, a=hs: a[ix].mean(), len(hs))
+            ulo_, uhi_ = cboot(lambda ix, a=us: a[ix].mean(), len(us))
+            hedut_scores[t_] = {
+                "hed": float(hs.mean()), "hed_lo": hlo_, "hed_hi": hhi_,
+                "ut": float(us.mean()), "ut_lo": ulo_, "ut_hi": uhi_,
+                "n": len(hs)}
+    class_record_note = (
+        " Task-class contrasts are EXPLORATORY — the categories differ "
+        "between classes. " + (
+            "The cohort-measured HED/UT scores (Session-10 poll) are "
+            "the classification of record."
+            if hedut_scores else
+            "Cohort HED/UT scores are the classification of record when "
+            "collected; until then these literature-based labels apply "
+            "and are marked as such."))
     parsed = []
     for p in paths:
         r = read_submission(p)
@@ -1261,7 +1344,8 @@ def main():
         for label, col in (("brand in profile", "brand_aligned"),
                            ("price in profile range",
                             "price_in_profile_range"),
-                           ("within task budget", "budget_ok"),
+                           ("listed-price budget compliance",
+                            "budget_ok"),
                            ("sponsored pick", "sponsored")):
             s = sub[col].dropna()
             if len(s):
@@ -1281,7 +1365,9 @@ def main():
             "wrote into purchase_profile.md (coverage reported below); "
             "the human bars score the student's OWN picks on the same "
             "yardsticks (no sponsored flag — the human log doesn't "
-            "capture it). " + budget_note)
+            "capture it). Brand alignment is a heuristic title-token "
+            "match; budget compliance uses the listed price at capture "
+            "time. " + budget_note)
 
     # 6b — consideration sets (CAND protocol) vs human product views
     cs = df[df["n_candidates"] > 0]
@@ -1422,10 +1508,44 @@ def main():
         fig.update_yaxes(title="acceptable-pick rate", tickformat=".0%",
                          range=[0, 1.1])
         fig.update_xaxes(title="")
-        add(style_fig(fig, 380), "Twin fidelity by product-category class",
+        add(style_fig(fig, 380), "Twin fidelity by product-category "
+            "class (exploratory)",
             "Utilitarian vs hedonic tasks (class assigned per task in "
             "tasks_config.csv). Hedonic/taste goods are where twins are "
-            "expected to struggle.")
+            "expected to struggle." + class_record_note)
+    if hedut_scores:
+        hrows_fig = []
+        for t_ in TASK_IDS:
+            s = hedut_scores.get(t_)
+            if not s:
+                continue
+            hrows_fig.append({"task_name": TASK_NAMES[t_],
+                              "subscale": "hedonic", "mean": s["hed"],
+                              "err_up": s["hed_hi"] - s["hed"],
+                              "err_dn": s["hed"] - s["hed_lo"]})
+            hrows_fig.append({"task_name": TASK_NAMES[t_],
+                              "subscale": "utilitarian", "mean": s["ut"],
+                              "err_up": s["ut_hi"] - s["ut"],
+                              "err_dn": s["ut"] - s["ut_lo"]})
+        hfig_df = pd.DataFrame(hrows_fig)
+        fig = px.bar(hfig_df, x="task_name", y="mean", color="subscale",
+                     barmode="group", error_y="err_up",
+                     error_y_minus="err_dn",
+                     category_orders={"task_name":
+                                      list(TASK_NAMES.values()),
+                                      "subscale": ["hedonic",
+                                                   "utilitarian"]},
+                     color_discrete_map={"hedonic": "#eb6834",
+                                         "utilitarian": "#2a78d6"})
+        fig.update_yaxes(title="subscale mean (1-7)", range=[0, 7.4])
+        fig.update_xaxes(title="")
+        add(style_fig(fig, 380),
+            "Cohort-measured HED/UT category scores "
+            "(Session-10 poll, Voss 2003)",
+            "Per-category hedonic (HU01-HU05) and utilitarian "
+            "(HU06-HU10) subscale means with cluster-bootstrap 95% CIs "
+            "— the classification of record for the task-class "
+            "contrasts.")
 
     # 7 — purchase history descriptives
     fig = px.histogram(sdf, x="n_profile_orders", nbins=20)
@@ -1532,7 +1652,7 @@ def main():
              f"{len(piv)} task-cell pairs from {len(by_s)} students; "
              f"discordant tasks {b} vs {c_} (descriptive); Cohen's h = "
              f"{cohens_h(float(piv['persona'].mean()), float(piv['ablated'].mean())):.2f}",
-             p=cboot_p(darr), hyp="H1")
+             p=signflip_p(darr), hyp="H1")
         if len(darr) > 1:
             sd_d = float(np.std(darr, ddof=1))
             if sd_d > 0:
@@ -1558,7 +1678,7 @@ def main():
                  f"{pct(ka.sum() / na.sum())} ({w['persona']} vs "
                  f"{w['ablated']}, ties {w['tie']}); cluster-bootstrap "
                  f"95% CI {fmt_ci(hlo, hhi)}",
-                 p=cboot_p(ka / na - 0.5))
+                 p=signflip_p(ka / na - 0.5))
         if len(ov):
             srow("Pick overlap (same ASIN in a contrast's two runs)",
                  f"{pct(float(ov['same'].mean()))} of task-contrasts — "
@@ -1583,7 +1703,7 @@ def main():
                  f"{pct(float(spiv['persona'].mean()))} vs "
                  f"{pct(float(spiv['ablated'].mean()))}; discordant "
                  f"{sb} vs {sc} (descriptive)",
-                 p=cboot_p(sarr))
+                 p=signflip_p(sarr))
         pf = df[df["condition"].isin(["persona", "ablated"])].dropna(
             subset=["agent_price", "human_price"])
         pf = pf[(pf["agent_price"] > 0) & (pf["human_price"] > 0)].copy()
@@ -1700,7 +1820,7 @@ def main():
                  f"{len(by_s)} students; discordant tasks {b} vs {c_} "
                  "(descriptive); Cohen's h = "
                  f"{cohens_h(float(piv['frontier'].mean()), float(piv['economy'].mean())):.2f}",
-                 p=cboot_p(darr), hyp=hyp)
+                 p=signflip_p(darr), hyp=hyp)
 
         tier_contrast(tp, "", hyp="H2")
         # paired MDE for the tier contrast (same construction as the
@@ -1724,31 +1844,61 @@ def main():
                          "report MDE, never post-hoc power")
         for g in ("persona", "ablated"):
             tier_contrast(tp[tp["condition"] == g], f" — {g} runs")
-        # grounding x tier interaction: (P−A under frontier) − (P−A
-        # under economy), per student
-        cellpiv = tp.pivot_table(index="student",
+        # H3 from MATCHED four-cell task records (audit 6.2): the
+        # interaction is computed per (student, task) having all four
+        # cells — (P−A | frontier) − (P−A | economy) — averaged within
+        # student, then sign-flipped over students. The old
+        # cell-means construction is retired (never report both).
+        cellpiv = tp.pivot_table(index=["student", "task"],
                                  columns=["condition", "tier"],
-                                 values="acceptable", aggfunc="mean")
+                                 values="acceptable", aggfunc="first")
         cols = [("persona", "frontier"), ("ablated", "frontier"),
                 ("persona", "economy"), ("ablated", "economy")]
         if all(c in cellpiv.columns for c in cols):
-            cp = cellpiv[cols].dropna()
-            iarr = ((cp[("persona", "frontier")] -
-                     cp[("ablated", "frontier")]) -
-                    (cp[("persona", "economy")] -
-                     cp[("ablated", "economy")])).to_numpy(float)
-            if len(iarr):
+            cp = cellpiv[list(cols)].dropna()
+            n_possible = len(cellpiv)
+            if len(cp):
+                inter = ((cp[("persona", "frontier")] -
+                          cp[("ablated", "frontier")]) -
+                         (cp[("persona", "economy")] -
+                          cp[("ablated", "economy")]))
+                i_by_s = inter.groupby(level="student").mean()
+                iarr = i_by_s.to_numpy(float)
                 ilo, ihi = cboot(lambda ix: iarr[ix].mean(), len(iarr))
                 pair_cov.append(
-                    f"H3 interaction: {len(cp)}/{len(cellpiv)} students "
-                    "with all four cells")
+                    f"H3 interaction: {len(cp)}/{n_possible} "
+                    "participant-task records complete in all four "
+                    "cells")
                 srow("H3 — Grounding x tier interaction (questionnaire "
-                     "effect under frontier − under economy)",
+                     "effect under frontier − under economy; matched "
+                     "four-cell task records)",
                      f"Δ = {100 * iarr.mean():+.1f} pp; 95% CI "
-                     f"{fmt_ci(ilo, ihi)}; {len(cp)} students with all "
-                     "four cells — positive = the questionnaire helps "
+                     f"{fmt_ci(ilo, ihi)}; {len(cp)}/{n_possible} "
+                     f"complete task records from {len(i_by_s)} "
+                     "students — positive = the questionnaire helps "
                      "MORE with the stronger model",
-                     p=cboot_p(iarr), hyp="H3")
+                     p=signflip_p(iarr), hyp="H3")
+                # missing-data sensitivity (audit 6.3): H1 on the
+                # complete-cell students only
+                cs = set(i_by_s.index)
+                sub_cs = vd_[vd_["student"].isin(cs)
+                             & vd_["condition"].isin(["persona",
+                                                      "ablated"])]
+                piv_cs = sub_cs.pivot_table(
+                    index=["student", "task", "tier"],
+                    columns="condition", values="acceptable",
+                    aggfunc="first").dropna()
+                if len(piv_cs) and {"persona",
+                                    "ablated"} <= set(piv_cs.columns):
+                    d_cs = (piv_cs.reset_index().groupby("student")
+                            [["persona", "ablated"]].mean())
+                    darr_cs = (d_cs["persona"] -
+                               d_cs["ablated"]).to_numpy(float)
+                    srow("H1 sensitivity — students with all four "
+                         "cells only (pre-specified missing-data check)",
+                         f"Δ = {100 * darr_cs.mean():+.1f} pp; "
+                         f"{len(darr_cs)} students",
+                         p=signflip_p(darr_cs))
         # tier head-to-heads (which model's pick won, per grounding)
         hm = df.dropna(subset=["hth_model_winner"]).drop_duplicates(
             ["student", "task", "condition"])
@@ -1766,7 +1916,7 @@ def main():
                  f"{pct(km.sum() / nmc.sum())} ({wm['frontier']} vs "
                  f"{wm['economy']}, same {wm['same']}); "
                  f"cluster-bootstrap 95% CI {fmt_ci(mlo, mhi)}",
-                 p=cboot_p(km / nmc - 0.5))
+                 p=signflip_p(km / nmc - 0.5))
         # exploratory day effect — estimable as its own contrast because
         # the tier order is counterbalanced across days per student
         if "day" in vd_.columns and vd_["day"].notna().any():
@@ -1785,7 +1935,7 @@ def main():
                          f"{fmt_ci(dylo, dyhi)}; {len(day_arr)} students "
                          "— identified separately from tier because the "
                          "tier order is counterbalanced across days",
-                         p=cboot_p(day_arr))
+                         p=signflip_p(day_arr))
         srow("Verdict occasion",
              "all verdicts for all four runs are captured in ONE blind "
              "Friday session by design (single-session capture), so no "
@@ -1995,11 +2145,12 @@ def main():
         js = (pd.DataFrame(jd, columns=["student", "j"])
               .groupby("student")["j"].mean().to_numpy(float))
         jlo, jhi = cboot(lambda ix: js[ix].mean(), len(js))
-        srow("Process comparison: agent-candidate vs human-viewed "
-             "overlap (Jaccard)",
+        srow("Overlap of logged agent candidates and observed human "
+             "product views (Jaccard)",
              f"per-student mean {js.mean():.2f}; cluster-bootstrap 95% CI "
-             f"[{jlo:.2f}, {jhi:.2f}] — 0 = fully disjoint search "
-             "processes, 1 = identical consideration sets")
+             f"[{jlo:.2f}, {jhi:.2f}] — the two measurement processes "
+             "differ (explicit candidate logging vs passive view "
+             "capture); neither is the full latent consideration set")
 
     # category class (utilitarian vs hedonic), paired within student
     if {"utilitarian", "hedonic"} <= set(df["category_class"]):
@@ -2011,10 +2162,10 @@ def main():
             if len(carr):
                 clo, chi_ = cboot(lambda ix: carr[ix].mean(), len(carr))
                 srow("Category class: utilitarian − hedonic acceptable "
-                     "rate (paired within student)",
+                     "rate (paired within student; exploratory)",
                      f"Δ = {100 * carr.mean():+.1f} pp; 95% CI "
                      f"{fmt_ci(clo, chi_)} — positive = twins do better "
-                     "on utilitarian goods")
+                     "on utilitarian goods." + class_record_note)
 
     # Holm-Bonferroni over EXACTLY the pre-registered confirmatory family
     # {H1, H2, H3} (research_protocol §1: grounding, tier(+day),
@@ -2110,13 +2261,29 @@ def main():
         quality.append(("Paired-contrast coverage (missingness — "
                         "dropped pairs are runs whose verdict is "
                         "missing/invalid)", "; ".join(pair_cov)))
+    if ablation:
+        magent = df[df["condition"].isin(["persona", "ablated"])]
+        if len(magent):
+            mt = (magent.assign(missing=magent["verdict"].isna())
+                  .groupby(["condition", "tier"], dropna=False)
+                  ["missing"].agg(["sum", "count"]))
+            quality.append((
+                "Missing verdicts by condition x tier "
+                "(selection-gradient check; primary analyses use "
+                "complete pairs/cells as pre-specified)",
+                "; ".join(f"{c}/{ti}: {int(row['sum'])} of "
+                          f"{int(row['count'])}"
+                          for (c, ti), row in mt.iterrows())))
     so = sdf["stockout_suspect_n"].dropna()
     if len(so):
         quality.append((
-            "Likely stock-outs (human pick in NO run's candidate set)",
+            "Human pick absent from all logged agent candidate sets",
             f"{int(so.sum())} task(s) across {int((so > 0).sum())} "
-            "student(s) — 'identical' was impossible there (human picks "
-            "are frozen Wednesday; listings move)"))
+            "student(s) — 'identical' was impossible there. Absence "
+            "from the LOGGED candidates is not evidence about "
+            "availability (the agent may simply not have surfaced the "
+            "item); human picks are frozen Wednesday and listings "
+            "move"))
     quality.append((
         "Checkout attempts (network-blocked by the guard extension)",
         f"{int(sdf['n_checkout_urls'].sum())} checkout-shaped URL(s) in "
@@ -2253,12 +2420,14 @@ Sandbox packs are excluded.</p>
         f'<p class="note">All CIs marked cluster-bootstrap resample '
         f'STUDENTS (n_boot={BOOT_N}, seed={BOOT_SEED}, reproducible) '
         "because tasks — and in the ablation design all runs — are "
-        "correlated within student. p-values are two-sided and computed "
-        "at the CLUSTER level (bootstrap of per-student mean differences "
-        "— pooled task-level counts appear only as descriptives)."
-        "</p>"
+        "correlated within student. p-values are two-sided sign-flip "
+        f"permutation p (students as units; {SIGNFLIP_N} flips, seeded): "
+        "each student contributes one mean difference whose sign is "
+        "exchangeable under H0 — pooled task-level counts appear only "
+        "as descriptives.</p>"
         "<table class='st'><tr><td><b>Analysis</b></td>"
-        "<td><b>Result</b></td><td><b>p (Holm)</b></td></tr>" + "".join(
+        "<td><b>Result</b></td><td><b>p (sign-flip; Holm)</b></td></tr>"
+        + "".join(
             f"<tr><td>{esc(a)}</td><td>{esc(b)}</td><td>{esc(c)}</td></tr>"
             for a, b, c in stats_rows) + "</table>")
     parts.append(
@@ -2323,6 +2492,21 @@ Sandbox packs are excluded.</p>
                 ("dtlab_config sha256 (prefix)",
                  vcount(sdf_all["dtlab_config_sha256"].str[:12])),
             )) + "</table>")
+    if hedut_scores:
+        parts.append(
+            "<h2>Cohort-measured HED/UT scores (classification of "
+            "record)</h2><table class='st'>"
+            "<tr><td><b>Category</b></td><td><b>hedonic (HU01-HU05)</b>"
+            "</td><td><b>utilitarian (HU06-HU10)</b></td>"
+            "<td><b>n students</b></td></tr>" + "".join(
+                f"<tr><td>{esc(TASK_NAMES[t_])}</td>"
+                f"<td>{s['hed']:.2f} [{s['hed_lo']:.2f}, "
+                f"{s['hed_hi']:.2f}]</td>"
+                f"<td>{s['ut']:.2f} [{s['ut_lo']:.2f}, "
+                f"{s['ut_hi']:.2f}]</td>"
+                f"<td>{s['n']}</td></tr>"
+                for t_ in TASK_IDS
+                for s in [hedut_scores.get(t_)] if s) + "</table>")
     parts.append('<p class="note">Verdict semantics: better / identical '
                  '(ASIN-verified) / equivalent / inferior, always the '
                  'agent pick relative to the student\'s own pre-registered '
