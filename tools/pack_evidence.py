@@ -1472,20 +1472,39 @@ def main():
                 warn(f"{rn}: cart_run{n}.json unreadable — cross-check "
                      "skipped")
                 continue
-            cart_asins = {(c.get("asin") or "").strip()
-                          for c in cart_items if c.get("asin")}
-            picks = pick_sets.get(run_label.get(rn, ""), [])
-            missing = [f"task {r.get('task_id')}: {r.get('asin', '').strip()}"
-                       for r in picks
-                       if r.get("asin", "").strip()
-                       and r.get("asin", "").strip() not in cart_asins]
-            if missing:
-                cart_verified[rn] = False
-                warn(f"{rn}: agent_picks.csv items not found in the "
-                     f"captured cart ({'; '.join(missing)}) — "
-                     "self-reported picks vs cart ground truth mismatch")
-            else:
-                cart_verified[rn] = True
+            # exact-equality verdict (audit 4.1): dtlab-cart records
+            # cart_match at capture time (the enforcement point — the
+            # cart is gone by pack time); packs from before that field
+            # get the multiset comparison recomputed here
+            cm = cart_data.get("cart_match")
+            cdiff = cart_data.get("cart_match_diff") or {}
+            if cm is None:
+                picks = pick_sets.get(run_label.get(rn, ""), [])
+                want = Counter(r.get("asin", "").strip() for r in picks
+                               if r.get("asin", "").strip())
+                have = Counter()
+                for c in cart_items:
+                    a = (c.get("asin") or "").strip()
+                    if a:
+                        try:
+                            q = int(c.get("qty") or 1)
+                        except (TypeError, ValueError):
+                            q = 1
+                        have[a] += max(q, 1)
+                if want == have:
+                    cm = "exact"
+                else:
+                    cm = "extras" if not (want - have) else "missing"
+                    cdiff = {"missing": dict(want - have),
+                             "extras": dict(have - want)}
+            cart_verified[rn] = cm == "exact"
+            if cm != "exact":
+                warn(f"{rn}: cart/picks mismatch (cart_match={cm}"
+                     + (f"; diff {json.dumps(cdiff, sort_keys=True)}"
+                        if cdiff else "")
+                     + ") — the partner should have fixed and re-run "
+                     "dtlab-cart before emptying; evidence is immutable "
+                     "now, recorded for review")
     else:
         need(len(screenshots) > 0, "no cart screenshot in ~/dtlab/evidence/")
     shots_dir = staging / "screenshots"
@@ -1494,6 +1513,18 @@ def main():
         shutil.copy2(s, shots_dir / s.name)
     for j in sorted(EV.glob("cart_run*.json")):
         shutil.copy2(j, shots_dir / j.name)
+    # intervention capture (D7): recorded by the partner at dtlab-cart
+    interventions_by_run = {}
+    for iv in sorted(EV.glob("interventions_run*.json")):
+        m_iv = re.match(r"interventions_(run\d)\.json$", iv.name)
+        if not m_iv:
+            continue
+        shutil.copy2(iv, shots_dir / iv.name)
+        try:
+            interventions_by_run[m_iv.group(1)] = json.loads(
+                iv.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            interventions_by_run[m_iv.group(1)] = None
     recordings = list(EV.glob("run_*.mkv"))
     (staging / "RECORDINGS.txt").write_text(
         "Screen recordings are uploaded separately (size):\n" +
@@ -1900,6 +1931,7 @@ def main():
         "verdicts_captured_blind": verdicts_captured_blind,
         "verdicts_single_session": verdicts_single_session,
         "checkout_attempts": checkout_attempts,
+        "interventions_by_run": interventions_by_run,
         "demographic_citations_by_run": demographic_citations,
         # the typed pre-run acknowledgment (consent capture layer 2 of 3,
         # research_protocol §3) — recorded by dtlab-start, audited here

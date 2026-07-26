@@ -191,6 +191,9 @@ def make_zip(path, sid, i, mode, sandbox=False):
                                        "agent": 3 + (i + j + len(cond)) % 6}
                 man["rationales"][key] = "one-line why"
         man["verdict_source"] = "verdicts_csv"
+        man["interventions_by_run"] = {
+            "run1": {"captchas": i % 2, "interventions": i % 3,
+                     "note": ""}}
         man["searches"] = {
             f"{cond}_{tier}": {t_: [{"query": f"q {t_} {k}",
                                      "filters": "none"}
@@ -419,6 +422,7 @@ def main():
                        "Exploratory day effect",
                        "Tier order across days",
                        "Sensitive-item opt-outs",
+                       "Human interventions recorded",
                        "Grounding order day 2",
                        "Task-position effect",
                        "Shopping effort", "Deliberation time",

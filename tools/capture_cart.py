@@ -30,9 +30,11 @@ USAGE (inside the lab environment, while the agent's browser is open):
 """
 
 import argparse
+import csv
 import json
 import re
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -149,6 +151,58 @@ def parse_items(page):
         return None
 
 
+def compare_cart(picks_rows, cart_items):
+    """Multiset comparison of the run's picks vs the ACTIVE cart
+    (audit 4.1): every pick present, quantities compared — two tasks
+    legitimately choosing the same ASIN expect qty 2 (or two lines).
+    Returns (verdict, diff): exact | extras | missing | qty | unparsed."""
+    if cart_items is None or not picks_rows:
+        return "unparsed", {}
+    want = Counter((r.get("asin") or "").strip()
+                   for r in picks_rows if (r.get("asin") or "").strip())
+    have = Counter()
+    for c in cart_items:
+        a = (c.get("asin") or "").strip()
+        if a:
+            try:
+                q = int(c.get("qty") or 1)
+            except (TypeError, ValueError):
+                q = 1
+            have[a] += max(q, 1)
+    missing = {a: n - have.get(a, 0) for a, n in want.items()
+               if have.get(a, 0) < n}
+    extras = {a: n - want.get(a, 0) for a, n in have.items()
+              if n > want.get(a, 0)}
+    diff = {}
+    if missing:
+        diff["missing"] = missing
+    if extras:
+        diff["extras"] = extras
+    if not diff:
+        return "exact", {}
+    if set(want) == set(have):
+        return "qty", diff     # right products, wrong quantities
+    if extras and not missing:
+        return "extras", diff
+    return "missing", diff
+
+
+def load_run_picks(run):
+    """The run's agent_picks.csv — from the run dir, or adopted from the
+    workspace for the just-finished (highest started) run, the same rule
+    the packer uses."""
+    p = RUNSDIR / f"run{run}" / "agent_picks.csv"
+    if not p.exists() and run == detect_run():
+        wsp = HOME / "dtlab" / "workspace" / "agent_picks.csv"
+        if wsp.exists():
+            p = wsp
+    try:
+        with open(p, newline="", encoding="utf-8-sig") as f:
+            return list(csv.DictReader(f))
+    except OSError:
+        return []
+
+
 def saved_for_later_asins(page):
     """ASINs parked in the 'Saved for later' section — evidence that a
     cart was 'emptied' with Save for later instead of Delete."""
@@ -205,12 +259,19 @@ def main():
         items = parse_items(page)
         sfl = saved_for_later_asins(page)
 
+    # exact cart-vs-picks comparison, ENFORCED LIVE (audit 4.1): pack
+    # time is too late — the cart is emptied after this capture and is
+    # gone by Sunday
+    picks = load_run_picks(run)
+    cart_match, diff = compare_cart(picks, items)
     if items is not None:
         out_json.write_text(json.dumps({
             "schema": "dtlab-cart-v1",
             "run": run,
             "captured_at_utc": datetime.now(timezone.utc).isoformat(),
             "clip_succeeded": bool(clipped),
+            "cart_match": cart_match,
+            "cart_match_diff": diff,
             "items": items,
         }, indent=2), encoding="utf-8")
         print(f"  [ok] parsed {len(items)} cart item(s) -> {out_json}")
@@ -221,6 +282,23 @@ def main():
     else:
         print("  [~] no cart JSON written — the packer will note that the "
               "picks/cart cross-check was skipped for this run.")
+    if cart_match == "exact":
+        print("  [ok] cart matches the run's picks EXACTLY (every pick, "
+              "right quantities, nothing extra)")
+    elif cart_match == "unparsed":
+        print("  [~] cart/picks comparison skipped (cart unparsed or "
+              "picks file missing) — recorded for the packer")
+    else:
+        print()
+        print("  [!!] CART DOES NOT MATCH THE RUN'S PICKS — fix it NOW,")
+        print("       before emptying (the cart is gone by pack time):")
+        for a, n in sorted(diff.get("extras", {}).items()):
+            print(f"       - DELETE extra active-cart item {a} (x{n})")
+        for a, n in sorted(diff.get("missing", {}).items()):
+            print(f"       - MISSING pick {a} (x{n}) — was it added to "
+                  "the cart?")
+        print("       Then RE-RUN dtlab-cart so the corrected cart is "
+              "the evidence.")
 
     if sfl:
         print(f"  [!!] 'Saved for later' holds {len(sfl)} item(s) "
@@ -247,6 +325,26 @@ def main():
               "and save it")
         print(f"       as {png} .")
         return 1
+
+    # intervention capture (D7): the partner records CAPTCHAs and other
+    # human interventions for THIS run while memory is fresh
+    def ask_count(prompt):
+        while True:
+            raw = input(prompt).strip()
+            if re.fullmatch(r"[0-9]", raw):
+                return int(raw)
+            print("    a single digit 0-9")
+
+    print()
+    print("Intervention log (partner answers, for THIS run):")
+    n_captcha = ask_count("  CAPTCHAs handled by a human (0-9): ")
+    n_iv = ask_count("  Other human interventions (0-9): ")
+    note_txt = input("  One-line note (optional, Enter to skip): ").strip()
+    (EV / f"interventions_run{run}.json").write_text(json.dumps({
+        "captchas": n_captcha, "interventions": n_iv, "note": note_txt,
+        "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+    }, indent=2), encoding="utf-8")
+    print(f"  [ok] interventions recorded -> interventions_run{run}.json")
 
     print()
     print("NOW EMPTY THE CART by hand — use DELETE, never 'Save for later'")

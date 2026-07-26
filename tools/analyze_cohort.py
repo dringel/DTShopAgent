@@ -309,6 +309,8 @@ def read_submission(path):
     proc = man.get("process") or {}
     hproc = proc.get("human") or {}
     run_proc = proc.get("runs") or {}
+    # partner-recorded interventions per run (D7; dtlab-cart)
+    iv_by_run = man.get("interventions_by_run") or {}
 
     # picks per cell: label -> (condition, tier, run, {task: pick-row})
     cells = {}
@@ -383,6 +385,10 @@ def read_submission(path):
                                if label in srch else None),
                 "run_duration_min": (run_proc.get(rn) or {}).get(
                     "duration_min") if rn else None,
+                "captchas": (iv_by_run.get(rn) or {}).get("captchas")
+                if rn else None,
+                "interventions": (iv_by_run.get(rn) or {}).get(
+                    "interventions") if rn else None,
                 "task_minutes": None,
                 "verdict": v, "acceptable": (v in ACCEPTABLE)
                 if v else None,
@@ -439,6 +445,7 @@ def read_submission(path):
                 ((man.get("human_process") or {}).get("searches") or 0)
                 / len(TASK_IDS) or None),
             "run_duration_min": hproc.get("duration_min"),
+            "captchas": None, "interventions": None,
             "task_minutes": pt.get("minutes") if pt else (
                 (hproc.get("per_task_min") or {}).get(t)),
             "verdict": None, "acceptable": None,
@@ -497,6 +504,11 @@ def read_submission(path):
         "persona_order_day2": order_d2,
         "tier_day1": tier_day1,
         "sensitive_excluded": bool(man.get("sensitive_items_excluded")),
+        "n_captchas": sum(int((v or {}).get("captchas") or 0)
+                          for v in iv_by_run.values()),
+        "n_interventions": sum(int((v or {}).get("interventions") or 0)
+                               for v in iv_by_run.values()),
+        "has_intervention_log": bool(iv_by_run),
         "overlap_n": overlap_n,
         "pick_overlap": overlap or None,
         "n_profile_orders": n_orders, "n_profile_brands": len(brands),
@@ -1930,6 +1942,12 @@ def main():
         "Sensitive-item opt-outs (agent persona excludes "
         "D04/D09/D10/D11/D12 at the student's request)",
         f"{int(sdf['sensitive_excluded'].sum())} of {len(sdf)} students"))
+    quality.append((
+        "Human interventions recorded by the partner at dtlab-cart",
+        f"{int(sdf['n_captchas'].sum())} CAPTCHA(s) + "
+        f"{int(sdf['n_interventions'].sum())} other intervention(s); "
+        f"{int(sdf['has_intervention_log'].sum())} of {len(sdf)} "
+        "students have intervention logs on file"))
 
     # ---- cards ----
     cards = [("Students", f"{len(sdf)}"),

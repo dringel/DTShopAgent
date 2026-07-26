@@ -429,8 +429,8 @@ echo "[18] four-run 2x2 happy path (memo fallback; run-4 artifacts adopted)"
 mkenv_4run
 OUT18="$(DTLAB_MODEL_ID_DAY1=claude-haiku-x DTLAB_MODEL_ID_DAY2=claude-sonnet-y python3 "$PACK" 2>&1)"
 check $? 0 "valid four-run pack exits 0"
-echo "$OUT18" | grep -q "run2: agent_picks.csv items not found in the captured cart"
-check $? 0 "cart cross-check mismatch warns, names the run"
+echo "$OUT18" | grep -q "run2: cart/picks mismatch (cart_match=missing"
+check $? 0 "cart cross-check mismatch warns, names the run + verdict"
 python3 - <<'PY'; check $? 0 "2x2 manifest complete (12 verdicts, 4 hth families, overlap sets, per-cell contamination, cart_verified, per-run model IDs)"
 import json,zipfile,os,sys
 z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
@@ -1474,6 +1474,54 @@ import zipfile,os
 z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
 assert not any('unsafe' in n or 'fullpage' in n for n in z.namelist())
 "; check $? 0 "nothing from quarantine/unsafe_screenshots/ enters the zip"
+
+echo "[50] C2.5: exact cart multiset comparator + live verdict + interventions"
+python3 - "$REPO/tools/capture_cart.py" <<'PY'; check $? 0 "comparator: exact/extras/missing/qty/duplicate-ASIN/unparsed all correct"
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("capture_cart", sys.argv[1])
+cc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cc)
+A, B = "B0AAAAAAA1", "B0BBBBBBB2"
+pk = lambda *asins: [{"asin": a} for a in asins]
+ci = lambda *pairs: [{"asin": a, "qty": q} for a, q in pairs]
+assert cc.compare_cart(pk(A), ci((A, 1))) == ("exact", {})
+v, d = cc.compare_cart(pk(A), ci((A, 1), (B, 1)))
+assert v == "extras" and d == {"extras": {B: 1}}, (v, d)
+v, d = cc.compare_cart(pk(A, B), ci((A, 1)))
+assert v == "missing" and d == {"missing": {B: 1}}, (v, d)
+v, d = cc.compare_cart(pk(A), ci((A, 2)))
+assert v == "qty" and d == {"extras": {A: 1}}, (v, d)
+# two tasks legitimately picking the SAME ASIN: qty 2 or two lines
+assert cc.compare_cart(pk(A, A), ci((A, 2))) == ("exact", {})
+assert cc.compare_cart(pk(A, A), ci((A, 1), (A, 1))) == ("exact", {})
+v, d = cc.compare_cart(pk(A, A), ci((A, 1)))
+assert v == "qty" and d == {"missing": {A: 1}}, (v, d)
+assert cc.compare_cart(pk(A), None)[0] == "unparsed"
+assert cc.compare_cart([], ci((A, 1)))[0] == "unparsed"
+sys.exit(0)
+PY
+mkenv_4run
+replace "$HOME/dtlab/evidence/cart_run2.json" '"clip_succeeded":true,' \
+        '"clip_succeeded":true,"cart_match":"extras","cart_match_diff":{"extras":{"B0XXXXXXX9":1}},'
+replace "$HOME/dtlab/evidence/cart_run1.json" '"clip_succeeded":true,' \
+        '"clip_succeeded":true,"cart_match":"exact","cart_match_diff":{},'
+printf '{"captchas":2,"interventions":1,"note":"one captcha loop","recorded_at_utc":"2026-09-25T10:00:00+00:00"}\n' \
+  > "$HOME/dtlab/evidence/interventions_run1.json"
+OUT50="$(python3 "$PACK" 2>&1)"
+check $? 0 "pack with capture-time verdicts + interventions exits 0"
+echo "$OUT50" | grep -q "run2: cart/picks mismatch (cart_match=extras"
+check $? 0 "capture-time cart_match verdict wins and is warned"
+python3 - <<'PY'; check $? 0 "cart_verified from cart_match; interventions in the manifest + staged"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['ablation']['cart_verified']['run1'] is True
+assert m['ablation']['cart_verified']['run2'] is False
+iv=m['interventions_by_run']
+assert iv=={'run1':{'captchas':2,'interventions':1,'note':'one captcha loop','recorded_at_utc':'2026-09-25T10:00:00+00:00'}}, iv
+assert 'DT2026-999/screenshots/interventions_run1.json' in z.namelist()
+sys.exit(0)
+PY
 
 echo "[23] legacy two-run pack still validates (backward compatibility)"
 mkenv_ablation; python3 "$PACK" >/dev/null 2>&1; check $? 0 "legacy 2-run pack exits 0"
