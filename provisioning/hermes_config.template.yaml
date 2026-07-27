@@ -8,7 +8,7 @@
 # assigned provider + model — the run never starts on a mismatch.
 #
 # SINGLE PATCH POINT (dry run): validate this schema against the PINNED
-# Hermes release (TA_ONBOARDING.md > Instructor-only work items #1) and
+# Hermes release (TA_ONBOARDING.md > T-21 trial-run work items #1) and
 # adjust the keys here if that release expects different ones. The
 # launcher substitutes the placeholders wherever they appear and does
 # not depend on the key names, so this file is the only thing to edit.

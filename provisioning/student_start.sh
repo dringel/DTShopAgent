@@ -176,7 +176,7 @@ pin_gate() {  # $1 = tier -> sets MODEL_ID, or exits 1 (fail closed)
     echo -e "${RED}ERROR: no pinned model ID for the '$1' tier —"
     echo -e "dtlab_config.env still reads PIN-AT-DRYRUN."
     echo -e "Pin DTLAB_MODEL_ECONOMY / DTLAB_MODEL_FRONTIER first"
-    echo -e "(TA_ONBOARDING.md > Instructor-only work items), or export"
+    echo -e "(TA_ONBOARDING.md > T-21 trial-run work items), or export"
     echo -e "DTLAB_ALLOW_UNPINNED=1 for a throwaway test build.${NC}"
     exit 1
   fi

@@ -34,9 +34,10 @@ ALLOWLIST = {
     ("docs/design_rationale.md", "three tasks"),
 }
 
-# never scanned: the archive keeps retired documents verbatim, the
-# changelog is a historical record, and handover files are gitignored
-SKIP = ("docs/archive/", "docs/CHANGELOG.md", "CLAUDE_CODE_HANDOVER")
+# never scanned: private/ holds the instructor's untracked working
+# material (gitignored, never in the repo the TA receives), and the
+# changelog is an operational record the trial run appends to
+SKIP = ("private/", "docs/CHANGELOG.md", "CLAUDE_CODE_HANDOVER")
 
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 

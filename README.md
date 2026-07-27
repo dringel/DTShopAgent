@@ -143,24 +143,32 @@ dt-lab/
 ├── research_protocol.md               ← consent, pseudonyms, schemas, dataset assembly
 ├── agent/
 │   ├── SOUL.md                        ← agent identity + ECP decision-log protocol (CAND lines), hard boundaries, injection hardening
-│   └── SOUL_ablated.md                ← questionnaire-free variant for the ablated runs of the 2×2 (purchase profile only)
+│   ├── SOUL_ablated.md                ← questionnaire-free variant for the ablated runs of the 2×2 (purchase profile only)
+│   ├── SOUL_bootstrap.md              ← the one-time questionnaire-blind bootstrap session (writes the frozen purchase profile; no shopping)
+│   └── SOUL_sandbox.md                ← practice-store variant (smoke test / flagged-account fallback)
 ├── questionnaire/
 │   ├── questionnaire_instrument_source.md ← AUTHORITATIVE instrument source: 115 items + design notes (edit here first, then re-transfer to the CSV)
 │   ├── questionnaire_items.csv        ← THE course instrument: 115 real items generated from the source doc
 │   ├── AUTHORING_GUIDE.md             ← column contract + transfer conventions (stems embedded, likert5 anchors, constraint flag)
-│   ├── build_form.gs                  ← Apps Script: auto-builds the Google Form from the CSV
-│   └── make_persona.py                ← Form responses row → persona_survey.md + .csv
+│   ├── build_form.gs                  ← Apps Script: auto-builds the Google Form from the CSV (consent + opt-out fields, field validations)
+│   ├── HEDUT_POLL.md                  ← the Session-10 in-class HED/UT poll: instrument, build, run, and analyzer hookup
+│   └── make_persona.py                ← Form responses row → persona_survey.md/.csv + persona_meta.json (opt-out aware, completeness-strict)
 ├── TA_ONBOARDING.md                   ← start here: reading order + open work items + installer-pin procedure
 ├── tests/
 │   ├── simulate_submission.sh         ← regression harness for the validation chain (sandboxed HOME, no browser needed)
 │   ├── test_start_flow.sh             ← regression suite for the dtlab-start 4-run state machine (sandboxed HOME)
 │   ├── test_instrument_lockstep.py    ← guards CSV ↔ source-doc ↔ config ↔ persona-generator lockstep
-│   └── test_analyze_cohort.py         ← synthetic-cohort test of the report generator
+│   ├── test_analyze_cohort.py         ← synthetic-cohort test of the report generator (incl. null-simulation Type-I guard)
+│   └── check_docs.py                  ← CI doc-checker: links resolve, no stale terms, paths referenced correctly
 ├── assets/
 │   └── ringelai.png                   ← RingelAI logo (embedded in the grader report + cohort report)
 ├── docs/
 │   ├── design_rationale.md            ← the rationale for all design choices, alternatives, accepted risks
 │   ├── CHANGELOG.md                   ← the LIVE T-21 dry-run list + change record
+│   ├── CONSENT_AND_DATA_USE.md        ← the student-facing consent sheet of record (data-flow map incl.)
+│   ├── TASK_CATEGORIES.md             ← the 11-category catalog: selection rationale, sources, HED/UT plan
+│   ├── SYLLABUS_BLURB.md              ← copy-paste syllabus text (sessions, lab project, capstone)
+│   ├── archive/                       ← retired design documents, kept for the record
 │   └── sample_report.html             ← SAMPLE cohort report (synthetic data) — what analyze_cohort.py produces
 ├── COURSE_PLAN_1WEEK.md               ← THE operative plan (single authority on the route decision): Sessions 6–10, 3 h/day per section, N=161
 ├── data-pipeline/                     ← OPTIONAL research add-on (post-course precise history via official export)
@@ -186,8 +194,12 @@ dt-lab/
 └── provisioning/                      ← the local-VM FALLBACK route
     ├── VM_DISTRIBUTION.md             ← hypervisor choice + the staged testing funnel & triage table
     ├── host_check.sh / host_check.ps1 ← student-side host compatibility check (fallback route only)
+    ├── hermes_config.template.yaml    ← per-run Hermes model config template (the ONE schema patch point for the pinned release)
     ├── provision.sh                   ← builds the golden VM image (instructor, once per architecture)
     └── student_start.sh               ← the one command students run (`dtlab-start`) — used on BOTH routes
+(counterbalance.csv joins the repo root at design freeze — instructor-generated
+from the roster by tools/make_counterbalance.py; provisioning refuses to build
+without it.)
 ```
 
 ## Precise history capture (OPTIONAL research add-on — official export only)
@@ -256,11 +268,18 @@ hard-coded anywhere.
   per-student — ~80 concurrent agents share nothing, and one agent's
   ~4–12 requests/minute sits far below any per-account limit; prompt-cache
   reads do not count toward input-token limits on current models.
-- During image build, run `hermes setup` and select **Anthropic** as
-  provider with the key left blank; `dtlab-start` collects each student's
+- Provider and model are configured **per run, not interactively**:
+  `dtlab-start` generates each run's `$HERMES_HOME/config.yaml` from
+  `provisioning/hermes_config.template.yaml` with the pinned model ID
+  for that run's tier, verifies it, and fails closed on any mismatch —
+  no `hermes setup` provider step is relied on. `dtlab-start` collects
+  each student's
   key on first run — silently (input hidden, so it can never appear in a
-  screen recording), stored only in a 600-permission `~/.dtlab_env` file,
-  and redacted from any packed log by `dtlab-pack`.
+  screen recording), verified against the Claude API (fail-closed; a
+  network failure needs a typed TA `OVERRIDE`, which is recorded),
+  stored only in a 600-permission `~/.dtlab_env` file,
+  and redacted from any packed log by `dtlab-pack`. A one-time
+  confirmation that the ~$20 spend limit is set is recorded and packed.
 - **Model policy: Anthropic models only, all settings at defaults** (no
   temperature or sampling overrides — agent runs are interactive tool-use
   sessions, not elicitation calls). Budget guidance: a full task-set run
@@ -376,8 +395,9 @@ per-run condition + tier recorded, verdicts present and consistent for
 every run — it cross-checks each verdict against the
 ASINs, enforcing 'identical' exactly when agent and student chose the same
 product — plus the manipulation check on every ablated log and the
-picks-vs-cart cross-check), auto-collects Hermes session
-logs modified since `dtlab-start` touched the run marker, computes SHA-256
+picks-vs-cart cross-check), collects each run's Hermes transcripts
+from that run's own Hermes home (per-run; a completed run without a
+trace is a blocking issue), computes SHA-256
 hashes into `manifest.json`, and renders `report.html` — a single
 self-contained page with the side-by-side picks tables (one per run),
 verdicts, embedded cart screenshots, and the decision logs inline, so
@@ -446,26 +466,39 @@ Download all zips from the LMS into one folder, then:
 python3 tools/analyze_cohort.py --zips ~/Downloads/submissions --out cohort_report.html
 ```
 
-(`pip install pandas plotly`; scipy optional for exact tests.)
+(`pip install pandas plotly`, versions pinned in ci.yml; scipy
+optional.) Useful flags: `--decisions decisions.csv` (auditable
+include/exclude overrides for quarantined packs), `--export-runs` /
+`--export-hth` (the `dtlab-runs-v1` / `dtlab-hth-v1` research tables),
+`--hedut hedut_responses.csv` (the Session-10 HED/UT poll), and
+`--identified` (instructor-only diagnostic copy with pseudonyms in
+hover — the default class report carries none).
 **See [docs/sample_report.html](docs/sample_report.html) for a complete
 sample** — generated from a small synthetic cohort fabricated by
 `tests/test_analyze_cohort.py` and clearly titled as such; every number
 in it is fake, but the layout, charts, statistics, and branding are
 exactly what a real cohort produces. The output
 is ONE self-contained HTML report for the class debrief: verdict
-distributions by task and agent type (persona / ablated / single),
-acceptable-pick rates with 95% CIs, head-to-head winners and pick overlap
-(ablation design), own-vs-agent satisfaction ratings, price scatter and
+distributions by task, grounding, and tier,
+acceptable-pick rates with cluster-bootstrap 95% CIs, head-to-head
+winners and pick overlap, own-vs-agent satisfaction ratings, price
+scatter and listed-price
 budget compliance, brand/price alignment with the purchase profile,
-history-length descriptives, contamination by arm, a statistics table
-(sign test, binomial, two-proportion, Wilcoxon), and a data-quality
-section. Charts are plotly (hover/zoom live in the HTML).
+history-length descriptives, contamination against the cross-student
+permutation baseline, a statistics table (H1–H3 with student-level
+sign-flip permutation p-values, Holm-adjusted over exactly that family;
+everything else exploratory), robustness rows, quarantine and
+version-count tables, and a data-quality
+section. Packs with validation issues, mismatched configurations, or
+duplicate IDs are quarantined from the confirmatory set by default and
+listed with machine-readable reasons. Charts are plotly (hover/zoom
+live in the HTML).
 
 Everything else — Hermes, Playwright, Chromium, SOUL.md, scripts, aliases —
 is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
 `provisioning/provision.sh` (VM fallback).
 
-## Build checklist (instructor)
+## Build checklist (TA executes; instructor signs off)
 
 - [ ] Consent & data-use sheet finalized and staged on the LMS
       (`docs/CONSENT_AND_DATA_USE.md` — set the withdrawal date and
@@ -488,7 +521,12 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
 ## Known-fragility register
 
 1. **Hermes release drift** — commands/paths may shift between now and fall
-   2026; the docs are canonical, the handout is best-effort.
+   2026; the docs are canonical, the handout is best-effort. The
+   version-sensitive surfaces each have ONE patch point, validated
+   against the pinned release at the dry run:
+   `provisioning/hermes_config.template.yaml` (model-config schema),
+   the transcript-collection subpath in `tools/pack_evidence.py`, and
+   the `HERMES_HOME` delivery in `provisioning/student_start.sh`.
 2. **Amazon export format drift** — `clean_privacy_export.py` matches
    `Retail.OrderHistory*` headers fuzzily across export versions; if
    Amazon renames columns, its ALIASES map is the single patch point.
@@ -523,6 +561,12 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
 
   then run `dtlab-start` again. Rebuilding the container also clears the
   key by design — re-entering it is expected, not a fault.
+
+- **"Stale prebuild" refusal at pre-flight** — the codespace was built
+  from a commit older than the course freeze (`DTLAB_EXPECTED_COMMIT`).
+  Rebuild the container (Command Palette → "Codespaces: Rebuild
+  Container") or create a fresh codespace; the check exists so no one
+  runs the week on an outdated kit.
 
 - **Codespace stops mid-run (idle timeout)** — set the idle timeout to
   240 minutes at [github.com/settings/codespaces](https://github.com/settings/codespaces)

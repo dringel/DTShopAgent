@@ -36,12 +36,17 @@ anything (long version: README > "How this actually runs"):
 ## Read in this order (30 minutes)
 1. `COURSE_PLAN_1WEEK.md` — THE operative plan (Sessions 6–10, 3 h/day per section, the four-run 2×2).
 2. `README.md` — file map + the seven deliverables and how each is captured.
-3. `agent/SOUL.md` — the agent's identity, Bootstrap (it reads the user's
-   amazon.in order history itself), the ECP logging protocol (incl. the
-   machine-parsed `CAND |` candidate lines), hard boundaries. Then skim
-   `agent/SOUL_ablated.md` — the questionnaire-free variant used by the
-   optional ablation factor; the two must stay in lockstep on
-   boundaries and logging format.
+3. `agent/SOUL.md` — the agent's identity, the ECP logging protocol
+   (incl. the
+   machine-parsed `CAND |` candidate lines and the `PROTOCOL |` token
+   that proves which SOUL a run loaded), hard boundaries. Then skim the
+   three sibling variants: `agent/SOUL_ablated.md` (questionnaire-free,
+   for the ablated cells), `agent/SOUL_bootstrap.md` (the one-time
+   questionnaire-blind session that writes the frozen purchase
+   profile), and `agent/SOUL_sandbox.md` (practice store). All four
+   must stay in lockstep on
+   boundaries and logging format; each run receives exactly one of
+   them through its own Hermes home.
 4. `PERSONALIZATION_PROTOCOL.md` — the contamination model: pause
    Browsing History daily (Layer 1), targeted block + provenance-logged
    candidates (2), measured index per run (3), order design + assessment
@@ -67,13 +72,21 @@ anything (long version: README > "How this actually runs"):
 ## The student-facing surface (all of it)
 Six commands inside a Codespace built from this repo (`dtlab-record` optional):
 `dtlab-shop` (logged own shopping, Wednesday — picks committed before
-any agent run) · `dtlab-start` (pre-flight + agent; run once per agent
+any agent run; ONE attempt, a redo needs a TA reset) · `dtlab-start`
+(pre-flight + agent; its first Thursday invocation runs the bootstrap
+phase that writes and freezes the purchase profile, then once per agent
 run — four total across Thursday/Friday, it announces which run and
-which condition, swaps the workspace state itself, and walks crash
-recovery) · `dtlab-cart` (run by the PARTNER after each agent run: automatic cart
-screenshot + parsed cart contents, cross-checked against the agent's
-picks at pack time) · `dtlab-verdict` (guided verdict/rating/rationale
-capture — structured, no markdown editing) · `dtlab-record` (screen
+which condition, builds each run's own Hermes home with the right SOUL
+and pinned model, and walks crash
+recovery) · `dtlab-cart` (run by the PARTNER after each agent run:
+automatic cart
+screenshot + parsed cart contents, checked ON THE SPOT against the
+agent's picks — exact match required, fix and recapture before
+emptying — plus the CAPTCHA/intervention counts) · `dtlab-verdict` (the
+single blind Friday session after run 4: guided verdict/rating/
+rationale capture, structured, no markdown editing; stored answers are
+final — corrections only via `dtlab-verdict --amend` with a TA) ·
+`dtlab-record` (screen
 capture, optional) · `dtlab-pack` (validated submission zip, Friday,
 uploaded via the BITSoM LMS assignment). Human-first ordering is
 enforced by the pre-flight (hard gate: no agent run without
@@ -88,8 +101,12 @@ Every claim the experiment must defend is enforced by code or measured as
 data (`docs/design_rationale.md` §11 closes on this principle). The
 concrete machinery, so you recognize it when you see it:
 
-- **Quarantine + ordering:** `~/dtlab/human/` is agent-barred (SOUL.md
-  boundary + pre-flight + packer check); arm ordering is verified against
+- **Quarantine + ordering:** everything the agent must never see —
+  the human session, the verdicts, held persona files — lives under
+  the quarantine root `~/dtlab/quarantine/` (SOUL
+  boundary + pre-flight + packer checks, plus a pack-time transcript
+  scan that BLOCKS on any quarantine-path reference); human-first
+  ordering is verified against
   file timestamps at packing.
 - **Verdict integrity:** `verdicts.csv` from `dtlab-verdict` is the
   primary verdict record (`comparison.md` memo parsing is the fallback),
@@ -163,13 +180,6 @@ concrete machinery, so you recognize it when you see it:
   anything the tests cover, the tests tell you.
 
 ## Your open work items (rough priority order)
-- [x] ~~Transfer the instrument into `questionnaire_items.csv`~~ — DONE
-      (2026-07-22): 115 items generated from
-      `questionnaire/questionnaire_instrument_source.md`; item count now lives in
-      `dtlab_config.env` (`DTLAB_EXPECTED_ITEMS=115`, with a matching
-      fallback in `provisioning/student_start.sh`); anti-stereotyping
-      line added to `agent/SOUL.md` (ECP). Remaining instrument work is
-      verification, not authoring.
 - [ ] **Verify the CSV against the source doc** item-by-item (codes,
       wording, options, constraint flags on VC01–VC05 only), then build
       the Form via `build_form.gs`, test-submit once, and spot-check the
@@ -177,11 +187,6 @@ concrete machinery, so you recognize it when you see it:
       Agree strongly", AC 9-point, RF 7-point, TS01 11-point. Delete the
       test row. **Freeze the instrument at Form build** — any later
       change = new schema version + matching source-doc edit.
-- [x] ~~Model-tier decision~~ — DECIDED (2026-07-23, amended
-      2026-07-26): tier is within-student, with tier ORDER
-      counterbalanced across the two lab days per student (the
-      counterbalance sheet assigns it), part of the four-run 2×2.
-      Per-run tier + model configuration ship with the run tooling.
 - [ ] **Finalize the FIVE categories with the professor.** The design
       is five self-purchase categories from the **11-category catalog**
       in `tasks_config.csv` (rationale and sources in
@@ -226,10 +231,6 @@ concrete machinery, so you recognize it when you see it:
       model-tier decision. Note: the course runs at model defaults —
       the thinking-on/off variants are measured here for cost
       information, not as a change to the run policy.
-- [x] ~~Questionnaire-ablation decision~~ — DECIDED (2026-07-23): ON
-      for everyone (`DTLAB_PERSONA_FACTOR=1` shipped), run on BOTH days
-      as half of the 2×2. Per-day counterbalanced grounding order goes
-      on the LMS assignment sheet; students' personal spend limit is $20.
 - [ ] Turn this repo into a **template repo** (Settings → Template
       repository) once the Form is frozen.
 - [ ] **Pin the installers** (see "Updating installer pins" below) —
@@ -237,17 +238,14 @@ concrete machinery, so you recognize it when you see it:
       `UNPINNED`. Then enable **Codespaces prebuilds** on the template
       repo so all students share one frozen, pre-tested image.
 - [ ] **Full dry run from a Codespace** against real amazon.in with a real
-      account: build time, `hermes setup` flow, `/browser connect`,
-      Bootstrap (order-history reading quality), one complete task,
+      account: build time, `/browser connect`, the bootstrap session
+      (order-history reading quality), one complete task,
       CAPTCHA frequency from Azure IPs. This dry run decides
       Codespaces-vs-fallback (see CLOUD_SETUP.md decision rule). Log
       every deviation from the docs — Hermes moves fast; our pinned
       commands may lag a release. Work ALL items of the **live
-      T-21 dry-run list at the top of `docs/CHANGELOG.md`** during this
-      run (browser attach, transcript paths, pins, noVNC password,
-      model-ID capture, quotas, Forms scale, profile sharing,
-      breadcrumb selector, CAND compliance, tier cost benchmark,
-      category links, cart selectors) and tick them off there.
+      dry-run checklist at the top of `docs/CHANGELOG.md`** during this
+      run and tick them off there.
 - [ ] Validate the fragile DOM-dependent code against live amazon.in:
       `tools/log_human_session.py` (cart-click selector, breadcrumb
       category selector, URL parsing) and `tools/capture_cart.py`
@@ -294,8 +292,17 @@ concrete machinery, so you recognize it when you see it:
 - [ ] After submissions close: bulk-download all zips from the BITSoM
       LMS into one folder (LMS renaming of files is harmless — identity
       comes from inside the zip) and run `python3 tools/analyze_cohort.py --zips <folder>`
-      (needs `pip install pandas plotly`, scipy optional) — it produces
-      the self-contained cohort report for the debrief session. Open
+      (needs `pip install pandas plotly` at the ci.yml-pinned versions,
+      scipy optional) — it produces
+      the self-contained cohort report for the debrief session. Packs
+      with validation issues, mismatched config hashes, or duplicate
+      IDs are QUARANTINED from the confirmatory set by default (listed
+      with reasons in the report); include/exclude overrides go through
+      `--decisions decisions.csv`, which the report echoes verbatim.
+      The class copy carries no pseudonyms — a hover-identified
+      diagnostic copy needs `--identified` and stays with the
+      instructor. Attach the Session-10 poll with `--hedut`; export the
+      research tables with `--export-runs` / `--export-hth`. Open
       `docs/sample_report.html` FIRST to see exactly what you should
       get (synthetic data, marked as such — regenerate it anytime with
       the fabricator in `tests/test_analyze_cohort.py`). Skim each
@@ -303,18 +310,29 @@ concrete machinery, so you recognize it when you see it:
       grading; the same test shows the expected zip shape if a
       submission fails to parse.
 
-## Instructor-only work items (Daniel) — each with its procedure
+## The T-21 trial run — TA work items (each with its procedure)
 
-These cannot be delegated to the TA or closed in code. Work them in
-this order; the go/no-go gate list at the end is the release decision.
+**Your mission, starting now:** you have the repo — build a fresh
+codespace from it, run the entire lab end-to-end yourself (build →
+persona → sandbox run → dtlab-shop → bootstrap → all four runs →
+dtlab-cart → dtlab-verdict → dtlab-pack → analyzer), work EVERY item
+below plus the open work items above, and fix what breaks. Ground
+rules for fixes: keep all four suites + ruff + shellcheck +
+`tests/check_docs.py` green on every commit; log every change and
+every deviation from the docs in `docs/CHANGELOG.md`; anything on the
+must-not-touch list (both SOULs, `templates/`, `tasks_config.csv`,
+`tools/pack_evidence.py`, the instrument, the factor switches) gets a
+proposed fix + instructor sign-off before it lands, never a silent
+edit. Items 1–7 are yours to execute; the instructor items in the next
+section are the only things you hand back up.
 
-1. **Pin Hermes and validate its context + model mechanics (T-21,
-   blocks everything).**
-   (a) Pick the Hermes release for the course; download its installer
+1. **Pin Hermes and validate its context + model mechanics (blocks
+   everything).**
+   (a) Pick the current stable Hermes release; download its installer
    at the exact URL in `.devcontainer/setup.sh`, read it once, compute
    `sha256sum`, and pin URL + hash in BOTH provisioners (procedure
    below). (b) On a clean build of that exact release, verify the three
-   behaviors the kit now depends on: `HERMES_HOME` redirection (a SOUL
+   behaviors the kit depends on: `HERMES_HOME` redirection (a SOUL
    placed at `$HERMES_HOME/SOUL.md` is loaded; the working-directory
    copy is ignored), the `config.yaml` schema the launcher's template
    generates (model + provider fields accepted; adjust
@@ -322,13 +340,14 @@ this order; the go/no-go gate list at the end is the release decision.
    expects different keys), and where transcripts land inside the run
    home (adjust the packer's collection subpath if needed). (c) Record
    all three findings in the CHANGELOG T-21 list.
-2. **Pin the exact model IDs.** Choose the economy (Haiku-class) and
-   frontier (Sonnet-class) model IDs from the Anthropic models list,
-   enter them in `dtlab_config.env` (`DTLAB_MODEL_ECONOMY`,
-   `DTLAB_MODEL_FRONTIER`) — the launcher refuses to run while they
-   read `PIN-AT-DRYRUN`. Freeze a pricing note (per-MTok prices +
-   date) in the CHANGELOG if cost comparisons will be discussed.
-3. **Dry-run integration canaries (T-21, with a real account).** In a
+2. **Pin the exact model IDs.** Confirm the two tier models with the
+   instructor (economy = current Claude Haiku class, frontier = current
+   Claude Sonnet class), then enter the exact IDs in `dtlab_config.env`
+   (`DTLAB_MODEL_ECONOMY`, `DTLAB_MODEL_FRONTIER`) — the launcher
+   refuses to run while they read `PIN-AT-DRYRUN`. Record a pricing
+   note (per-MTok prices + date) in the CHANGELOG while you're there;
+   the cost benchmark item above fills in the measured numbers.
+3. **Integration canaries (with a real account).** In a
    clean codespace from the pinned commit: (a) protocol-token check —
    after each condition's sandbox/pilot run, the decision log must
    open with that SOUL variant's `PROTOCOL |` token (proves the agent
@@ -340,43 +359,31 @@ this order; the go/no-go gate list at the end is the release decision.
    and the packer's leakage scan must flag a planted violation;
    (d) bootstrap freeze — after the bootstrap phase, confirm
    `purchase_profile.md` is read-only and the hash check trips if you
-   edit it; (e) the full go/no-go list below.
-4. **OS-user isolation prototype (dry-run option, not a blocker).**
+   edit it. Anything that fails is yours to diagnose and fix (ground
+   rules above).
+4. **OS-user isolation prototype (optional, not a blocker).**
    If time allows, try running Hermes as a second Unix user with
    group-denied read on `~/dtlab/quarantine/` in a scratch codespace.
-   Adopt for the course ONLY if the browser/CDP/key plumbing survives
+   Recommend adoption ONLY if the browser/CDP/key plumbing survives
    untouched; otherwise the shipped detection layer is the accepted
    posture (design_rationale §5b states it honestly).
-5. **Legal & governance determinations (before the Form opens).**
-   You operate as a sole-proprietor firm in Germany, externally
-   contracted by BITSoM — so: (a) obtain BITSoM's institutional
-   determination for running the study within the course; (b) obtain
-   an independent research-ethics review (no university IRB attaches
-   to this engagement; a commercial/independent board or an
-   equivalent documented review); (c) obtain German/EU privacy advice
-   on the controller structure, the India→Germany transfer, and the
-   DPDP phase-in; (d) confirm the actual Anthropic API data-retention
-   terms for your account tier; (e) obtain a terms-of-service
-   assessment for the Amazon interaction; (f) enter the outcomes into
-   the bracketed fields of `docs/CONSENT_AND_DATA_USE.md` and
-   research_protocol §3. The repo reports these determinations; it
-   does not make them.
-6. **Consent finalization workflow.** The rewritten
-   `docs/CONSENT_AND_DATA_USE.md` (data-flow map, pseudonymization
-   language, sensitive-item default + opt-out, account risk) is
-   instructor-approved only after YOU sign off word by word. After
-   sign-off, the Form checkbox texts in `questionnaire/build_form.gs`
-   and the AGREE gate text in `provisioning/student_start.sh` must be
-   brought into lockstep — file the exact wording to Claude Code, do
-   not let the three drift.
-7. **Freeze mechanics.** At design freeze: generate + validate +
-   hash `counterbalance.csv` (work item above), set
-   `DTLAB_EXPECTED_COMMIT` in `dtlab_config.env` to the frozen commit
-   (the runtime check that catches stale prebuilds), make the repo a
-   template, enable prebuilds, and re-verify CI green on the frozen
-   commit.
-8. **Go/no-go gates (all must pass before the cohort touches it).**
-   A clean codespace from the pinned commit loads the intended
+5. **Consent text lockstep.** The consent sheet
+   `docs/CONSENT_AND_DATA_USE.md` is instructor-approved as written —
+   treat its wording as frozen. Bring the Form
+   checkbox texts in `questionnaire/build_form.gs` and the AGREE gate
+   text in `provisioning/student_start.sh` into lockstep with it —
+   the three must never drift; the bracketed fields (dates, contacts,
+   determinations) are filled by the instructor at term start.
+6. **Freeze mechanics.** At design freeze: generate + validate +
+   hash `counterbalance.csv` from the final roster (work item above),
+   set `DTLAB_EXPECTED_COMMIT` in `dtlab_config.env` to the frozen
+   commit (the runtime check that catches stale prebuilds), make the
+   repo a template, enable prebuilds, and re-verify CI green on the
+   frozen commit. The instructor confirms the freeze; you execute it.
+7. **Run the go/no-go gate checks and report.** Verify every gate and
+   hand the instructor a pass/fail list — the go decision is theirs,
+   the evidence is yours:
+   a clean codespace from the pinned commit loads the intended
    per-run context (token check) · each cell uses its assigned exact
    model ID · forbidden files are refused and detectable · memory and
    sessions do not cross runs (fresh homes verified) · one frozen
@@ -386,10 +393,35 @@ this order; the go/no-go gate list at the end is the release decision.
    tasks · an adversarial final zip contains no secret, identifier,
    or unsafe screenshot · the full test suite completes under
    explicit timeouts · the analyzer passes its null, missingness, and
-   mixed-version simulations · determinations from item 5 are on
-   file · the participant notice matches the actual data flow · a
-   multi-account end-to-end pilot completes all four cells without
-   manual repair.
+   mixed-version simulations · the participant notice matches the
+   actual data flow · a multi-account end-to-end pilot completes all
+   four cells without manual repair.
+
+## Instructor decisions & sign-offs (Daniel) — not delegable
+
+The TA runs the machine; these calls stay with the instructor:
+
+1. **Legal & governance determinations (before the Form opens).**
+   The instructor operates as a sole-proprietor firm in Germany,
+   externally contracted by BITSoM: (a) BITSoM's institutional
+   determination for running the study within the course; (b) an
+   independent research-ethics review (no university IRB attaches
+   to this engagement); (c) German/EU privacy advice
+   on the controller structure, the India→Germany transfer, and the
+   DPDP phase-in; (d) confirmation of the actual Anthropic API
+   data-retention terms for the account tier; (e) a terms-of-service
+   assessment for the Amazon interaction; (f) the outcomes entered
+   into the bracketed fields of `docs/CONSENT_AND_DATA_USE.md` and
+   research_protocol §3. The repo reports these determinations; it
+   does not make them.
+2. **Design sign-offs:** the final five categories, the instrument
+   freeze (incl. the PR09 keep-or-swap call), the tier model choices,
+   any change the TA proposes to must-not-touch files, and the freeze
+   itself.
+3. **The go/no-go decision** on the TA's gate report, and the course-
+   week duties in COURSE_PLAN_1WEEK.md (assignment sheet release,
+   overnight persona batch, the cohort report after Friday, the
+   capstone brief).
 
 ## Updating installer pins (supply-chain hygiene)
 
@@ -413,8 +445,9 @@ exists only for throwaway test builds.
 ## Things you must NOT do
 - Commit any student data or API keys (`.gitignore` blocks the obvious
   paths — think before you `git add -f`).
-- Weaken the bias quarantine (`~/dtlab/human/` vs agent workspace), the
-  arm-aware ordering checks, the verdict–ASIN cross-check, or the
+- Weaken the bias quarantine (`~/dtlab/quarantine/` vs agent
+  workspace), the per-run Hermes-home treatment delivery, the
+  ordering checks, the verdict–ASIN cross-check, or the
   redaction pass in `pack_evidence.py`; they are what makes the
   experiment sound and safe.
 - "Fix" CAPTCHA friction with stealth/evasion tooling — out of scope by

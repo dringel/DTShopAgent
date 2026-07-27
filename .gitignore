@@ -55,3 +55,4 @@ scrape_errors.log
 
 # ---- Working material (never commit) ----
 CLAUDE_CODE_HANDOVER_*.md
+private/
