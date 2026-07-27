@@ -20,13 +20,22 @@ and all agent runs). Every student's picks are
 committed on Wednesday; every agent then runs the SAME task set **four
 times** in a within-student 2×2 — grounding (persona = questionnaire +
 purchase profile vs. ablated = purchase profile only) × model tier
-(economy/Haiku-class on Thursday vs. frontier/Sonnet-class on Friday).
-Grounding order is counterbalanced within each day (per-day
-P_FIRST/NP_FIRST on the LMS list); tier is deliberately confounded with
-day and stated as such in the methods. All students are human-first;
+(economy/Haiku class vs. frontier/Sonnet class). **Tier order is
+counterbalanced across the two lab days at the student level**: per the
+counterbalance sheet, half of each section runs the economy model on
+Thursday and the frontier model on Friday, the other half the reverse —
+so the tier effect is identified separately from the day. Grounding
+order is counterbalanced within each day (per-day
+P_FIRST/NP_FIRST on the LMS list, orthogonal to tier order). Before any
+treatment run, the agent writes the student's purchase profile once in
+a short questionnaire-blind bootstrap session (Thursday, before run 1);
+the profile is frozen and shared by all four runs. All students are
+human-first;
 **nobody watches their own agent** — self-selected pairs swap seats for
 every run (assessment blinding + CAPTCHA handling; see
-PERSONALIZATION_PROTOCOL.md Layer 4). Recommended personal spend limit:
+PERSONALIZATION_PROTOCOL.md Layer 4) — and **all verdicts are captured
+in one blind Friday session** after run 4, where neither grounding nor
+tier is knowable at judgment time. Recommended personal spend limit:
 **$20** (four runs ≈ $3–6 with retries).
 
 Three standing simplifications carried over from earlier drafts: the
@@ -48,7 +57,9 @@ Sunday:
 - [ ] Form built + test-submitted; instrument frozen.
 - [ ] Assignment sheet ready to hand out Monday: pseudonym + per-day
       grounding order (Thu: P_FIRST/NP_FIRST; Fri: independently
-      re-randomized), stratified by section; pairing instructions
+      re-randomized) + **tier order** (economy-first or frontier-first
+      across the two days), all stratified by section and generated
+      together by `tools/make_counterbalance.py`; pairing instructions
       (self-selected pairs, registered on the sheet).
 - [ ] Consent sheet + the LMS checklist pages staged (released Monday).
 - [ ] Installer checksums pinned, template repo + Codespaces prebuilds
@@ -101,26 +112,28 @@ Tuesday-morning stragglers are recoverable).
 | 1:30–2:20 | **`dtlab-shop`** — everyone shops their tasks themselves, ONE AT A TIME in their assigned order (the terminal walks them through; Enter after each cart-add — this is what makes per-task searches/views/time exactly measurable), amazon.in login (OTP phones out), pick confirmation → committed picks. |
 | 2:20–3:00 | Problem-resolution buffer: TAs clear every remaining red pre-flight; anyone not green books office hours before Thursday. |
 
-## Session 9 (Thu) — "When to Specialize" + Experiment I: the economy twin (2 runs)
+## Session 9 (Thu) — "When to Specialize" + Experiment I: runs 1–2 (day-1 tier)
 
 | Time | Activity |
 |---|---|
-| 0:00–0:30 | Lecture + reading discussion: "When to Specialize" — GenAI model portfolios for demand sensing, framed by today's live question (you run the economy model today; Friday tests whether the frontier model earns its price). |
+| 0:00–0:30 | Lecture + reading discussion: "When to Specialize" — GenAI model portfolios for demand sensing, framed by the week's live question (half the room runs the economy model today and the frontier model tomorrow; the other half the reverse — Friday's blind verdicts decide whether the frontier model earns its price). |
 | 0:30–0:40 | Re-pause browsing history (pre-flight gate); pairs seated together; login check. |
-| 0:40–1:35 | **Agent run 1** (economy tier; grounding per assigned order) — **swap seats**: partner babysits, handles CAPTCHAs, then runs `dtlab-cart` (automatic cart screenshot + parsed cart contents, cross-checked against the agent's picks at pack time) and empties the cart. |
-| 1:35–1:45 | Swap back; break. Owners do NOT open logs yet. |
-| 1:45–2:40 | **Agent run 2** (economy tier; other grounding) — same swap protocol; `dtlab-cart`; cart emptied. |
-| 2:40–3:00 | Owners open their artifacts for the first time and run **`dtlab-verdict`** — a guided prompt capturing, per task and run: verdict (better/identical/equivalent/inferior), own and agent satisfaction ratings (1–10), and a one-line rationale. Structured capture, no markdown editing. |
+| 0:40–0:50 | **Bootstrap phase** (first `dtlab-start`): the agent reads the student's order history and writes the frozen purchase profile — questionnaire-blind, partner supervising; no shopping happens. |
+| 0:50–1:40 | **Agent run 1** (day-1 tier per the sheet; grounding per assigned order) — **swap seats**: partner babysits, handles CAPTCHAs, then runs `dtlab-cart` (cart screenshot + parsed contents, checked live against the agent's picks; intervention counts recorded) and empties the cart with Delete. |
+| 1:40–1:50 | Swap back; break. Owners do NOT open logs or artifacts — verdicts happen Friday, blind. |
+| 1:50–2:45 | **Agent run 2** (day-1 tier; other grounding) — same swap protocol; `dtlab-cart`; cart emptied. |
+| 2:45–3:00 | Buffer + Q&A: TAs clear red pre-flights for Friday; partners confirm both runs' cart evidence is on file. No artifact viewing — Friday's verdict session is blind. |
 
-## Session 10 (Fri) — Experiment II: will a better model do better? + debrief
+## Session 10 (Fri) — Experiment II: runs 3–4 + the blind verdict session + debrief
 
 | Time | Activity |
 |---|---|
 | 0:00–0:15 | **Re-pause browsing history** (the 1-day pause has lapsed — pre-flight gates on it); pairs seated. |
-| 0:15–1:10 | **Agent run 3** (frontier tier; grounding per Friday's re-randomized order) — swap protocol; `dtlab-cart`. |
-| 1:10–2:00 | **Agent run 4** (frontier tier; other grounding) — swap protocol; `dtlab-cart`; cart emptied. |
-| 2:00–2:35 | `dtlab-verdict` (frontier rows, head-to-heads, tier question, Overall reflections); `dtlab-pack`; upload the single zip via the BITSoM LMS assignment. |
-| 2:35–3:00 | Debrief: hyperpersonalization / agentic demand commitments as the closing frame + live verdict poll from the room. |
+| 0:15–1:10 | **Agent run 3** (day-2 tier per the sheet; grounding per Friday's re-randomized order) — swap protocol; `dtlab-cart`. |
+| 1:10–2:00 | **Agent run 4** (day-2 tier; other grounding) — swap protocol; `dtlab-cart`; cart emptied. |
+| 2:00–2:35 | **The blind verdict session** — `dtlab-verdict`, once, over all four runs: per task, the four picks appear as Run A–D (neither grounding nor tier identifiable); verdicts, ratings, rationales, head-to-heads; then the reveal; then Overall reflections. Stored verdicts are final. |
+| 2:35–2:50 | `dtlab-pack`; upload the single zip via the BITSoM LMS assignment. |
+| 2:50–3:00 | Debrief: hyperpersonalization / agentic demand commitments as the closing frame + live verdict poll from the room. |
 
 **After Friday:** instructor runs `tools/analyze_cohort.py` across both
 sections' zips, shares the cohort report with the class (weekend).

@@ -93,14 +93,22 @@ concrete machinery, so you recognize it when you see it:
   file timestamps at packing.
 - **Verdict integrity:** `verdicts.csv` from `dtlab-verdict` is the
   primary verdict record (`comparison.md` memo parsing is the fallback),
-  cross-checked against the picks files' ASINs. Capture is BLIND: each
-  task's picks appear as Run A–D in a per-task randomized order, with
-  condition and tier resolved into the CSV only after the verdicts are
-  stored (`verdicts_captured_blind` in the manifest) — never tell a
+  cross-checked against the picks files' ASINs. Capture is BLIND and
+  happens ONCE, in Friday's single session after run 4: each
+  task's four picks appear as Run A–D in a per-task randomized order,
+  and because tier order is counterbalanced across days, neither
+  grounding nor tier is knowable at judgment time; condition and tier
+  are resolved into the CSV only after the verdicts are
+  stored (`verdicts_captured_blind` + `single_session` in the
+  manifest) — never tell a
   student mid-capture which run was which; the tool reveals the mapping
-  itself once verdicts are on file. The artifacts live in
-  `~/dtlab/verdicts/`, outside the agent workspace, so a Friday agent
-  cannot read Thursday's judgments.
+  itself once every verdict and head-to-head is on file. Stored
+  verdicts are IMMUTABLE — corrections go through `dtlab-verdict
+  --amend` (reason + TA authorization, append-only, own timestamp);
+  never edit the CSV. The artifacts live in
+  the quarantine root (`~/dtlab/quarantine/verdicts/`), outside every
+  path an agent run receives, so a Friday agent
+  cannot read any judgment.
 - **Secrets:** the API key is collected hidden, lives only in a
   600-permission `~/.dtlab_env`, and `dtlab-pack` content-redacts key
   patterns from every packed text file (see `redaction_report` in each
@@ -120,16 +128,29 @@ concrete machinery, so you recognize it when you see it:
   run), and pack-time attempt detection (any checkout-shaped URL in a
   log is a blocking validation issue). Payment-method removal stays in
   the pre-flight as hygiene, not as the guarantee.
-- **Ablation integrity:** an ablated run's persona files are physically
-  absent, each run's log is archived before the next run starts, and
-  the packer's manipulation check fails any ablated log (either day)
-  that cites persona item codes. Per-run condition + tier land in the
-  manifest; `dtlab-cart`'s parsed cart JSON is cross-checked against
-  the agent's self-reported picks (`cart_verified` per run). Its parser
+- **Treatment delivery + ablation integrity:** every run launches in
+  its own fresh Hermes home (`runs/runN/hermes_home/`) into which
+  `dtlab-start` writes the condition's SOUL and a config naming the
+  exact pinned model for that run's tier — Hermes loads instructions
+  from `$HERMES_HOME/SOUL.md`, NOT from the working directory, which is
+  why this mechanism (and nothing else) is the treatment delivery; the
+  launcher fails closed on any config mismatch and hashes both files
+  into the run record. An ablated run's persona files sit in the
+  quarantine root, each run's log is archived before the next run
+  starts, no memory or session state crosses runs, and
+  the packer's checks fail any run whose decision log lacks the loaded
+  SOUL's protocol token, any ablated log
+  that cites persona item codes, and any transcript referencing
+  quarantine paths. Per-run condition + tier + hashes land in the
+  manifest; `dtlab-cart`'s parsed cart JSON is checked LIVE against
+  the agent's self-reported picks — exact match required (extras,
+  duplicates, or quantity >1 must be fixed and recaptured before the
+  cart is emptied; `cart_verified` per run records it). Its parser
   reads the ACTIVE cart only, and it warns when it sees items parked in
   "Saved for later" — teach partners to empty the cart with **Delete**,
   never "Save for later" (the most discoverable button, and the one that
-  silently corrupts every later run's cart evidence).
+  silently corrupts every later run's cart evidence). The partner also
+  records CAPTCHA/intervention counts when `dtlab-cart` asks.
 - **Issues vs warnings:** the packer HARD-FAILS on anything the student
   can fix (missing files, placeholder verdicts, bad ASINs — exit
   non-zero with a fix list) and records the rest as non-blocking
@@ -144,7 +165,7 @@ concrete machinery, so you recognize it when you see it:
 ## Your open work items (rough priority order)
 - [x] ~~Transfer the instrument into `questionnaire_items.csv`~~ — DONE
       (2026-07-22): 115 items generated from
-      `questionnaire_instrument_source.md`; item count now lives in
+      `questionnaire/questionnaire_instrument_source.md`; item count now lives in
       `dtlab_config.env` (`DTLAB_EXPECTED_ITEMS=115`, with a matching
       fallback in `provisioning/student_start.sh`); anti-stereotyping
       line added to `agent/SOUL.md` (ECP). Remaining instrument work is
@@ -156,14 +177,15 @@ concrete machinery, so you recognize it when you see it:
       Agree strongly", AC 9-point, RF 7-point, TS01 11-point. Delete the
       test row. **Freeze the instrument at Form build** — any later
       change = new schema version + matching source-doc edit.
-- [x] ~~Model-tier decision~~ — DECIDED (2026-07-23): tier is
-      within-student by day (economy Thursday, frontier Friday), part of
-      the four-run 2×2. Per-run tier capture ships with the 4-run
-      tooling (docs/WORK_ORDER_4RUN.md).
+- [x] ~~Model-tier decision~~ — DECIDED (2026-07-23, amended
+      2026-07-26): tier is within-student, with tier ORDER
+      counterbalanced across the two lab days per student (the
+      counterbalance sheet assigns it), part of the four-run 2×2.
+      Per-run tier + model configuration ship with the run tooling.
 - [ ] **Finalize the FIVE categories with the professor.** The design
       is five self-purchase categories from the **11-category catalog**
       in `tasks_config.csv` (rationale and sources in
-      `docs/TASK_CATEGORIES_10.md`); a provisional five is active
+      `docs/TASK_CATEGORIES.md`); a provisional five is active
       (sneakers, power bank, backpack, laptop, perfume). To change
       the selection: `#`-out the rows you drop, remove the `#` from the
       rows you keep, renumber task_id 1..N, run
@@ -179,16 +201,17 @@ concrete machinery, so you recognize it when you see it:
       min/task; tighten the cap if it brushes the hour — the laptop
       task, the deliberate high-stakes anchor, is the likeliest to hit
       the cap on both the human and agent side; time it explicitly).
-- [ ] **HED/UT manipulation check (measure, don't assert).** The
-      utilitarian/hedonic class of each task is a design variable — so
-      measure it for THIS cohort: add the Voss, Spangenberg & Grohmann
-      (2003) 10-item HED/UT semantic differential for the chosen task
-      categories (a ~2-minute add-on to the questionnaire, or an
-      in-class poll) and report per-category HED/UT scores alongside the
-      category-class analysis. This matters most for the two categories
-      that carry both functional and style attributes (backpack,
-      sneakers) — the cohort's own scores are the classification of
-      record. See `docs/TASK_CATEGORIES_10.md` for the scale reference.
+- [ ] **HED/UT manipulation check — build and run the Session-10
+      poll.** The utilitarian/hedonic class of each task is a design
+      variable, so it is measured for THIS cohort as a separate
+      2-minute in-class poll (the 115-item instrument stays frozen).
+      Everything you need is in `questionnaire/HEDUT_POLL.md`: the
+      Voss et al. (2003) items and anchors, the Form build steps
+      (~15 min, own Form, ID-validated, no email), the Session-10
+      run procedure, the export/reshape to `hedut_responses.csv`, and
+      the analyzer flag (`--hedut`). Matters most for the two
+      dual-attribute categories (backpack, sneakers) — the cohort's
+      own scores become the classification of record.
 - [ ] **Token/cost benchmark across model tiers (during the dry run).**
       Run at least one full single-category task end-to-end under each
       of four configurations — **Haiku-class with and without extended
@@ -239,10 +262,17 @@ concrete machinery, so you recognize it when you see it:
       spare keys for failed setups. Rate limits are per account, so ~80
       concurrent agents share nothing.
 - [ ] Build the LMS assignment sheet BEFORE the lab week: pseudonym,
-      section, self-selected pair, and per-day grounding order (Thursday
-      P_FIRST/NP_FIRST; Friday independently re-randomized) — stratified
-      by section. The order-arm (H_FIRST/A_FIRST) list is retired: all
-      students are human-first (Wednesday).
+      section, self-selected pair, per-day grounding order (Thursday
+      P_FIRST/NP_FIRST; Friday independently re-randomized), and
+      **tier order** (economy-first vs frontier-first across the two
+      days) — all generated in one pass by
+      `tools/make_counterbalance.py` from the final roster, stratified
+      by section, tier order orthogonal to grounding order. The same
+      file goes to the LMS AND to the repo root as
+      `counterbalance.csv` before the freeze (provisioning refuses to
+      build without it); validate with `--validate` and record the
+      printed SHA-256. The order-arm (H_FIRST/A_FIRST) list is
+      retired: all students are human-first (Wednesday).
 - [ ] Create the synthetic persona pack (fictional Form row + a fictional
       order history narrative) for opt-out students.
 - [ ] Run `tests/simulate_submission.sh` after ANY change to
@@ -272,6 +302,94 @@ concrete machinery, so you recognize it when you see it:
       manifest's `redaction_report` and `validation_issues` while
       grading; the same test shows the expected zip shape if a
       submission fails to parse.
+
+## Instructor-only work items (Daniel) — each with its procedure
+
+These cannot be delegated to the TA or closed in code. Work them in
+this order; the go/no-go gate list at the end is the release decision.
+
+1. **Pin Hermes and validate its context + model mechanics (T-21,
+   blocks everything).**
+   (a) Pick the Hermes release for the course; download its installer
+   at the exact URL in `.devcontainer/setup.sh`, read it once, compute
+   `sha256sum`, and pin URL + hash in BOTH provisioners (procedure
+   below). (b) On a clean build of that exact release, verify the three
+   behaviors the kit now depends on: `HERMES_HOME` redirection (a SOUL
+   placed at `$HERMES_HOME/SOUL.md` is loaded; the working-directory
+   copy is ignored), the `config.yaml` schema the launcher's template
+   generates (model + provider fields accepted; adjust
+   `provisioning/hermes_config.template.yaml` if the pinned release
+   expects different keys), and where transcripts land inside the run
+   home (adjust the packer's collection subpath if needed). (c) Record
+   all three findings in the CHANGELOG T-21 list.
+2. **Pin the exact model IDs.** Choose the economy (Haiku-class) and
+   frontier (Sonnet-class) model IDs from the Anthropic models list,
+   enter them in `dtlab_config.env` (`DTLAB_MODEL_ECONOMY`,
+   `DTLAB_MODEL_FRONTIER`) — the launcher refuses to run while they
+   read `PIN-AT-DRYRUN`. Freeze a pricing note (per-MTok prices +
+   date) in the CHANGELOG if cost comparisons will be discussed.
+3. **Dry-run integration canaries (T-21, with a real account).** In a
+   clean codespace from the pinned commit: (a) protocol-token check —
+   after each condition's sandbox/pilot run, the decision log must
+   open with that SOUL variant's `PROTOCOL |` token (proves the agent
+   loaded the intended instructions); (b) model check — the run's
+   `config.yaml` and any model identifier in the transcripts match the
+   assigned tier; (c) forbidden-path probes — in a sandbox session,
+   ask the agent to read `~/dtlab/quarantine/human/human_picks.csv`
+   and a sibling run directory; it must refuse and log the request,
+   and the packer's leakage scan must flag a planted violation;
+   (d) bootstrap freeze — after the bootstrap phase, confirm
+   `purchase_profile.md` is read-only and the hash check trips if you
+   edit it; (e) the full go/no-go list below.
+4. **OS-user isolation prototype (dry-run option, not a blocker).**
+   If time allows, try running Hermes as a second Unix user with
+   group-denied read on `~/dtlab/quarantine/` in a scratch codespace.
+   Adopt for the course ONLY if the browser/CDP/key plumbing survives
+   untouched; otherwise the shipped detection layer is the accepted
+   posture (design_rationale §5b states it honestly).
+5. **Legal & governance determinations (before the Form opens).**
+   You operate as a sole-proprietor firm in Germany, externally
+   contracted by BITSoM — so: (a) obtain BITSoM's institutional
+   determination for running the study within the course; (b) obtain
+   an independent research-ethics review (no university IRB attaches
+   to this engagement; a commercial/independent board or an
+   equivalent documented review); (c) obtain German/EU privacy advice
+   on the controller structure, the India→Germany transfer, and the
+   DPDP phase-in; (d) confirm the actual Anthropic API data-retention
+   terms for your account tier; (e) obtain a terms-of-service
+   assessment for the Amazon interaction; (f) enter the outcomes into
+   the bracketed fields of `docs/CONSENT_AND_DATA_USE.md` and
+   research_protocol §3. The repo reports these determinations; it
+   does not make them.
+6. **Consent finalization workflow.** The rewritten
+   `docs/CONSENT_AND_DATA_USE.md` (data-flow map, pseudonymization
+   language, sensitive-item default + opt-out, account risk) is
+   instructor-approved only after YOU sign off word by word. After
+   sign-off, the Form checkbox texts in `questionnaire/build_form.gs`
+   and the AGREE gate text in `provisioning/student_start.sh` must be
+   brought into lockstep — file the exact wording to Claude Code, do
+   not let the three drift.
+7. **Freeze mechanics.** At design freeze: generate + validate +
+   hash `counterbalance.csv` (work item above), set
+   `DTLAB_EXPECTED_COMMIT` in `dtlab_config.env` to the frozen commit
+   (the runtime check that catches stale prebuilds), make the repo a
+   template, enable prebuilds, and re-verify CI green on the frozen
+   commit.
+8. **Go/no-go gates (all must pass before the cohort touches it).**
+   A clean codespace from the pinned commit loads the intended
+   per-run context (token check) · each cell uses its assigned exact
+   model ID · forbidden files are refused and detectable · memory and
+   sessions do not cross runs (fresh homes verified) · one frozen
+   purchase-profile hash appears in all four runs · exactly one
+   transcript set maps to every run · verdicts and human choices are
+   immutable after commitment · exact cart equality passes on pilot
+   tasks · an adversarial final zip contains no secret, identifier,
+   or unsafe screenshot · the full test suite completes under
+   explicit timeouts · the analyzer passes its null, missingness, and
+   mixed-version simulations · determinations from item 5 are on
+   file · the participant notice matches the actual data flow · a
+   multi-account end-to-end pilot completes all four cells without
+   manual repair.
 
 ## Updating installer pins (supply-chain hygiene)
 

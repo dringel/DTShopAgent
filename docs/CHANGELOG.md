@@ -1,5 +1,84 @@
 # Kit changelog
 
+## 2026-07-26 — External audit response: design decisions + doc alignment (work orders C1/C2 queued)
+
+An independent full-repository audit (2026-07-26) found that the kit's
+four load-bearing assumptions were unenforced: Hermes does not load a
+working-directory SOUL.md (it reads `$HERMES_HOME/SOUL.md` only —
+verified against current Hermes docs), the tier label never selected a
+model, moving persona files created no access boundary, and the
+Thursday verdict reveal weakened Friday's blinding. Instructor
+decisions, all docs updated in this pass (code lands via work orders
+C1/C2):
+
+- **Treatment delivery:** every run gets its own fresh `HERMES_HOME`
+  (`runs/runN/hermes_home/`) carrying the condition SOUL and a
+  generated `config.yaml` with the exact pinned model; the launcher
+  fails closed on mismatch, hashes both files per run, and each SOUL
+  carries a `PROTOCOL |` token the packer validates in the decision
+  log. Model IDs are pinned in `dtlab_config.env` (fail-closed
+  placeholders until the dry run).
+- **Tier order counterbalanced across days per student** (economy-first
+  vs frontier-first from the counterbalance sheet, orthogonal to
+  grounding orders) — the tier effect is now identified separately from
+  the day; the day effect becomes an exploratory contrast. Session 9/10
+  framing updated.
+- **Pre-treatment bootstrap phase:** the purchase profile is written
+  once, questionnaire-blind (dedicated `SOUL_bootstrap.md`, persona
+  held), before run 1; then frozen read-only, hash-verified at every
+  run, snapshotted per run. The persona-aware profile language left the
+  SOULs.
+- **Single blind Friday verdict session** over all four runs (with
+  counterbalanced tier, neither factor is knowable at judgment time);
+  stored verdicts immutable, corrections append-only with TA
+  authorization, reveal only after everything is on file. Thursday has
+  no artifact viewing.
+- **Isolation, honestly stated and detection-backed:** quarantine root
+  (`~/dtlab/quarantine/{human,verdicts,persona_hold}`) outside every
+  agent path, fresh per-run Hermes state, packer scans transcripts for
+  quarantine references, "physically removed" wording replaced with
+  the accurate procedural+detection description; OS-user isolation is
+  a dry-run option.
+- **Sensitive demographics (D04/D09/D10/D11/D12) stay in the agent
+  persona by default** — student's own agent, maximal-information test
+  — with a consent-sheet disclosure, a Form opt-out
+  (`SENSITIVE_OPTOUT` administrative field) that removes exactly those
+  five items from the agent-visible persona, exclusion recorded in
+  persona meta/manifest/report, and demographic-code citations counted
+  per run as a measured variable (design_rationale §8).
+- **Consent & data-use sheet rewritten**: complete recipient/data-flow
+  map (Anthropic, Google, GitHub, Amazon, partner, LMS), API-key
+  statement corrected, "pseudonymized" replaces "anonymous", account
+  risk disclosed, controller identified (sole-proprietor firm,
+  Germany, external contractor to BITSoM), DPDP phase-in wording,
+  bracketed slots for the institutional/ethics/privacy determinations.
+  research_protocol §3 and design_rationale §9 aligned; determinations
+  are reported, never inferred.
+- **Statistics:** confirmatory p-values move to student-level
+  sign-flip permutation tests; H3 computed from matched four-cell
+  task-level records; missing-data rules pre-specified (complete
+  cells, by-condition missingness reporting, quarantine-by-default
+  for invalid packs with an auditable override file); new run-level
+  schema `dtlab-runs-v1` (+ `dtlab-hth-v1`) supersedes
+  dtlab-choices-v1.1 for the 2×2.
+- **Evidence hardening (C2):** exact cart-multiset match enforced live
+  at capture; screenshot crop failures quarantined (never packed);
+  redaction runs before manifest serialization plus a final
+  archive scan; linear-time email detection (the old pattern stalled
+  the harness on adversarial input); class report stripped of
+  pseudonyms; human session becomes one committed attempt (TA-token
+  resets, append-only); intervention counts recorded by the partner at
+  `dtlab-cart`; spend-limit and key checks recorded/fail-closed.
+- **Docs:** HED/UT poll spec added (`questionnaire/HEDUT_POLL.md`,
+  Session-10 in-class poll, analyzer `--hedut`);
+  `docs/TASK_CATEGORIES_10.md` content updated and rename to
+  `TASK_CATEGORIES.md` queued (C2, with `docs/archive/` for
+  WORK_ORDER_4RUN); TA_ONBOARDING gains the instructor-only work-item
+  list with procedures and the go/no-go gates; "bit-identical" claims
+  softened until a clean rebuild proves them; measurement renames
+  (candidate/view overlap, listed-price budget compliance,
+  human-pick-absent-from-candidates) queued in C2.
+
 ## 2026-07-25 — Consent & governance: contracted-instructor posture
 
 - **New student-facing sheet `docs/CONSENT_AND_DATA_USE.md`** — the
@@ -416,24 +495,37 @@ list; this section is the maintained one.)
    CDP port (`DTLAB_CDP_PORT=9222`) and profile launched by
    `tools/dtlab_browser.sh`; adjust the constant if the pinned release
    expects something else.
-2. **Hermes transcript paths** — `pack_evidence.py` guesses `~/.hermes`
-   and `~/.config/hermes`; confirm, or override with
-   `DTLAB_HERMES_DIRS=/path/one:/path/two`.
+2. **Hermes `HERMES_HOME` + config mechanics (pinned release)** —
+   verify on the pinned release: `$HERMES_HOME/SOUL.md` is loaded and
+   the working-directory copy ignored; the launcher-generated
+   `config.yaml` (from `provisioning/hermes_config.template.yaml`)
+   selects the model (adjust the template keys if the release
+   differs); where transcripts land inside the run home (adjust the
+   packer's collection subpath). Legacy fallback `DTLAB_HERMES_DIRS`
+   remains for old layouts.
 3. **Installer pins** — pin Hermes/uv URLs + SHA-256 and the Playwright
    version in both provisioners (TA_ONBOARDING.md > "Updating installer
    pins"); builds refuse to run unpinned.
 4. **noVNC password rotation** — confirm the rotation in
    `.devcontainer/setup.sh` actually takes effect in a built codespace.
-5. **Model ID capture** — confirm how the pinned Hermes exposes the
-   model actually used; until then set `DTLAB_MODEL_ID` for the
-   manifest.
+5. **Model IDs + verification** — pin `DTLAB_MODEL_ECONOMY` /
+   `DTLAB_MODEL_FRONTIER` in `dtlab_config.env` (launch refuses
+   `PIN-AT-DRYRUN`); confirm the per-run config verification catches a
+   forced mismatch; spot-check a transcript for the model actually
+   used.
+5b. **Protocol-token + forbidden-path canaries** — per SOUL variant,
+   the decision log opens with the right `PROTOCOL |` token; a sandbox
+   request to read `~/dtlab/quarantine/...` is refused and logged;
+   the packer flags a planted quarantine reference; the bootstrap
+   freeze hash trips on edit. (Procedures: TA_ONBOARDING >
+   "Instructor-only work items".)
 6. **Codespaces quotas** — reconcile the 120 vs 180 core-hours figures
    against GitHub's current docs (`CLOUD_SETUP.md`).
 7. **Google Forms scale** — one `buildForm()` run creates all 115
    questions + 16 page breaks without hitting Apps Script quotas.
 8. **Browser profile sharing** — Playwright (`executable_path` = system
-   chromium) and the agent session tolerate the shared
-   `~/.dtlab-browser-profile` (version skew was the risk).
+   chromium) and the agent session tolerate the shared profile at
+   `~/dtlab/browser-profile` (version skew was the risk).
 9. **Breadcrumb selector** — `#wayfinding-breadcrumbs_feature_div`
    still yields categories on live amazon.in product pages (degrades to
    empty category, never an error).

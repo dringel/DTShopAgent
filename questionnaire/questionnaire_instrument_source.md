@@ -81,22 +81,31 @@ MBA cohort).
 
 **Model policy.** Anthropic models only, default settings. Model tier is
 the second factor of the within-student 2×2: **economy tier** (Claude
-Haiku class) on day 1 vs. **frontier tier** (Claude Sonnet class) on
-day 2, tier recorded per run in the evidence-pack manifest. Tier is
-deliberately confounded with day and stated as such in the methods
-(`COURSE_PLAN_1WEEK.md`). This gives a clean capability-vs-fidelity
-comparison at near-zero design cost.
+Haiku class) vs. **frontier tier** (Claude Sonnet class), with tier
+order counterbalanced across the two lab days at the participant level
+(assigned on the counterbalance sheet, orthogonally to the grounding
+orders) and the exact pinned model ID recorded per run in the
+evidence-pack manifest. The counterbalance identifies the tier effect
+separately from the day (`COURSE_PLAN_1WEEK.md`,
+`research_protocol.md` §1) — a capability-vs-fidelity comparison at
+modest design cost.
 
 **Evaluation logic.** No model-elicited responses of any kind. Two
-comparison layers, both simple and descriptive: (a) **outcomes** — the
+comparison layers: (a) **outcomes** — the
 agent's picks vs. the student's pre-committed picks, classified per task
 as better / identical / equivalent / inferior, with `identical`
 ASIN-verified by the packer; (b) **process** — comparison of the human
 clickstream (`human_session.jsonl`) against the agent's decision log:
 number and wording of searches, candidate-set size and overlap, sponsored
 share of candidates and picks, price levels considered, session duration.
-Reported with grounding condition and model tier as design factors;
-contamination index as covariate. Nothing beyond descriptives is promised.
+The confirmatory family is exactly {H1 grounding, H2 tier, H3
+grounding×tier} on the acceptable-pick rate, Holm-adjusted, with
+student-level sign-flip permutation p-values (research_protocol.md §1
+is authoritative); everything else — including all process measures —
+is descriptive/exploratory and labeled as such. The contamination
+index is read against its cross-student permutation baseline and used
+descriptively and as a robustness subgroup, never as a regression
+covariate.
 
 ---
 
@@ -107,6 +116,16 @@ types map to the contract: `likert5` (standard 5-point agreement: Disagree
 strongly / Disagree a little / Neither agree nor disagree / Agree a little /
 Agree strongly), `single_select`, `multi_select`, `short_text`, `long_text`.
 Items marked **[CONSTRAINT]** get `constraint = 1` in the CSV.
+
+Three **administrative Form fields** sit outside the instrument and its
+item count: the two consent checkboxes (CONSENT capture, layered per
+research_protocol §3) and the sensitive-item exclusion option
+(`SENSITIVE_OPTOUT` — excludes D04/D09/D10/D11/D12 from the
+agent-visible persona at the student's request; research CSV
+unaffected; see design_rationale §8). The Form builder and persona
+generator treat all three as non-items; the lockstep test enforces it.
+Two instrument items (PR02, PR08) are research-only and never rendered
+into the agent-visible persona (`make_persona.py::AGENT_HIDDEN_ITEMS`).
 Attribution: items citing a published source are verbatim from that scale
 (short forms per the Toubia et al., 2025 battery selection unless noted);
 items marked *(project)* are authored for this lab.

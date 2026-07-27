@@ -8,9 +8,9 @@ Per participant (N = cohort size), the design produces a paired-choice dataset:
 
 | Unit | Variables |
 |---|---|
-| Participant | 115 coded questionnaire items (dtlab-persona-v1; authoritative source: `questionnaire_instrument_source.md` — 15 demographics, 57 validated-scale items from 12 published scales per the Toubia et al. 2025 Twin-2K-500 battery selections, 22 amazon.in shopping-behavior items, 12 values/constraints of which VC01–VC05 are CONSTRAINT items, 9 predictive items); purchase profile as agent-extracted `purchase_profile.md` (traceable-claims rule in SOUL.md; precise dtlab-orders-v1 CSV only for the optional post-course export add-on subgroup); demographics |
-| Participant × session | human shopping-process clickstream (dtlab-humanlog-v1.4): search queries, product views (ASIN + dwell sequence), cart-add clicks, filters/sorts — captured passively by log_human_session.py BEFORE the agent runs |
-| Task × participant (5 per participant; categories + count from tasks_config.csv) | human pick made first (uncontaminated: the student never sees the agent before choosing) (title, ASIN, price, stated reasoning), agent pick (title, ASIN, price), agent decision log with item-code citations, sponsored-listing flag, human intervention count, student's better/identical/equivalent/inferior verdict (dtlab-verdicts-v2, captured blind) |
+| Participant | 115 coded questionnaire items (dtlab-persona-v1; authoritative source: `questionnaire/questionnaire_instrument_source.md` — 15 demographics, 57 validated-scale items from 12 published scales per the Toubia et al. 2025 Twin-2K-500 battery selections, 22 amazon.in shopping-behavior items, 12 values/constraints of which VC01–VC05 are CONSTRAINT items, 9 predictive items); purchase profile as agent-extracted `purchase_profile.md` (traceable-claims rule in SOUL.md; precise dtlab-orders-v1 CSV only for the optional post-course export add-on subgroup); demographics |
+| Participant × session | human shopping-process clickstream (dtlab-humanlog-v1.5): search queries, product views (ASIN + view-sequence timestamps — not full dwell instrumentation), cart-add clicks, filters/sorts, task boundaries — captured passively by log_human_session.py BEFORE the agent runs; one committed attempt |
+| Task × participant (5 per participant; categories + count from tasks_config.csv) | human pick made first (uncontaminated: the student never sees the agent before choosing) (title, ASIN, price, stated reasoning), agent pick (title, ASIN, price), agent decision log with item-code citations, sponsored-listing flag, partner-recorded intervention counts per run, student's better/identical/equivalent/inferior verdict (dtlab-verdicts-v2, captured blind in one Friday session) |
 
 **Design (plan of record): a within-participant 2×2 across four agent
 runs.** The task set is five self-purchase categories from the
@@ -25,21 +25,37 @@ neutralized across the cohort while every within-participant contrast
 compares runs that faced the identical sequence. Every participant
 shops the task set once themselves
 (Wednesday), committing their picks before any agent run — all
-participants are human-first. The agent then runs the SAME task set four
+participants are human-first. Before any treatment run, the agent
+writes the participant's **purchase profile once, in a dedicated
+questionnaire-blind bootstrap session** (persona files held, dedicated
+bootstrap SOUL); the profile is then frozen read-only, hash-verified at
+every run start, and shared by all four runs, so revealed-preference
+grounding is identical — and persona-uncontaminated — in every cell.
+The agent then runs the SAME task set four
 times: grounding (persona = questionnaire + purchase profile vs. ablated
-= purchase profile only; persona files physically removed and an ablated
-SOUL swapped in for ablated runs) × model tier (economy / Claude Haiku
-class on day 1 vs. frontier / Claude Sonnet class on day 2). Grounding
+= purchase profile only; persona files removed from the agent's
+workspace and quarantined, an ablated SOUL swapped in, and every run
+launched in a fresh per-run Hermes home so no memory or session state
+crosses runs) × model tier (economy / Claude Haiku class vs. frontier /
+Claude Sonnet class). **Tier order is counterbalanced across days at the
+participant level** (half of each section runs economy on day 1 and
+frontier on day 2, the other half the reverse, per the counterbalance
+sheet), so the tier contrast is identified separately from the day;
+the day effect itself is estimable as an exploratory contrast. Grounding
 order is counterbalanced within each day (per-day P_FIRST/NP_FIRST,
-stratified by section); tier is deliberately confounded with day — the
-course's "will a better model do better?" arc — and is stated as such;
-the within-day run-order estimate from the counterbalanced grounding
-order bounds plausible day-order effects. All four runs are verdicted
+stratified by section, orthogonal to tier order); the within-day
+run-order estimate from the counterbalanced grounding order bounds
+plausible order effects. All four runs are verdicted
 against the same pre-registered human picks, with per-task head-to-heads
 and pick-overlap measures across runs. Enforcement is mechanical: the
-packer verifies one run per cell, verdicts for all runs, and the
+launcher writes each run's exact model configuration and instruction
+file into that run's Hermes home and fails closed on any mismatch; the
+packer verifies one run per cell, verdicts for all runs, the per-run
+instruction-token check (the decision log must open with the loaded
+SOUL variant's protocol token), and the
 **manipulation check** (an ablated run's decision log must cite zero
-persona item codes); condition, tier, order, head-to-heads, and overlap
+persona item codes); condition, tier, order, per-run context and
+configuration hashes, head-to-heads, and overlap
 are recorded in the manifest. The earlier H_FIRST/A_FIRST order-arm
 factor is retired: the primary estimands (questionnaire effect, tier
 effect) are within-participant contrasts across runs that share the same
@@ -49,13 +65,20 @@ against the per-run contamination index and its cross-student
 permutation baseline (robustness subgroup, never a regression
 covariate). **Assessment
 blinding:** no participant watches their own agent — self-selected pairs
-swap seats for every run (PERSONALIZATION_PROTOCOL.md Layer 4); owners
-first meet their agent's choices as artifacts when writing the
-comparison memo. Consent notes: the partner sees the owner's purchase
+swap seats for every run (PERSONALIZATION_PROTOCOL.md Layer 4) — and all
+verdicts are captured in **one blind Friday session** after run 4: each
+task presents the four runs' picks under randomized Run A–D labels, so
+neither grounding nor tier is knowable at judgment time; stored verdicts
+are immutable (corrections are append-only, TA-authorized, and
+timestamped separately), and the label→run mapping is revealed only
+after every verdict and head-to-head is on file. Consent notes: the
+partner sees the owner's purchase
 profile and picks during runs; ablated runs are blind to CONSTRAINT
 items (harmless under add-to-cart-only; violations become a measured
 outcome). All Anthropic model settings remain at defaults (agent runs
-are interactive tool-use sessions, not elicitation calls).
+are interactive tool-use sessions, not elicitation calls); the exact
+model ID per run is pinned before the course, written into each run's
+configuration, and recorded in the manifest.
 
 ### Hypotheses and primary endpoints
 
@@ -65,20 +88,41 @@ tasks whose verdict is better/identical/equivalent (the quality
 metric):
 
 - **H1 — grounding:** persona vs. ablated acceptable-pick rate.
-- **H2 — tier (carries the day):** frontier vs. economy acceptable-pick
-  rate; tier is confounded with day by design and always reported as
-  tier+day.
+- **H2 — tier:** frontier vs. economy acceptable-pick rate. Tier order
+  is counterbalanced across days at the participant level, so this
+  contrast is identified separately from the day; the day-2 − day-1
+  difference is reported as an exploratory contrast alongside it.
 - **H3 — grounding × tier:** the questionnaire effect differs between
-  tiers.
+  tiers, computed from matched participant × task records that carry
+  all four cells (the interaction is formed within task and participant
+  first, then averaged — never from cell means over differing task
+  subsets), with complete-cell coverage reported.
 
 Holm-Bonferroni adjustment applies to exactly this family {H1, H2, H3}
-and to nothing else; every other quantity the analyzer reports —
+and to nothing else; confirmatory p-values are student-level sign-flip
+permutation tests on per-participant mean differences (participants are
+the exchangeable units), reported next to cluster-bootstrap CIs. Every
+other quantity the analyzer reports —
 head-to-heads, sponsored capture, price fidelity, satisfaction, order
-and position effects, subgroup splits — is exploratory, unadjusted,
-and labeled as such in the report. The secondary descriptive metric is
+and position effects, day effect, subgroup splits — is exploratory,
+unadjusted, and labeled as such in the report. The secondary
+descriptive metric is
 the **agreement/fidelity rate** — identical/equivalent verdicts only
 (did the twin converge on or substitute the human's choice) — reported
 alongside the quality metric, never adjusted.
+
+**Missing data (pre-specified).** The primary analyses use complete
+pairs (H1, H2) and complete four-cell records (H3); a pair or cell
+drops when a run's verdict is missing or invalid. The analyzer reports
+missingness and validation failures broken down by condition and tier
+(the selection-gradient check: if one cell fails more often, its
+contrast inherits a selection risk and is flagged), plus one
+sensitivity row recomputing H1 on participants with all four cells.
+Submissions with validation issues are quarantined from the
+confirmatory set by default; every exclusion is listed with a
+machine-readable reason, and overrides happen only through an explicit,
+report-echoed decisions file. Alternative missingness handling is
+sensitivity analysis, never primary.
 
 The agent-side treatment is the **Evidence-Citation Protocol (ECP)**,
 implemented in `agent/SOUL.md`: every candidate rejection and selection
@@ -88,8 +132,12 @@ demographic group membership). Full definition and design rationale:
 `questionnaire/questionnaire_instrument_source.md` §1.
 
 This supports at minimum: PROCESS comparison between human and agent
-shopping (consideration-set size and overlap, query formulation, search
-depth, dwell allocation, sponsored exposure) — arguably the most novel
+shopping (consideration-set size and overlap of logged agent candidates
+vs observed human product views — two different measurement processes,
+named as such in the report; query formulation; search depth;
+view-sequence timing; sponsored share of the agent's candidates and
+picks, self-logged and spot-checkable against screenshots — the human
+log carries no sponsored flag) — arguably the most novel
 contribution, since outcome agreement with divergent processes and process
 mimicry with divergent outcomes are entirely different twin properties;
 human–agent agreement rates by task type (with the per-run
@@ -142,20 +190,27 @@ GenAI quality-assurance metascience agenda).
 - Non-consenting or opt-out students use the synthetic persona pack; their
   course grade is unaffected and their data never enters the dataset.
 - **Jurisdiction and governance.** The cohort sits at BITSoM (Mumbai,
-  India): collection happens under India's **Digital Personal Data
-  Protection Act (DPDP) 2023** — purchase history, questionnaire answers,
+  India): collection happens in India, where the **Digital Personal
+  Data Protection Act (DPDP) 2023** applies as its provisions enter
+  into force under the phased commencement schedule — purchase history,
+  questionnaire answers,
   and the clickstream are personal data; lawful basis = consent obtained
-  as above (specific, informed, withdrawable), with the instructor as
-  data fiduciary. The instructor teaches as an **independent contracted
-  instructor** (not BITSoM faculty) and conducts the research in his own
-  academic capacity; no institutional ethics board covers a contracted
-  course, so **documented informed consent plus code-enforced
-  minimization and pseudonymization are the governance instruments** of
-  this protocol. The pseudonymized dataset is processed and retained by
-  the instructor in the EU, so the **GDPR applies to that processing**
-  (controller established in the EU) regardless of cohort composition;
-  data-subject rights run until the pseudonym mapping is destroyed and
-  the dataset is anonymous.
+  as above (specific, informed, withdrawable). The instructor teaches
+  as an **independent external instructor contracted by BITSoM** (not
+  BITSoM faculty), operating as a sole-proprietor firm based in
+  Germany, and conducts the research in his own
+  academic capacity. He is the **data controller**; the pseudonymized
+  dataset is transferred to and processed in Germany, where the
+  **GDPR governs the processing**, and data-subject rights run for as
+  long as the pseudonym mapping exists (after its destruction the
+  dataset carries no direct identifiers and continues to be handled as
+  pseudonymized research data). The governance instruments of this
+  protocol are documented informed consent, code-enforced minimization
+  and pseudonymization, and the external determinations recorded at
+  term start: [BITSoM institutional determination], [independent ethics
+  review], and [privacy/data-transfer advice for the controller
+  structure]. This protocol reports those determinations; it does not
+  substitute for them.
 - **Consent instrument and capture points.** The student-facing sheet is
   `docs/CONSENT_AND_DATA_USE.md` (released in Session 6, walked through
   in class before the Form opens). It carries the two confirmations —
@@ -208,11 +263,18 @@ Assembly steps:
    optional post-course add-on ran for a validation subsample:
    concatenate those students' `purchase_history.csv` → `cohort_orders.csv`
    (with their provenance sidecars).
-3. Build `cohort_choices.csv` by joining each zip's `agent_picks.csv`,
-   `human_picks.csv`, and manifest verdicts (all machine-readable); only
+3. Export the run-level analysis table: `tools/analyze_cohort.py
+   --export-runs cohort_runs.csv --export-hth cohort_hth.csv`
+   (schema `dtlab-runs-v1` / `dtlab-hth-v1`, §6) — one record per
+   participant × task × run, joined from each zip's picks files and
+   manifest; only
    `cited_codes` / `citation_valid_share` require coding from the decision
    logs, and those follow the numbered SOUL.md protocol.
-4. Join on `student_id` + task number. Freeze, hash, archive.
+4. Join on `student_id` + task number. Freeze, hash, archive. Zips
+   quarantined by the homogeneity and validity gates (mismatched
+   config/instrument hashes, validation issues, duplicate IDs) stay out
+   of the frozen confirmatory dataset; the quarantine list and reasons
+   are archived with it.
 5. For the class debrief (not the frozen research dataset):
    `tools/analyze_cohort.py --zips <folder-of-zips>` reads every
    manifest + CSV directly and renders the cohort report (verdicts by
@@ -228,19 +290,26 @@ Assembly steps:
 
 - `dtlab-persona-v1`: student_id, item_code, construct, question, answer,
   constraint {0|1}. Codes/constructs are defined by the 115-item
-  instrument (`questionnaire_instrument_source.md` is the authoritative
+  instrument (`questionnaire/questionnaire_instrument_source.md` is the authoritative
   source; `questionnaire_items.csv` its machine transfer); the instrument
   is frozen at Form launch and versioned thereafter.
 - `dtlab-orders-v1`: student_id, order_date, brand_guess,
   product_title, asin, unit_price_inr, quantity, capture_method.
-- `dtlab-humanlog-v1.4` (JSONL events): ts, student_id, type
-  {session_start|search|product_view|cart_add|filter_sort|nav|session_end},
-  plus type-specific fields (query/page/sort; asin/title). v1.1 adds
+- `dtlab-humanlog-v1.5` (JSONL events) — the authoritative event
+  registry: ts, student_id, type
+  {session_start|search|product_view|cart_add|filter_sort|nav|
+  task_start|task_end|session_end},
+  plus type-specific fields (query/page/sort; asin/title; task_id on
+  the task markers). v1.1 adds
   `category` (the product page's breadcrumb) to product_view; v1.2 adds
   `ref` (the amazon ref= slug of the view — the surface the click came
   from, bucketed by the analyzer into the same provenance buckets as
   the agent's CAND source= field); v1.3 adds the task_start/task_end
-  markers of the guided one-task-at-a-time session. All additive, older
+  markers of the guided one-task-at-a-time session; v1.4 adds
+  listing-grid cart_add capture; v1.5 adds `attempt_id` (the human
+  session is one committed attempt — a rerun requires a TA reset,
+  prior attempts are archived append-only, and the packer validates
+  exactly one committed attempt). All additive, older
   parsers unaffected. Checkout, payment, and auth paths are never logged;
   non-amazon browsing is never logged.
 - `dtlab-candidates-v1` (machine-parsed from decision logs by the
@@ -273,18 +342,29 @@ Assembly steps:
   {persona|ablated}, tier {economy|frontier}, verdict
   {better|identical|equivalent|inferior} ('identical' ASIN-verified by
   the packer), rating_self (1–10, one judgment per task), rating_agent
-  (1–10), rationale (one-line free text), verdict_at_utc (capture
-  timestamp per row). **Capture is BLIND:** each task presents the runs'
+  (1–10), rationale (one-line free text), verdict_at_utc (set once, at
+  first store). **Capture is BLIND and happens in ONE Friday session
+  after run 4:** each task presents the four runs'
   picks in a per-task randomized order labeled Run A–D (order derived
-  from sha256(student|task|run), reproducible); condition and tier are
-  never shown before a verdict is stored and are resolved into the CSV
-  post-hoc — the manifest records `verdicts_captured_blind`. Pairwise
+  from sha256(student|task|run), reproducible); with tier order
+  counterbalanced across days, neither condition nor tier is knowable
+  at judgment time; both are resolved into the CSV
+  post-hoc — the manifest records `verdicts_captured_blind` and
+  `single_session`. **Stored rows are immutable:** re-running the tool
+  never re-elicits or overwrites a stored verdict, rating, or
+  timestamp; corrections are appended to `verdicts_amendments.csv`
+  (row key, new value, reason, TA authorization, amended_at_utc) with
+  the original untouched, and the analyzer applies amendments last-wins
+  while reporting their count. Pairwise
   head-to-heads are asked against the same blind labels and resolved the
-  same way; the label→run mapping is revealed only after capture, before
-  the Overall reflections (which reference tiers by design).
+  same way; the label→run mapping is revealed only after every verdict
+  and head-to-head is on file, before
+  the Overall reflections (which reference tiers by design and run
+  last, post-reveal).
   Head-to-heads and the Overall reflections are captured in the same
   session (overall_reflections.md); all verdict artifacts live in
-  `~/dtlab/verdicts/`, outside the agent workspace.
+  the quarantine root (`~/dtlab/quarantine/verdicts/`), outside the
+  agent workspace and outside every path an agent run receives.
 - Cart ground truth: `cart_runN.json` per run (asin, title,
   unit price, qty — parsed from the live cart by `dtlab-cart`), cross-
   checked against `agent_picks.csv` at pack time (`cart_verified` per
@@ -297,13 +377,29 @@ Assembly steps:
   `task_order_expected` (derived from the pseudonym via per-task
   SHA-256 ranking — the same function in student_start.sh,
   log_human_session.py, and pack_evidence.py).
-- `dtlab-choices-v1` (coded from logs): student_id, task_id, chooser
+- `dtlab-runs-v1` — **the operative run-level analysis schema of the
+  2×2**: one record per participant × task × run, carrying student_id,
+  run, day, run_order_in_day, condition {persona|ablated}, tier
+  {economy|frontier}, model_id, provider, hermes_version, verdict,
+  rating_self, rating_agent, rationale (redacted), verdict_at_utc,
+  amended {0|1}, agent_asin, agent_price, human_asin, human_price,
+  sponsored, n_candidates, n_searches, contamination_index, task_id,
+  task_position, category_class, tasks_config_sha256, soul_sha256,
+  config_sha256, purchase_profile_sha256, instrument_version,
+  kit_version, sensitive_items_excluded, verdicts_captured_blind.
+  Exported by the analyzer (`--export-runs`); H1–H3 are exactly
+  reconstructable from this table alone. Mixed schema generations are
+  rejected by default.
+- `dtlab-hth-v1`: the blind pairwise judgments as their own table —
+  student_id, task_id, contrast {grounding_economy|grounding_frontier|
+  tier_persona|tier_ablated}, winner (resolved from the blind labels
+  post-hoc). Exported alongside the runs table (`--export-hth`).
+- `dtlab-choices-v1` / `dtlab-choices-v1.1` (legacy, retained for
+  packs from earlier design generations): student_id, task_id, chooser
   {human|agent}, asin, title, price_inr, sponsored {0|1}, n_candidates,
   n_interventions, verdict {better|identical|equivalent|inferior} (agent choice relative to the participant's own pre-registered pick; 'identical' is ASIN-verified by the packer, so it is an objective category while the other three are the participant's judgment), cited_codes
-  (pipe-list), citation_valid_share (0–1). The questionnaire-ablation
-  factor is adopted (plan of record); the operative schema is
-  `dtlab-choices-v1.1`, adding `condition`
-  {persona|ablated|single} and, per participant × task, `hth_winner`
-  {persona|ablated|tie} from the manifest's `ablation.head_to_head`.
+  (pipe-list), citation_valid_share (0–1); v1.1 adds `condition`
+  {persona|ablated|single} and `hth_winner`. It cannot carry the full
+  four-cell design — `dtlab-runs-v1` supersedes it for the 2×2.
 
 Version any change; never mutate a frozen schema.

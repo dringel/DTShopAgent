@@ -87,22 +87,31 @@ generating, distributing, and revoking 161 keys is avoidable logistics.
 The per-account spend limit replaces the central cap; the cost of losing
 the central kill switch is bounded by that same limit (~$20/student).
 
-**Model policy (2026-07 update).** Anthropic models only, **all settings
+**Model policy (2026-07-26 update).** Anthropic models only, **all
+settings
 at defaults** — no temperature or sampling overrides. (Temperature-0
 discipline belongs to survey-elicitation protocols; our agent runs are
 interactive tool-use sessions, a different regime.)
-The second factor of the 2×2 is model tier, **within student by day**:
-**economy tier** (Claude Haiku class) on day 1, **frontier tier**
-(Claude Sonnet class) on day 2, tier recorded per run in the manifest —
-a capability-vs-fidelity comparison at near-zero design cost. Tier is
-deliberately confounded with day and stated as such in the methods
-(`COURSE_PLAN_1WEEK.md`). (See `questionnaire_instrument_source.md` §1.)
+The second factor of the 2×2 is model tier — **economy** (Claude Haiku
+class) vs. **frontier** (Claude Sonnet class) — within student, with
+**tier order counterbalanced across the two lab days at the student
+level** (the counterbalance sheet assigns economy-first to half of each
+section, frontier-first to the other half, orthogonally to the
+grounding orders). This identifies the tier effect separately from the
+day and makes the day effect itself estimable; the earlier
+everyone-economy-Thursday design confounded the two and was retired for
+exactly that reason. The exact model ID per tier is pinned before the
+course, written into each run's own Hermes configuration by the
+launcher (which fails closed on any mismatch), and recorded per run in
+the manifest.
+(See `questionnaire/questionnaire_instrument_source.md` §1.)
 
 ## 3. Infrastructure: GitHub Codespaces on free personal accounts
 
 **Decision.** The environment is a devcontainer at the repo root:
 students create a plain (free) GitHub account, open the template repo,
-click *Create codespace*, and get a bit-identical Linux desktop (noVNC in
+click *Create codespace*, and get an identically provisioned Linux
+desktop (noVNC in
 a browser tab) with Hermes, Chromium, and all lab tooling pre-provisioned.
 
 **Why.** Three constraints dominate at N=161 in one week: identical
@@ -173,7 +182,7 @@ validation subsample, where the export's latency no longer matters.
 ## 5. The questionnaire: instructor-authored, code-addressed, pipeline-enforced
 
 **Decision.** The instrument is the instructor's: **115 items**, authored
-in `questionnaire_instrument_source.md` (the authoritative source; the
+in `questionnaire/questionnaire_instrument_source.md` (the authoritative source; the
 CSV is its machine transfer) in a fixed CSV contract (`item_code,
 construct, question, response_type, options, constraint`). Composition:
 15 India-adapted demographics, **57 items from 12 published, validated
@@ -230,10 +239,10 @@ coding scheme without hard-coding a single item anywhere.
 ablation: the agent runs the same task set with persona grounding
 (questionnaire + purchase profile) and ablated grounding (purchase
 profile alone) in counterbalanced order, while the human shops once. In
-the operative plan this runs on BOTH lab days — once per model tier —
+the operative plan this runs on BOTH lab days — once per model tier,
+with tier order counterbalanced across days per student —
 forming the four-run 2×2 (grounding × tier) described in
-research_protocol §1; tier is confounded with day by design and stated
-as such.
+research_protocol §1.
 
 **Why.** The literature is genuinely unclear on how much of a twin's
 fidelity comes from stated preferences versus revealed behavior; this
@@ -254,22 +263,37 @@ estimable order effect via P_FIRST/NP_FIRST counterbalancing — the
 same counterbalancing logic used throughout the design.
 
 **Enforcement, not instruction (the house principle).** The ablated run
-does not merely *ignore* the questionnaire: `dtlab-start` physically
-moves the persona files out of the workspace (into `~/dtlab/persona_hold/`,
-which the ablated SOUL is barred from), swaps in an ablated SOUL variant,
-and archives run 1's decision log before run 2 starts (so the ablated
-agent can never read a persona-citing log). The packer then runs a
-**manipulation check** — the ablated decision log must cite zero persona
-item codes — and records condition, order, head-to-head winners, and
-pick overlap in the manifest. Regression-tested end to end.
+does not merely *ignore* the questionnaire — the treatment is layered:
+`dtlab-start` moves the persona files out of the agent's workspace into
+the quarantine root (`~/dtlab/quarantine/persona_hold/`, which every
+SOUL variant bars and no run path contains), swaps in an ablated SOUL
+variant delivered through the run's own Hermes home, launches each run
+in a **fresh per-run Hermes home** (no memory, sessions, or
+configuration crossing runs), and archives each run's decision log
+before the next run starts. Because the agent is a local process
+running under the lab user, the file boundary is procedural rather than
+an operating-system wall — so it is backed by detection: the packer's
+**manipulation check** (an ablated decision log must cite zero persona
+item codes), a per-run transcript scan for quarantine-path references
+(any hit is a blocking review issue), the per-run instruction-token
+check (the log must open with the loaded SOUL variant's protocol
+token), and dry-run probes that ask the agent to read forbidden paths.
+Condition, order, per-run context/configuration hashes, head-to-head
+winners, and
+pick overlap land in the manifest. Regression-tested end to end.
 
 **Accepted risks.** (a) The ablated run is blind to CONSTRAINT items
 (allergies, exclusions) — harmless under add-to-cart-only, and any
 violation becomes a measured outcome plus comparison-memo material; the
 consent sheet names it. (b) Roughly +45 minutes of agent time per
-student; the week's spare classroom hours absorb it. (c) Bootstrap runs
-once per day — later runs reuse the existing purchase_profile.md, holding
-revealed-preference grounding constant across conditions by design.
+student; the week's spare classroom hours absorb it. (c) The purchase
+profile is written ONCE, before any treatment run, in a dedicated
+questionnaire-blind bootstrap session (persona files held, dedicated
+bootstrap SOUL), then frozen read-only and hash-verified at every run
+start — revealed-preference grounding is identical across all four
+cells and cannot encode questionnaire content (a persona-grounded
+profile writer would leak the treatment into the ablated cells; the
+pre-treatment freeze closes that channel).
 
 ## 6. Order of shopping: human-first with universal assessment blinding
 
@@ -289,7 +313,15 @@ student watches their own agent, ever. Watching your own agent reason
 anchors the later verdicts and satisfaction ratings, so self-selected
 pairs swap seats for every run — the partner babysits, handles CAPTCHAs,
 screenshots and empties the cart — and owners first meet their agent's
-choices as artifacts in `dtlab-verdict`'s structured capture. The
+choices as artifacts in `dtlab-verdict`'s structured capture: **one
+blind Friday session over all four runs**, after run 4, where the
+per-task Run A–D labels and the counterbalanced tier order make both
+factors unknowable at judgment time; stored verdicts are immutable and
+the reveal comes only after everything is on file. (A two-session
+variant — judging each day's runs that evening — was considered and
+rejected: on a fixed tier-per-day schedule the student knows the tier
+of everything judged that day, and an early reveal would unblind
+Friday.) The
 pairing disclosure is in
 the consent sheet.
 
@@ -373,9 +405,12 @@ rates excluding the top-quartile-index runs as a robustness subgroup —
 never as a regression covariate.
 
 **Layer 4 — order design & assessment blinding:** all students are
-human-first with the human picks physically quarantined, and within each
+human-first with the human picks quarantined outside every agent path,
+within each
 day the grounding order is counterbalanced (P_FIRST/NP_FIRST), so the
-within-day run-order effect is directly estimable (see
+within-day run-order effect is directly estimable, and tier order is
+counterbalanced across days, so the day effect is separately estimable
+(see
 PERSONALIZATION_PROTOCOL.md Layer 4). Statistical commitment, stated in
 advance: "no significant order effect" is *not* automatically evidence
 of absence. The analysis reports the CI on the within-day run-order and
@@ -383,8 +418,8 @@ task-position effects against an equivalence margin (±10 pp on
 task-level outcome rates). The claim this design supports is:
 within-day order effects on outcomes are bounded below the margin, with
 the two dominant channels independently closed by Layers 1–2 and
-residuals measured by Layer 3; day-level differences are carried by the
-tier-by-day factor and stated as such in the methods.
+residuals measured by Layer 3; the day effect is orthogonal to tier by
+counterbalance and reported as an exploratory contrast.
 
 ## 8. Tasks, verdict scale, and deliverables
 
@@ -430,6 +465,27 @@ are research-only — answered in the Form and kept in the research CSV as
 stated-preference benchmarks, but never rendered into the agent-visible
 persona (113 of the 115 items reach the agent;
 `make_persona.py::AGENT_HIDDEN_ITEMS` is the authoritative set).
+
+**Sensitive demographics in the persona (decision 2026-07-26).** The
+persona rendered to the agent includes the sensitive demographic items
+(sex assigned at birth, religion, religious attendance, family income,
+political views) **by default**: this is the student's own agent, the
+student chooses what to tell it (every sensitive item carries "Prefer
+not to say"), and the lab deliberately measures what a maximally
+informed personal agent does with such information — withholding it by
+fiat would answer that question by construction. Three safeguards make
+the choice defensible rather than casual: (1) the consent sheet
+discloses the default and the Form offers a one-click **exclusion
+option** that removes exactly these five items from the agent-visible
+persona (research CSV unaffected; `make_persona.py::SENSITIVE_ITEMS`
+is the authoritative set), with the exclusion recorded in the persona
+meta, the pack manifest, and the cohort report; (2) the ECP's
+anti-stereotyping rule still bars *inferring preferences from
+demographic group membership* — a demographic answer may be cited as a
+stated fact, never as a license for a group-based guess; and (3) the
+packer counts demographic-code citations per run as a measured
+variable, so how agents actually use these items becomes data rather
+than assumption.
 
 **No asking back (autonomy is the treatment).** All three SOULs (the
 sandbox variant included) forbid the
@@ -548,14 +604,20 @@ and destroyed post-study; data minimization is implemented in code (the
 pre-flight refuses to launch with PII-shaped files in the workspace; the
 packer redacts keys and PII markers) rather than promised in prose. The
 cohort sits in India, so collection runs under the DPDP Act 2023 with
-consent as the lawful basis; the instructor — an independent contracted
-instructor conducting the research in his own academic capacity —
-retains the pseudonymized dataset in the EU, where the GDPR applies to
-that processing. With no institutional ethics board covering a
-contracted course, the governance instruments are the documented consent
+consent as the lawful basis under the Act's phased commencement; the
+instructor — an independent external
+instructor contracted by BITSoM, operating as a sole-proprietor firm
+based in Germany and conducting the research in his own academic
+capacity — is the data controller and
+retains the pseudonymized dataset in Germany, where the GDPR applies to
+that processing. The governance instruments are the documented consent
 sheet (`docs/CONSENT_AND_DATA_USE.md`, with layered capture: Form
 checkboxes, a typed pre-run acknowledgment in dtlab-start, the LMS
-release) and the code-enforced minimization above.
+release), the code-enforced minimization above, and the external
+determinations obtained before collection — the BITSoM institutional
+determination, an independent ethics review, and privacy/data-transfer
+advice for the controller structure — which the protocol reports
+rather than infers.
 
 **Account risk, stated plainly in the syllabus:** automated interaction
 sits in tension with Amazon's conditions of use. Mitigations — manual
@@ -580,9 +642,10 @@ chasing stragglers. Tuesday completes the build on the student's own key
 and ends with a watched sandbox run — at ~80 per section, ~5–8 stuck
 environments are a planning assumption, not a surprise, and the triage
 buffer absorbs them. Wednesday commits the human baseline before any
-agent runs. Thursday and Friday each fit two ~55-minute agent runs plus
-structured verdict capture inside 3 h, with the partner-swap protocol
-running both days and one-command packing closing Friday. Everything cut
+agent runs. Thursday fits the short bootstrap phase plus two ~50-minute
+agent runs inside 3 h; Friday fits two runs plus the single blind
+verdict session and one-command packing, with the partner-swap protocol
+running both days. Everything cut
 from earlier drafts (data-export lead times, VM funnels, host checks as
 a student-facing step) was cut because it could not survive this clock;
 everything retained is either enforced in code or has a pre-decided

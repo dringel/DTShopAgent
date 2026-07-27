@@ -39,8 +39,8 @@ items from view** to clear the existing trail.
 gear icon → **Pause History → 1 day**.
 
 The pause lasts ONE day, so it is repeated on EVERY lab-day morning —
-Wednesday (human session), Thursday (economy runs), and Friday (frontier
-runs; `dtlab-start`'s day-2 gate re-confirms it). It self-reverses — no
+Wednesday (human session), Thursday (runs 1–2), and Friday (runs 3–4;
+`dtlab-start`'s day-2 gate re-confirms it). It self-reverses — no
 cleanup step, nothing left permanently changed on 161 personal accounts.
 `dtlab-start` gates on a self-attested confirmation each day.
 Two notes for the handout: (a) users have reported the permanent on/off
@@ -57,7 +57,7 @@ Each lab-day morning, before that day's first session:
 2. Verify the Browsing History page shows paused/empty.
 
 With browsing history paused on every lab day, the "previously viewed" /
-"inspired by browsing" surfaces never populate from the human's session
+"inspired by browsing" surfaces do not populate from the human's session
 (or from earlier agent runs), and all shoppers face symmetric
 conditions. (Purchase-history-driven
 surfaces like "Buy it again" remain — that's Issue A, wanted.)
@@ -152,7 +152,11 @@ these comparisons."
 
 **All students shop human-first** (Wednesday), committing their picks
 before any agent run; the four agent runs (2×2: persona/ablated ×
-economy/frontier) follow on Thursday and Friday. In every session —
+economy/frontier) follow on Thursday and Friday, with **tier order
+counterbalanced across days at the student level** (half of each
+section runs economy on day 1, half frontier — the counterbalance
+sheet assigns it, orthogonally to the grounding orders), so the tier
+contrast is identified separately from the day. In every session —
 human and agent — checkout is technically blocked at the network layer
 (checkout-guard extension, canary-verified by `dtlab-start`); attempts
 are logged and flagged at pack time. The order-arm
@@ -172,21 +176,30 @@ not a property of the pick. Protocol, ALL runs, both days: students work
 in self-selected pairs and **swap seats for every agent run**. The
 partner babysits the neighbor's run (CAPTCHA handling needs no account
 knowledge; login happens before the swap), runs `dtlab-cart` after the
-run (automatic cart screenshot + parsed cart contents), and empties the
+run (automatic cart screenshot + parsed cart contents, checked live
+against the run's picks), records intervention counts, and empties the
 cart between runs. Owners first encounter
 their agent's choices as artifacts — picks, logs, screenshots — in
 `dtlab-verdict`'s structured capture (the comparison memo is the
 fallback), exactly the evidence a reader of the study would have.
 
-Blinding covers **condition knowledge at judgment time**, not just run
-execution: `dtlab-verdict` presents each task's picks in a per-task
+Blinding covers **condition and tier knowledge at judgment time**, not
+just run execution, and all verdicts are captured in **one blind
+Friday session after run 4**: `dtlab-verdict` presents each task's four
+picks in a per-task
 randomized order labeled Run A–D and never names condition or tier
 before a verdict is stored — a student cannot favor "the persona run"
-or "the frontier run" because nothing on screen says which one that is.
-Condition and tier are resolved into `verdicts.csv` post-hoc, the
-manifest records `verdicts_captured_blind`, and the label→run mapping is
-revealed only after capture (the Overall reflections reference tiers by
-design and run last). The pairing doubles as the CAPTCHA-resolution staffing
+or "the frontier run" because nothing on screen says which one that
+is, and because tier order is counterbalanced across days, the day a
+run happened does not reveal its tier either.
+Condition and tier are resolved into `verdicts.csv` post-hoc, stored
+verdicts are immutable (append-only, TA-authorized amendments carry
+their own timestamps), the
+manifest records `verdicts_captured_blind` and `single_session`, and
+the label→run mapping is
+revealed only after every verdict and head-to-head is on file (the
+Overall reflections reference tiers by
+design and run last, post-reveal). The pairing doubles as the CAPTCHA-resolution staffing
 and is named in the consent sheet (a classmate sees your purchase
 profile and picks during the runs; pairs are self-selected).
 
@@ -201,11 +214,13 @@ Run N+1 shops an account perturbed by run N. Handled the same way:
 3. **Grounding order is counterbalanced within each day**
    (P_FIRST/NP_FIRST re-randomized per day on the LMS list), so the
    persona-vs-ablated contrast is orthogonal to run position.
-4. The model tier is deliberately confounded with day (economy Thursday,
-   frontier Friday — the course's narrative arc). State this in one
-   sentence in the methods; the within-day run-order estimate from the
-   counterbalanced grounding order bounds the plausible size of
-   day-order effects.
+4. **Model-tier order is counterbalanced across days** at the student
+   level (economy-first for half of each section, frontier-first for
+   the other half), so the tier contrast is orthogonal to the day and
+   the day effect is separately estimable; the within-day run-order
+   estimate from the counterbalanced grounding order bounds the
+   plausible size of order effects. Each run launches in a fresh
+   per-run Hermes home (no memory or session state crosses runs).
 5. The contamination index is computed per run and measures the
    human→agent channel only (run N→N+1 carry-over is handled by items
    1–3 above); it is reported against the cross-student permutation

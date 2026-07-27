@@ -11,7 +11,7 @@
 ## Can this be done on a free cloud VM? Yes — with one known cost.
 
 **Recommended free path: GitHub Codespaces.** Every
-student gets the *bit-identical* container environment defined in
+student gets the same frozen container environment defined in
 `.devcontainer/` (at the repo root) — same OS, same Hermes version, same browser, same tools —
 launched from a browser link with zero local installation, on Windows,
 Intel Mac, Apple Silicon, or a library computer alike. This dissolves the

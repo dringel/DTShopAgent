@@ -25,9 +25,13 @@ with a research-grade data pipeline.
 > **START HERE for the 161-student lab week: `COURSE_PLAN_1WEEK.md`.**
 > It is the single authority on the plan: Sessions 6–10, picks committed
 > Wednesday, the four agent runs (2×2: persona/ablated ×
-> economy/frontier) on Thursday and Friday, partner-blinded, capstone
-> white paper after. Standing simplifications: the agent reads the purchase
-> history itself at Bootstrap (`data-pipeline/` is an optional research
+> economy/frontier, tier order counterbalanced across days per student)
+> on Thursday and Friday, partner-blinded, all verdicts captured in one
+> blind Friday session, capstone
+> white paper after. Standing simplifications: the agent writes the
+> purchase profile itself in a one-time questionnaire-blind bootstrap
+> session, then it is frozen for all four runs (`data-pipeline/` is an
+> optional research
 > add-on); infrastructure is GitHub Codespaces on free personal
 > accounts; the agent shops the full site with only
 > browsing-history-derived modules banned and every candidate's
@@ -66,8 +70,9 @@ it locally.** The repo plays three separate roles:
    that container (its terminal + the browser-based Lab Desktop). The
    repo is the blueprint; the codespace is the building. With
    **prebuilds** enabled, GitHub bakes the image ahead of time from the
-   frozen commit, so all 161 students get an instant, bit-identical
-   environment.
+   frozen commit, so all 161 students get an instant environment built
+   from the same frozen image (a runtime commit check catches stale
+   prebuilds).
 
 4. **Nothing ever flows back into the repo.** Personas, logs, picks,
    and the evidence zip exist only inside each student's codespace and
@@ -266,12 +271,15 @@ hard-coded anywhere.
   (cache reads are also exempt from per-account input-token rate limits).
   The personal ~$20 spend limit is the cap: it covers all four runs of
   the 2×2 with slack, and the student controls it end to end.
-- **Model tier is a within-student factor by day** (plan of record):
-  every agent runs on the economy tier (Claude Haiku class) on Thursday
-  and the frontier tier (Claude Sonnet class, e.g. `claude-sonnet-4-6`)
-  on Friday — the course's live answer to "will a better model do
-  better?". Tier is recorded per run in the manifest; the day-tier
-  confound is acknowledged in the methods (research_protocol.md §1).
+- **Model tier is a within-student factor, counterbalanced across
+  days** (plan of record): each agent runs on the economy tier (Claude
+  Haiku class) on one lab day and the frontier tier (Claude Sonnet
+  class) on the other, in the order the counterbalance sheet assigns —
+  the course's live answer to "will a better model do better?",
+  identified separately from the day. The exact pinned model ID is
+  written into each run's own Hermes configuration by `dtlab-start`
+  (which refuses to launch on any mismatch) and recorded per run in
+  the manifest (research_protocol.md §1).
 - Students verify their spend limit on their own Claude Console
   **dashboard** during the setup checklist; pre-flight asks for
   confirmation, and cost questions are answered from each student's own
@@ -279,12 +287,13 @@ hard-coded anywhere.
 - **Questionnaire ablation is ON** (`DTLAB_PERSONA_FACTOR=1`): on each
   lab day the agent runs the task set twice — persona run (questionnaire
   + purchase profile) vs. ablated run (purchase profile only, persona
-  files physically removed, ablated SOUL) — in per-day counterbalanced
-  order, with verdicts for both runs, per-task head-to-heads, and the
+  files quarantined away from the agent, ablated SOUL, fresh per-run
+  Hermes home) — in per-day counterbalanced
+  order, with blind verdicts for all runs captured once on Friday,
+  per-task head-to-heads, and the
   pick-overlap measure in every manifest. Combined with the tier factor
-  this yields the four-run 2×2 (see COURSE_PLAN_1WEEK.md; the 4-run
-  tooling is implemented — `dtlab-start` walks runs 1–4, the packer
-  validates per run, spec kept at docs/WORK_ORDER_4RUN.md).
+  this yields the four-run 2×2 (see COURSE_PLAN_1WEEK.md; `dtlab-start`
+  walks runs 1–4 and the packer validates per run).
 
 ## Student experience (the whole thing, from their side)
 
@@ -297,34 +306,45 @@ hard-coded anywhere.
    forwarded **Lab Desktop** port (noVNC; per-codespace password printed
    in the terminal — NEVER set the port to Public) → Tuesday: API key
    in, persona zip in, pre-flight green, sandbox smoke run watched.
-3. (No data-export step — the agent reads the order history itself
-   during its Bootstrap on the first run of each day.)
+3. (No data-export step — on Thursday, before any shopping run, your
+   agent reads your order history once in a short questionnaire-blind
+   **bootstrap session** and writes your purchase profile, which is
+   then frozen and shared by all four runs.)
 4. Wednesday: pause Browsing History (pre-flight gate), then
    **`dtlab-shop`** — shop the task set yourself in the instrumented
    browser (clickstream logged: searches, product views, cart clicks),
-   confirm your picks. Everything lands in `~/dtlab/human/`, which the
-   agent is barred from reading; your picks are now committed.
-5. Thursday (economy model) and Friday (frontier model): two agent runs
-   per day — persona and ablated grounding in your assigned order.
+   confirm your picks. Everything lands in the quarantined human
+   folder, which the
+   agent is barred from reading; your picks are now committed (one
+   attempt — a redo needs a TA reset).
+5. Thursday and Friday: two agent runs per day — persona and ablated
+   grounding in your assigned order, on your assigned day's model tier
+   (the counterbalance sheet says whether your economy day is Thursday
+   or Friday).
    **You never watch your own agent**: you and your partner swap seats
    for every run; the partner handles CAPTCHAs, runs `dtlab-cart` after
    each run (automatic cart screenshot + parsed cart contents into
-   `~/dtlab/evidence/`, cross-checked against the agent's picks at pack
-   time), and empties the cart between runs — always with **Delete**,
+   `~/dtlab/evidence/`, checked on the spot against the agent's picks —
+   fix any mismatch before emptying), records intervention counts,
+   and empties the cart between runs — always with **Delete**,
    never "Save for later" (saved items stay parked on the account and
    corrupt later runs' cart evidence; `dtlab-cart` warns if it sees
    them). `dtlab-start` walks each run (pre-flight, history re-pause
-   gate, payment check, SOUL/persona swaps); `dtlab-record` captures the
-   screen (start it only after login).
-6. After each day's runs: open your agent's artifacts for the first
-   time and run **`dtlab-verdict`** — a guided prompt that captures,
-   per task and run, your verdict (better/identical/equivalent/
-   inferior), satisfaction ratings (1–10) for your pick and the
-   agent's, and a one-line rationale; structured data, no markdown
-   editing.
-7. Friday close: `dtlab-verdict` (head-to-heads, the tier question,
-   Overall reflections) → `dtlab-pack` (validates everything, redacts
-   keys/PII from logs) → download the single `DT2026-###_evidence.zip`
+   gate, payment check, per-run SOUL + model configuration);
+   `dtlab-record` captures the
+   screen (start it only after login). You do NOT open your agent's
+   artifacts on Thursday — judgment is blind and happens once.
+6. Friday, after run 4: **the blind verdict session** — `dtlab-verdict`
+   presents each task's four picks in a randomized Run A–D order
+   (nothing tells you which was persona/ablated or economy/frontier)
+   and captures, per task and run, your verdict (better/identical/
+   equivalent/inferior), satisfaction ratings (1–10), and a one-line
+   rationale, then the head-to-heads — all before the mapping is
+   revealed. Stored answers are final; the Overall reflections come
+   after the reveal.
+7. Friday close: `dtlab-pack` (validates everything, redacts
+   keys/PII from logs, scans the final archive) → download the single
+   `DT2026-###_evidence.zip`
    via the VS Code explorer → upload it to the **BITSoM LMS**
    assignment → stop the codespace.
 
@@ -333,11 +353,11 @@ hard-coded anywhere.
 | # | Deliverable | File in the submission zip | Produced by |
 |---|---|---|---|
 | 1 | Questionnaire with answers | `persona_survey.csv` + `.md` | Google Form → `make_persona.py` |
-| 2 | Purchase history | `purchase_profile.md` — written by the agent itself from the logged-in Your Orders pages (mandatory Bootstrap in SOUL.md; capped at ~30 orders/12 months; every claim traceable to a seen order). Precise raw CSV only via the optional post-course add-on. | agent Bootstrap |
+| 2 | Purchase history | `purchase_profile.md` — written by the agent from the logged-in Your Orders pages ONCE, in the pre-treatment questionnaire-blind bootstrap session (capped at ~30 orders/12 months; every claim traceable to a seen order), then frozen read-only and hash-verified at every run; a per-run snapshot is packed. Precise raw CSV only via the optional post-course add-on. | bootstrap session (`dtlab-start` Phase 0) |
 | 3 | The 5 category tasks, in the student's randomized order | `tasks.md` | generated from `tasks_config.csv`; ordered per student by `dtlab-start` |
-| 4 | Full agent trace, all four runs | `run1/`…`run4/decision_log.md` + `hermes_logs/` (session transcripts auto-collected since the run marker) | SOUL.md protocol + `dtlab-start` marker |
+| 4 | Full agent trace, all four runs | `run1/`…`run4/decision_log.md` + per-run `hermes_logs/` (each run launches in its own Hermes home, so exactly one transcript set maps to each run; a completed run without a trace blocks the pack) | SOUL.md protocol + per-run Hermes home |
 | 5 | Items the agent added to basket, per run | `run1/`…`run4/agent_picks.csv` + `cart_run1..4.png`/`.json` (automatic screenshot + parsed cart contents via `dtlab-cart`, cross-checked against the picks — `cart_verified` per run) | SOUL.md protocol + `dtlab-cart` |
-| 6 | The student's own pick per task + HOW they shopped | `human_picks.csv` + `human_session.jsonl` (clickstream: searches, product views, cart clicks, timestamps) | `dtlab-shop` (log_human_session.py), quarantined in `~/dtlab/human/` |
+| 6 | The student's own pick per task + HOW they shopped | `human_picks.csv` + `human_session.jsonl` (clickstream: searches, product views, cart clicks, timestamps; one committed attempt) | `dtlab-shop` (log_human_session.py), quarantined outside every agent path |
 | 7 | Assessment per task per run | `verdicts.csv` (verdict, ratings 1–10, one-line rationale — captured by the guided `dtlab-verdict` prompt, ASIN-cross-checked) + `overall_reflections.md` | `dtlab-verdict` |
 
 Beyond the seven deliverables, every zip also carries: per-task 1-10
@@ -376,7 +396,7 @@ amazon.in category link) — the single source the pre-flight, packer,
 human logger, and cohort report all read. The plan of record: **five
 self-purchase categories** from the **11-category catalog** (6
 utilitarian, 5 hedonic, budget-paired, each with its amazon.in
-category link; rationale and sources in `docs/TASK_CATEGORIES_10.md`).
+category link; rationale and sources in `docs/TASK_CATEGORIES.md`).
 Every task is buying for YOURSELF — the earlier gift and replenishment
 frames are retired (buying for a third party and habitual replenishment
 are different research questions). A **provisional five** ships active
@@ -428,7 +448,7 @@ python3 tools/analyze_cohort.py --zips ~/Downloads/submissions --out cohort_repo
 
 (`pip install pandas plotly`; scipy optional for exact tests.)
 **See [docs/sample_report.html](docs/sample_report.html) for a complete
-sample** — generated from 10 synthetic students fabricated by
+sample** — generated from a small synthetic cohort fabricated by
 `tests/test_analyze_cohort.py` and clearly titled as such; every number
 in it is fake, but the layout, charts, statistics, and branding are
 exactly what a real cohort produces. The output
@@ -459,7 +479,7 @@ is pre-baked by `.devcontainer/setup.sh` (Codespaces, primary) or
       Bootstrap, one full task, `dtlab-pack` — working the T-21 dry-run
       list at the top of `docs/CHANGELOG.md`
 - [ ] Confirm the student-key model end-to-end: every student's own Anthropic account, one key, ~$20 monthly spend limit (Monday homework); 2–3 course-owned spare keys staged for setup casualties
-- [ ] LMS: assignment sheet (pseudonym + per-day grounding order + pair), evidence upload slot
+- [ ] LMS: assignment sheet (pseudonym + per-day grounding order + tier order + pair — one make_counterbalance.py output), evidence upload slot
 - [ ] Synthetic persona pack for opt-outs (fictional Form row — generate
       once, reuse; doubles as the flagged-account sandbox path)
 - [ ] Only if the VM fallback is activated: golden images per
