@@ -91,7 +91,7 @@ Tuesday-morning stragglers are recoverable).
 | 0:00–0:30 | Intro to agentic AI (slides). |
 | 0:30–1:00 | Reading discussion: "Regulating advanced artificial agents" (Russell et al.). |
 | 1:00–1:20 | The capstone project brief + consent walkthrough; hand out the assignment sheet — every student leaves knowing their pseudonym, pair, and per-day condition order — and assign tonight's homework (consent + Form + Anthropic account). |
-| 1:20–2:30 | Create GitHub accounts + codespaces (first builds run while the room works); guided tour of the lab while builds run — the week's arc, the student commands, what the twin will and won't do. TAs circulate on build failures. |
+| 1:20–2:30 | Create GitHub accounts, then codespaces from the codespace link on the LMS handout (first builds run while the room works); guided tour of the lab while builds run — the week's arc, the student commands, what the twin will and won't do. TAs circulate on build failures. |
 | 2:30–3:00 | **Checkpoint 1 = codespace built + Lab Desktop opens** (no API key needed yet — the agent smoke run happens Tuesday, once keys exist); TAs note build failures for overnight triage. |
 | Overnight | Students: consent + the 115-item Form (~30 min) + Anthropic account/key/$20 limit. Instructor: personas batch-generated → LMS; roster chase. |
 

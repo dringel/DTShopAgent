@@ -271,6 +271,25 @@ concrete machinery, so you recognize it when you see it:
       build without it); validate with `--validate` and record the
       printed SHA-256. The order-arm (H_FIRST/A_FIRST) list is
       retired: all students are human-first (Wednesday).
+- [ ] **Build the LMS handout — the student instruction set.** The
+      README tells students to live "in the terminal commands and the
+      LMS handout"; this handout is what that means, and it is
+      assembled on the LMS (not in this repo). Contents, in order:
+      (1) the codespace link
+      (`https://codespaces.new/dringel/DTShopAgent?quickstart=1` —
+      publish only after the repo is public and prebuilds are green)
+      plus the two account prerequisites (free github.com account;
+      own Anthropic account per the Monday checklist item above);
+      (2) the week at a glance (which command on which day, from
+      COURSE_PLAN_1WEEK.md); (3) the Browsing-History pause steps
+      (PERSONALIZATION_PROTOCOL.md Layer 1, verbatim); (4) the
+      partner protocol (swap seats, CAPTCHAs only, dtlab-cart, empty
+      with Delete, never answer the agent); (5) the port-privacy
+      warning (never set the Lab Desktop port to Public) and the
+      240-minute idle-timeout setting; (6) a one-page troubleshooting
+      list lifted from README > Troubleshooting. Everything in it
+      restates repo content — the handout adds convenience, never new
+      rules.
 - [ ] Create the synthetic persona pack (fictional Form row + a fictional
       order history narrative) for opt-out students.
 - [ ] Run `tests/simulate_submission.sh` after ANY change to

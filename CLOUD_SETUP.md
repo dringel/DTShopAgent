@@ -31,7 +31,9 @@ course commits):
   but the plan deliberately avoids the organizational dependency.
 
 How it works for the student:
-1. Open the course template repo → "Create codespace".
+1. Open the codespace link from the LMS handout
+   (`https://codespaces.new/dringel/DTShopAgent?quickstart=1` — live
+   once the repo is public at design freeze) → "Create codespace".
 2. Wait ~4 min for first build (the setup script installs everything;
    with prebuilds enabled on the template repo, much less).
 3. Click the auto-forwarded **Lab Desktop** port → a Linux desktop opens

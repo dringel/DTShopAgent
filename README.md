@@ -86,9 +86,24 @@ it locally.** The repo plays three separate roles:
    (`provisioning/VM_DISTRIBUTION.md`). Students import a VM; still no
    cloning.
 
+6. **What is actually distributed to students: ONE link.** At design
+   freeze the repo is made **public** and prebuilds are enabled; the
+   LMS handout then carries the repo's codespace deep link
+   (`https://codespaces.new/dringel/DTShopAgent?quickstart=1`).
+   A codespace can be created by anyone who can *read* a repo and is
+   billed to the creating account's own free quota — so a student
+   needs exactly two things: a free github.com account (created in
+   Session 6) and that link. Clicking it lands on GitHub's "Create
+   codespace" page; one more click builds their private container
+   from the frozen commit. Students have read-only access to the
+   repo, which is what makes "no route to push" a mechanical fact,
+   not a rule. Nothing else is distributed — no zip, no installer,
+   no fork, no clone.
+
 In short: the only people who ever clone this repo are the instructor,
 the TA, and GitHub's own build machinery. Freeze the design, get CI
-green, enable prebuilds — that commit IS the course environment.
+green, enable prebuilds, publish the one link — that commit IS the
+course environment.
 
 ## Who uses what (one repo, three audiences)
 
@@ -99,7 +114,9 @@ it is sensitive by design (student data never enters the repo — the
 `.gitignore` data patterns are belt-and-suspenders for lab machines).
 Who needs which parts:
 
-**Students** never work "in the repo" — they click *Create codespace* and
+**Students** never work "in the repo" — they open the codespace link
+from the LMS handout (see "How this actually runs" #6), click *Create
+codespace*, and
 then live entirely in the terminal commands and the LMS handout:
 - Their whole surface: `dtlab-shop` · `dtlab-start` · `dtlab-cart` ·
   `dtlab-verdict` · `dtlab-record` · `dtlab-pack`. Nothing to edit by
