@@ -43,6 +43,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -452,19 +453,42 @@ def main():
     # add-to-cart-only by protocol, so checkout is network-blocked here
     # exactly like in the agent session (same dir dtlab_browser.sh loads)
     ext_dir = Path(__file__).resolve().parent / "checkout_guard_extension"
+
+    # Same sandbox probe as tools/dtlab_browser.sh — see the security note
+    # there. Containers that refuse unprivileged user namespaces kill
+    # Chromium before it opens; the VM route keeps its sandbox.
+    sandbox_args = []
+    try:
+        userns_ok = subprocess.run(["unshare", "--user", "true"],
+                                   capture_output=True).returncode == 0
+    except OSError:
+        userns_ok = False
+    if not userns_ok:
+        sandbox_args = ["--no-sandbox", "--disable-dev-shm-usage"]
+        print("NOTICE: unprivileged user namespaces are unavailable in "
+              "this container, so Chromium starts WITHOUT its sandbox "
+              "(expected on the Codespaces route).", file=sys.stderr)
+
     with sync_playwright() as p:
         try:
             ctx = p.chromium.launch_persistent_context(
                 str(PROFILE), headless=False,
                 executable_path=exe or None,
                 args=[f"--load-extension={ext_dir}",
-                      f"--disable-extensions-except={ext_dir}"],
+                      f"--disable-extensions-except={ext_dir}"]
+                     + sandbox_args,
                 viewport={"width": 1280, "height": 900})
-        except Exception:
-            sys.exit("Could not open the shared lab browser profile — "
-                     "another window is holding its lock.\n"
-                     "Close ALL open lab-browser windows (including the "
-                     "shopping session), then re-run dtlab-shop.")
+        except Exception as exc:
+            # Do NOT assume a profile lock: a sandbox/namespace abort
+            # lands here too, and telling a student to close windows they
+            # never opened costs a lab session.
+            sys.exit("Could not open the shared lab browser profile.\n"
+                     f"  {type(exc).__name__}: {exc}\n"
+                     "If that names a namespace or sandbox failure, the "
+                     "container refused Chromium's sandbox — tell a TA.\n"
+                     "Otherwise another lab-browser window holds the "
+                     "profile lock: close ALL of them (including the "
+                     "shopping session) and re-run dtlab-shop.")
         ctx.expose_binding("dtlabEvent", log.on_binding)
         ctx.add_init_script(PAGE_JS)
 
