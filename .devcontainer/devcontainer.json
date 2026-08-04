@@ -1,10 +1,17 @@
 {
   "name": "Digital Twin Lab",
-  // Base image pinned BY DIGEST (audit 8.1) so every prebuild and
-  // rebuild resolves to the same bytes. The digest below was resolved
-  // from tag mcr.microsoft.com/devcontainers/python:1-3.12-bookworm on
-  // 2026-07-26; re-resolve deliberately when bumping, never implicitly.
-  "image": "mcr.microsoft.com/devcontainers/python@sha256:7876580dc67fd460fd962f004cbeb480027e9bbc0657096f1087db11f9eaff39",
+  // Base image is STILL pinned BY DIGEST (audit 8.1) so every prebuild
+  // and rebuild resolves to the same bytes — the digest now lives in
+  // .devcontainer/Dockerfile, which additionally strips the stale Yarn
+  // APT source that otherwise fails the desktop-lite Feature install and
+  // drops the codespace into an Alpine recovery container. Re-resolve
+  // the digest deliberately when bumping, never implicitly.
+  "build": {
+    "dockerfile": "Dockerfile",
+    // no COPY in the Dockerfile, so the small .devcontainer dir is a
+    // sufficient (and much faster) build context than the repo root
+    "context": "."
+  },
   "features": {
     // feature version pinned explicitly (was the floating major ':1')
     "ghcr.io/devcontainers/features/desktop-lite:1.2.10": {

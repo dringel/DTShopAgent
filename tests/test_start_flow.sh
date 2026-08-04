@@ -868,8 +868,19 @@ check "$rc" 0 "second start does not re-ask (one-time gate)"
 check $? 0 "no spend-limit prompt once recorded"
 
 echo "[30] C2.15: reproducibility pins + kit-commit freeze check"
-grep -q 'devcontainers/python@sha256:' "$REPO/.devcontainer/devcontainer.json"
+# The digest lives in .devcontainer/Dockerfile since 2026-08-04 (the
+# Dockerfile also strips the base image's stale Yarn APT source). The
+# audit-8.1 guarantee is unchanged and checked in two directions: the
+# build input is pinned by digest, and nothing reintroduces a floating
+# tag that would let a rebuild resolve to different bytes.
+grep -q 'devcontainers/python@sha256:' "$REPO/.devcontainer/Dockerfile"
 check $? 0 "devcontainer base image pinned by digest"
+# comments are stripped first: both files legitimately NAME the tag the
+# digest was resolved from, which is provenance, not a floating pin.
+! { grep -hvE '^[[:space:]]*(#|//)' "$REPO/.devcontainer/Dockerfile" \
+      "$REPO/.devcontainer/devcontainer.json" \
+    | grep -qE 'devcontainers/python:'; }
+check $? 0 "no floating base-image tag in the devcontainer build"
 grep -q 'desktop-lite:1\.' "$REPO/.devcontainer/devcontainer.json"
 check $? 0 "desktop-lite feature version pinned explicitly"
 grep -q 'actions/checkout@[0-9a-f]\{40\}' "$REPO/.github/workflows/ci.yml" \
