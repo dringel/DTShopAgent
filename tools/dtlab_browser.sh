@@ -56,8 +56,14 @@ EXTDIR="$(cd "$(dirname "$0")" && pwd)/checkout_guard_extension"
 # the namespace sandbox, so the VM route keeps its sandbox intact.
 # --disable-dev-shm-usage is the companion fix for the small /dev/shm
 # containers get; without it Chromium crashes on heavy pages.
+#
+# The probe mirrors the zygote's user+net unshare. It is a heuristic: a
+# host that allows the probe but still refuses Chromium (or the reverse,
+# e.g. Ubuntu 24.04's AppArmor userns restrictions on the VM route) would
+# be misjudged. Erring toward --no-sandbox costs isolation; erring the
+# other way costs a dead lab. Validate both routes at T-21.
 SANDBOX_ARGS=()
-if ! unshare --user true 2>/dev/null; then
+if ! unshare --user --net true 2>/dev/null; then
   SANDBOX_ARGS=(--no-sandbox --disable-dev-shm-usage)
   echo "NOTICE: unprivileged user namespaces are unavailable in this" >&2
   echo "container, so Chromium starts WITHOUT its sandbox. Expected on" >&2

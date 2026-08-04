@@ -459,7 +459,7 @@ def main():
     # Chromium before it opens; the VM route keeps its sandbox.
     sandbox_args = []
     try:
-        userns_ok = subprocess.run(["unshare", "--user", "true"],
+        userns_ok = subprocess.run(["unshare", "--user", "--net", "true"],
                                    capture_output=True).returncode == 0
     except OSError:
         userns_ok = False
