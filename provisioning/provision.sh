@@ -25,6 +25,14 @@ HERMES_INSTALLER_URL="https://hermes-agent.nousresearch.com/install.sh"
 HERMES_INSTALLER_SHA256="UNPINNED"
 PLAYWRIGHT_PIN=""   # e.g. "==1.55.0"; empty = latest (pin at dry run)
 
+# Flags passed to the Hermes installer. These are load-bearing, not
+# cosmetic — see the "Hermes Agent" step below. Keep .devcontainer/setup.sh
+# and provisioning/provision.sh in lockstep.
+HERMES_INSTALL_FLAGS=(--skip-setup --non-interactive)
+# Wall-clock ceiling for the installer. A blocked prompt must fail the
+# build with a diagnosis, never hang a creation hook forever.
+HERMES_INSTALL_TIMEOUT="${DTLAB_HERMES_INSTALL_TIMEOUT:-2400}"
+
 fetch_verified() {  # url sha256 dest
   local url="$1" sha="$2" dest="$3"
   if [ "$sha" = "UNPINNED" ] && [ "${DTLAB_ALLOW_UNPINNED:-0}" != "1" ]; then
@@ -84,7 +92,45 @@ ln -sf "$PW_CHROME" "$HOME/dtlab/bin/chromium"
 echo "== [3/7] Hermes Agent =="
 fetch_verified "$HERMES_INSTALLER_URL" "$HERMES_INSTALLER_SHA256" \
     /tmp/hermes-install.sh
-bash /tmp/hermes-install.sh && rm -f /tmp/hermes-install.sh
+# --skip-setup and --non-interactive are REQUIRED here.
+#
+# The upstream installer finishes by running `hermes setup` — an arrow-key
+# TUI — and it reads that wizard from /dev/tty DIRECTLY, not from stdin
+# (installer: run_setup_wizard runs `... hermes_cli.main setup < /dev/tty`;
+# its six prompt_yes_no() calls fall back to /dev/tty the same way). A
+# container lifecycle hook HAS an openable /dev/tty, but nothing is
+# attached to the other end: the Codespaces creation-log panel is a log
+# stream, not a terminal. The wizard therefore renders, blocks on read,
+# and the build hangs with no way to answer it. Keystrokes typed into the
+# creation-log panel never reach the container.
+#
+# Before "simplifying" the line below, note what does NOT fix this:
+#   * `< /dev/null` — the wizard bypasses stdin entirely.
+#   * `curl ... | bash` — the installer's own `[ -t 0 ]` probe only
+#     decides WHICH terminal it reads from, never whether to prompt.
+#   * --skip-setup alone — the yes/no prompts (build tools, gateway
+#     service, WhatsApp pairing) can still block on /dev/tty.
+#
+# The wizard is redundant for this kit in any case: dtlab-start generates
+# each run's own $HERMES_HOME/config.yaml from
+# provisioning/hermes_config.template.yaml, and that per-run config is
+# authoritative for provider + model.
+hermes_rc=0
+timeout "$HERMES_INSTALL_TIMEOUT" bash /tmp/hermes-install.sh \
+    "${HERMES_INSTALL_FLAGS[@]}" </dev/null || hermes_rc=$?
+if [ "$hermes_rc" -eq 0 ]; then
+  rm -f /tmp/hermes-install.sh
+else
+  if [ "$hermes_rc" -eq 124 ]; then
+    echo "ERROR: the Hermes installer exceeded ${HERMES_INSTALL_TIMEOUT}s."
+    echo "The usual cause is an interactive prompt blocking on /dev/tty in a"
+    echo "non-interactive build. Confirm HERMES_INSTALL_FLAGS still match the"
+    echo "pinned installer's --help output before raising the timeout."
+  else
+    echo "ERROR: the Hermes installer failed (exit $hermes_rc)."
+  fi
+  exit 1
+fi
 
 echo "== [4/7] Lab directory layout =="
 mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/evidence" "$HOME/dtlab/tools"
