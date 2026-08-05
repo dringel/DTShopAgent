@@ -460,7 +460,8 @@ def main():
     sandbox_args = []
     try:
         userns_ok = subprocess.run(["unshare", "--user", "--net", "true"],
-                                   capture_output=True).returncode == 0
+                                   capture_output=True,
+                                   check=False).returncode == 0
     except OSError:
         userns_ok = False
     if not userns_ok:
