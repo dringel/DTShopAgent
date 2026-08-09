@@ -329,6 +329,16 @@ concrete machinery, so you recognize it when you see it:
       grading; the same test shows the expected zip shape if a
       submission fails to parse.
 
+**Task order is derived, not stored.** Each student's task order comes
+from `sorted(task_ids, key=sha256(f"{student_id}|{task_id}"))` in
+`provisioning/student_start.sh` — deterministic per pseudonym, not an
+RNG, which is why it can be recomputed identically for the human session
+and all four agent runs without persisting anything. Change the
+pseudonym and the order changes; `~/dtlab/task_order.txt` records what
+was used, and `tasks.md` is rewritten in place to match. The pre-flight
+calls it "randomized across students", which is true in effect but not
+literally a random draw — it is fully reproducible for the analysis.
+
 ## The T-21 trial run — TA work items (each with its procedure)
 
 **Your mission, starting now:** you have the repo — build a fresh

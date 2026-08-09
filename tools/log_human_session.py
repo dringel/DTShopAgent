@@ -319,8 +319,13 @@ def confirm_picks(log: Logger, student_id):
 def find_student_id():
     """The pseudonym from the persona files — the same source every
     other tool resolves it from."""
+    # The hold path MUST match student_start.sh's HOLD ("$QUAR/persona_hold",
+    # i.e. ~/dtlab/quarantine/persona_hold). It previously omitted the
+    # "quarantine" segment, so the fallback could never match: once
+    # dtlab-start had held the persona files for the questionnaire-blind
+    # bootstrap, dtlab-shop could no longer resolve the pseudonym at all.
     for p in (Path.home() / "dtlab" / "workspace" / "persona_survey.csv",
-              Path.home() / "dtlab" / "persona_hold" /
+              Path.home() / "dtlab" / "quarantine" / "persona_hold" /
               "persona_survey.csv"):
         try:
             with open(p, newline="", encoding="utf-8-sig") as f:
