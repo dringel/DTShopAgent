@@ -27,9 +27,14 @@ guard
 rm -rf "$HOME/dtlab" "$HOME/.dtlab_env" "$HOME/.bashrc"
 mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/soul" "$HOME/dtlab/quarantine/human" \
          "$HOME/dtlab/evidence"
-sed -e "s/DTLAB_PERSONA_FACTOR='1'/DTLAB_PERSONA_FACTOR='$1'/" \
-    -e "s/DTLAB_MODEL_ECONOMY='PIN-AT-DRYRUN'/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/" \
-    -e "s/DTLAB_MODEL_FRONTIER='PIN-AT-DRYRUN'/DTLAB_MODEL_FRONTIER='claude-fro-test-1'/" \
+# Substitute by KEY, not by matching the shipped VALUE. Matching
+# 'PIN-AT-DRYRUN' meant the fixture silently stopped applying the moment
+# anyone pinned real model IDs -- i.e. exactly when the instructor does
+# T-21 item 2 before the freeze -- and ten assertions then failed for
+# reasons unrelated to the change being made.
+sed -E -e "s/^DTLAB_PERSONA_FACTOR=.*/DTLAB_PERSONA_FACTOR='$1'/" \
+       -e "s/^DTLAB_MODEL_ECONOMY=.*/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/" \
+       -e "s/^DTLAB_MODEL_FRONTIER=.*/DTLAB_MODEL_FRONTIER='claude-fro-test-1'/" \
     "$REPO/dtlab_config.env" > "$HOME/dtlab/dtlab_config.env"
 cp "$REPO/tasks_config.csv" "$HOME/dtlab/"
 cp "$REPO/provisioning/hermes_config.template.yaml" "$HOME/dtlab/"
