@@ -42,6 +42,7 @@ import csv
 import json
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -107,6 +108,45 @@ PROFILE = Path.home() / CFG.get("DTLAB_BROWSER_PROFILE",
 # Main frame only; page_load also covers pushState/popstate SPA navigation.
 # No Playwright sync-API call ever happens inside an event handler (the sync
 # API forbids that), and titles arrive from the page itself.
+def wait_enter(prompt, ctx=None, page=None):
+    """Wait for Enter WITHOUT freezing Playwright's event pump.
+
+    Playwright's sync API only dispatches exposed-binding callbacks while
+    the caller is inside a Playwright call. A bare input() therefore stops
+    the clickstream for exactly as long as the student is shopping — i.e.
+    the whole session — and every window.dtlabEvent() call queues as a
+    pending promise that is never delivered. The session then completes
+    with a full cart and an empty human_session.jsonl, which is worse than
+    failing outright because nothing looks wrong until pack time.
+
+    Poll stdin instead, handing time back to the driver between polls.
+    Falls back to plain input() where select() on stdin is unavailable.
+    """
+    try:
+        select.select([sys.stdin], [], [], 0)
+    except Exception:
+        return input(prompt)          # non-POSIX / not a tty: old behaviour
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    while True:
+        try:
+            if select.select([sys.stdin], [], [], 0)[0]:
+                return sys.stdin.readline()
+        except Exception:
+            return input("")
+        pumped = False
+        for pg in ([page] if page else []) + (list(ctx.pages) if ctx else []):
+            try:
+                if pg and not pg.is_closed():
+                    pg.wait_for_timeout(150)
+                    pumped = True
+                    break
+            except Exception:
+                continue
+        if not pumped:
+            time.sleep(0.15)
+
+
 PAGE_JS = """
 (() => {
   if (window !== window.top) return;
@@ -512,8 +552,8 @@ def main():
             blabel = f" [{budget}]" if budget else ""
             print(f"\n>>> ({i}/{len(seq)}) Task {task}: "
                   f"{ptype[:70]}{blabel}")
-            input(">>> Shop for it now; AFTER adding your pick to the "
-                  "cart, press Enter... ")
+            wait_enter(">>> Shop for it now; AFTER adding your pick to "
+                       "the cart, press Enter... ", ctx, page)
             log.emit("task_end", task_id=task)
         # live capture summary WHILE the browser is still open — a
         # Wednesday problem must be visible Wednesday, not at pack time
@@ -528,10 +568,12 @@ def main():
             print(">>> open a product page. Open each pick's product page")
             print(">>> NOW (click its title) so the view is on record,")
             print(">>> then continue.")
-            input(">>> Done browsing your picks? Press Enter... ")
+            wait_enter(">>> Done browsing your picks? Press Enter... ",
+                       ctx, page)
         print("\n>>> All tasks done. Now EMPTY the cart (your picks are")
         print(">>> recorded next; the cart must be clean for the agent).")
-        input(">>> Cart emptied? Press Enter to confirm your picks... ")
+        wait_enter(">>> Cart emptied? Press Enter to confirm your "
+                   "picks... ", ctx, page)
         try:
             ctx.close()
         except Exception:
