@@ -268,6 +268,43 @@ if [ "$PHASE" = "onCreate" ]; then
       fi
       exit 1
     fi
+
+    # The Anthropic provider SDK is NOT installed by the Hermes installer
+    # when --skip-setup is passed: the interactive wizard is where a
+    # provider is chosen and its package pulled in. Skipping that wizard is
+    # mandatory here (it deadlocks a lifecycle hook, see above), so the
+    # provider package must be installed explicitly -- otherwise Hermes
+    # starts, connects, and only then dies with "Failed to initialize
+    # agent: The 'anthropic' package is required for the Anthropic
+    # provider." Anthropic is the only provider this course uses.
+    #
+    # The venv is built by uv and has neither pip nor ensurepip, so uv is
+    # the only way in. Both paths are derived, not hard-coded: the launcher
+    # wrapper names its own interpreter, and uv ships inside the Hermes
+    # tree at ~/.hermes/bin/uv.
+    # TODO(freeze): pin an exact anthropic version alongside the other
+    # installer pins; ">=0.39.0" is only Hermes' own stated floor.
+    HERMES_PY="$(sed -n 's|^exec "\([^"]*python\)".*|\1|p' \
+                 "$HOME/.local/bin/hermes" 2>/dev/null | head -1)"
+    HERMES_UV="$HOME/.hermes/bin/uv"
+    [ -x "$HERMES_UV" ] || HERMES_UV="$(command -v uv || true)"
+    if [ -n "$HERMES_PY" ] && [ -x "$HERMES_PY" ] && [ -n "$HERMES_UV" ]; then
+      "$HERMES_UV" pip install --python "$HERMES_PY" "anthropic>=0.39.0"
+      if "$HERMES_PY" -c "import anthropic" 2>/dev/null; then
+        echo "anthropic SDK present in the Hermes venv"
+      else
+        echo "ERROR: the Anthropic provider SDK did not install into the"
+        echo "Hermes venv ($HERMES_PY). Hermes would start but fail to"
+        echo "initialize the agent. Tell a TA."
+        exit 1
+      fi
+    else
+      echo "ERROR: could not locate the Hermes interpreter or uv."
+      echo "  interpreter: ${HERMES_PY:-<not found>}"
+      echo "  uv:          ${HERMES_UV:-<not found>}"
+      echo "Hermes cannot use the Anthropic provider without its SDK."
+      exit 1
+    fi
   fi
   echo "onCreate phase done (layout + installs). Per-codespace steps run"
   echo "at creation via postCreateCommand."
