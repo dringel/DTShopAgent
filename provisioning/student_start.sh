@@ -196,13 +196,43 @@ make_hermes_home() {  # $1 = home dir, $2 = SOUL variant file, $3 = model id
       -e "s|{{MODEL_ID}}|$model|g" "$tpl" > "$hh/config.yaml"
 }
 
-# Effective-config verification, FAIL CLOSED: re-read the file Hermes
-# will actually load and assert it names the assigned provider + model.
-# Kept as ONE function so the dry run can extend it to the live
-# /api/model read if the pinned release exposes one.
+# Effective-config verification, FAIL CLOSED.
+#
+# Grepping the file we just wrote proves only that we wrote it. It cannot
+# detect the failure this gate exists to catch: a config whose SCHEMA the
+# pinned Hermes release does not understand. That happened at the 2026-08-18
+# dry run -- the old template used `model.id`, Hermes v0.20.0 wants
+# `model.default`, so Hermes reported "no model configured", fell back to its
+# own default, and this check still returned green. Four runs would have
+# executed on one model while the manifest claimed two tiers.
+#
+# So: keep the cheap written-file check (it catches a broken substitution),
+# then ask Hermes what it ACTUALLY loaded from this home.
 verify_hermes_config() {  # $1 = home dir, $2 = provider, $3 = model id
-  grep -qF -- "$3" "$1/config.yaml" 2>/dev/null \
-    && grep -qF -- "$2" "$1/config.yaml" 2>/dev/null
+  grep -qF -- "$3" "$1/config.yaml" 2>/dev/null || return 1
+  grep -qF -- "$2" "$1/config.yaml" 2>/dev/null || return 1
+
+  local eff
+  eff="$(HERMES_HOME="$1" hermes config get model.default 2>/dev/null \
+         | tr -d '[:space:]')"
+  if [ -z "$eff" ]; then
+    # Could not ask Hermes (older release, or the subcommand moved). The
+    # file check passed, so proceed -- but say so, because this is the
+    # assurance the gate is meant to provide.
+    echo -e "${YEL}  [..] could not read the effective model from Hermes;" \
+            "relying on the generated file only${NC}"
+    return 0
+  fi
+  case "$eff" in
+    *"$3"*) return 0 ;;
+    *)
+      echo -e "${RED}  [!!] Hermes loaded model '$eff' but this run is" \
+              "assigned '$3'.${NC}"
+      echo -e "${RED}       The config schema in" \
+              "hermes_config.template.yaml does not match the pinned" \
+              "Hermes release.${NC}"
+      return 1 ;;
+  esac
 }
 
 config_mismatch_abort() {
