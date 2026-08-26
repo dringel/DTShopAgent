@@ -57,8 +57,8 @@ def name_variants(raw_names):
     false positives — acceptable: this file is a behavioural summary,
     not prose about people."""
     pats = []
-    for name in raw_names:
-        name = name.strip()
+    for raw in raw_names:
+        name = raw.strip()
         if not name:
             continue
         pats.append(re.compile(re.escape(name), re.I))
