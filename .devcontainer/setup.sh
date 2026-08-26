@@ -321,30 +321,78 @@ printf 'commit=%s built=%s route=codespaces image=%s\n' \
 
 echo "== [4/5] Desktop password (per-codespace, replaces the shipped default) =="
 # The desktop-lite feature bakes a fixed password at build time; rotate it
-# to a per-codespace random one so a leaked/public port is not an open door.
-NEWPW="$(tr -dc 'a-z0-9' < /dev/urandom | head -c 10 || true)"
+# to a per-codespace random one so a leaked port is not an open door.
+#
+# The previous approach sed-ed the shipped init script and assumed x11vnc
+# would pick the change up. It did not: the dry run found every codespace
+# still running the shipped default. The authoritative secret is whatever
+# the RUNNING x11vnc reads, so detect that at runtime instead of guessing
+# desktop-lite's internals, and verify before announcing anything.
+NEWPW="$(tr -dc 'a-z0-9' < /dev/urandom | head -c 14 || true)"
 ROTATED=0
+ROTATE_NOTE=""
 if [ -n "$NEWPW" ] && [ "${DTLAB_TEST:-0}" != "1" ]; then
+  # 1. update the shipped init scripts too, so a container restart does
+  #    not quietly revert to the default
   for f in /usr/local/share/desktop-init.sh /usr/local/etc/desktop-init.sh; do
     if [ -f "$f" ] && sudo grep -q 'dtlab' "$f"; then
       sudo sed -i "/passw/s/dtlab/$NEWPW/g" "$f"
-      # verify the edit actually landed before announcing the password
-      # as fact (TODO(dry-run): confirm x11vnc restarts pick it up)
-      if sudo grep -q "$NEWPW" "$f"; then
-        ROTATED=1
-      fi
     fi
   done
+
+  # 2. the store that actually matters: parse it off the live process
+  VNC_CMD="$(pgrep -a x11vnc 2>/dev/null | head -1 || true)"
+  RFBAUTH="$(printf '%s' "$VNC_CMD" \
+             | sed -n 's/.*-rfbauth[= ]\([^ ]*\).*/\1/p')"
+  if [ -z "$RFBAUTH" ]; then
+    RFBAUTH="$(printf '%s' "$VNC_CMD" \
+               | sed -n 's/.*-passwdfile[= ]\([^ ]*\).*/\1/p')"
+  fi
+  if [ -n "$RFBAUTH" ] && command -v x11vnc >/dev/null 2>&1 \
+     && sudo x11vnc -storepasswd "$NEWPW" "$RFBAUTH" >/dev/null 2>&1; then
+    ROTATED=1
+    ROTATE_NOTE="rfbauth store: $RFBAUTH"
+  fi
+
+  # 3. x11vnc may not be up yet during onCreate — try the usual stores
+  if [ "$ROTATED" != "1" ] && command -v x11vnc >/dev/null 2>&1; then
+    for cand in "$HOME/.vnc/passwd" /usr/local/etc/vnc_passwd \
+                /root/.vnc/passwd; do
+      if [ -e "$cand" ] \
+         && sudo x11vnc -storepasswd "$NEWPW" "$cand" >/dev/null 2>&1; then
+        ROTATED=1
+        ROTATE_NOTE="rfbauth store: $cand"
+        break
+      fi
+    done
+  fi
+
+  # 4. restart so the new secret is read
+  if [ "$ROTATED" = "1" ]; then
+    sudo pkill x11vnc 2>/dev/null || true
+  fi
 fi
+rm -f "$HOME/dtlab/.desktop_password_unrotated"
 if [ "$ROTATED" = "1" ]; then
-  sudo pkill x11vnc 2>/dev/null || true   # supervisor restarts it with the new password
   echo "*** Your personal Lab Desktop password (write it down): $NEWPW ***"
+  echo "    ($ROTATE_NOTE)"
 else
-  # TODO(dry-run): locate the desktop-lite password store in the built image
-  # and make the rotation stick; until verified, the default applies.
-  echo "WARNING: could not rotate the desktop password automatically —"
-  echo "the shipped default 'dtlab' is in effect."
+  # Deliberately NOT a build failure: bricking the environment for 161
+  # students is worse than a shared password on a port that is private
+  # by default. But it must not be forgettable either, so leave a marker
+  # the pre-flight re-warns about on every single run.
+  touch "$HOME/dtlab/.desktop_password_unrotated" 2>/dev/null || true
+  echo ""
+  echo "!!! ============================================================"
+  echo "!!! DESKTOP PASSWORD NOT ROTATED — the shipped default 'dtlab'"
+  echo "!!! is in effect. Every environment built this way shares it."
+  echo "!!! The forwarded port is private, which is what is protecting"
+  echo "!!! you; the password is NOT. Keep port 6080 private, and tell"
+  echo "!!! a TA that rotation failed on this build."
+  echo "!!! ============================================================"
+  echo ""
 fi
+
 echo ""
 echo "*** NEVER set the forwarded port 6080 to Public. A public port gives"
 echo "*** anyone with the URL a desktop logged into YOUR Amazon account."

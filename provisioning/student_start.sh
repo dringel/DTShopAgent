@@ -461,6 +461,14 @@ fi
 
 # 2. Required workspace files
 if [ -f "$WS/SOUL.md" ]; then ok "SOUL.md (agent identity) present"
+# Desktop password: setup leaves this marker when rotation failed, so the
+# shared default is still in effect. Re-warn on EVERY run -- a one-time
+# warning during a 20-minute build scrolls past and is never seen again.
+if [ -f "$HOME/dtlab/.desktop_password_unrotated" ]; then
+  echo -e "${YEL}  [..] desktop password was NOT rotated on this build --"
+  echo -e "       the shared default is in effect. Keep port 6080 PRIVATE"
+  echo -e "       and tell a TA.${NC}"
+fi
 else bad "SOUL.md missing from $WS"; fi
 if [ -f "$WS/tasks.md" ] && ! grep -q "INSTRUCTOR_TASK" "$WS/tasks.md"; then
   ok "tasks.md present and filled"

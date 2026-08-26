@@ -31,6 +31,20 @@
       "label": "Lab Desktop (KEEP PRIVATE — password printed in setup log)",
       "onAutoForward": "openBrowser",
       "visibility": "private"
+    },
+    // 9222 is the Chrome DevTools Protocol port the lab browser listens
+    // on (DTLAB_CDP_PORT) and that Hermes attaches to. It is forwarded
+    // automatically the moment the browser starts, so it was previously
+    // reaching students undeclared and unlabelled. CDP is TOTAL control
+    // of the browser — read any page, extract cookies, drive navigation —
+    // on a profile logged into the student's own amazon.in account, so it
+    // warrants the same treatment as 6080. Pinned private here rather
+    // than left to the auto-forward default; silent because nobody needs
+    // to open it in a browser.
+    "9222": {
+      "label": "Agent browser CDP (KEEP PRIVATE — full control of the lab browser)",
+      "onAutoForward": "silent",
+      "visibility": "private"
     }
   },
   "onCreateCommand": "bash .devcontainer/setup.sh onCreate",
