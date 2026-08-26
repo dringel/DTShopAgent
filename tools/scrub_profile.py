@@ -46,7 +46,7 @@ GENERIC_PATTERNS = [
     # emails
     (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]+\b"), "[REDACTED-EMAIL]"),
     # Amazon customer/account ids
-    (re.compile(r"\bamzn1\.[\w.-]+\b", re.I), "[REDACTED-AMZN-ID]"),
+    (re.compile(r"\bamzn1\.[\w.-]+\b", re.IGNORECASE), "[REDACTED-AMZN-ID]"),
 ]
 
 
@@ -61,10 +61,10 @@ def name_variants(raw_names):
         name = raw.strip()
         if not name:
             continue
-        pats.append(re.compile(re.escape(name), re.I))
+        pats.append(re.compile(re.escape(name), re.IGNORECASE))
         for tok in name.split():
             if len(tok) >= 3:
-                pats.append(re.compile(rf"\b{re.escape(tok)}\b", re.I))
+                pats.append(re.compile(rf"\b{re.escape(tok)}\b", re.IGNORECASE))
     return pats
 
 
@@ -110,7 +110,7 @@ def main():
 
     # fail closed: no provided name may survive
     for name in raw:
-        if re.search(re.escape(name.strip()), out, re.I):
+        if re.search(re.escape(name.strip()), out, re.IGNORECASE):
             sys.exit(f"scrub_profile: '{name.strip()}' still present "
                      "after scrubbing — refusing; tell a TA")
 
