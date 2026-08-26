@@ -132,6 +132,7 @@ mkdir -p "$HOME/dtlab/assets"
 cp -v "$KIT/assets/ringelai.png"           "$HOME/dtlab/assets/" 2>/dev/null || true
 cp -v "$KIT/tools/log_human_session.py"    "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_cart.py"         "$HOME/dtlab/tools/"
+cp -v "$KIT/tools/scrub_profile.py"        "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_verdicts.py"     "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/dtlab_browser.sh"        "$HOME/dtlab/tools/"
 # checkout-guard extension: kit code (never packed as evidence); the

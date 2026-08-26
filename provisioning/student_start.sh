@@ -488,6 +488,71 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
   # freezes it, and proceeds to run 1.
   if [ ! -f "$HOME/dtlab/.bootstrap_done" ]; then
     if [ -s "$WS/purchase_profile.md" ]; then
+      # ---- PII scrub BEFORE the freeze (instructor decision, 18 Aug
+      # call): the bootstrap agent pulled the account holder's real name
+      # from a saved address into the profile, despite the SOUL never
+      # asking for it. Instructions caused the leak; a deterministic
+      # filter removes it. Names are prompted, used in memory by the
+      # scrubber, and never written anywhere. Runs before chmod 444 +
+      # hash so the frozen artifact is the CLEAN one. Fail-closed: a
+      # profile that still leaks is never frozen.
+      chmod 644 "$WS/purchase_profile.md" 2>/dev/null || true
+      if [ -t 0 ]; then
+        echo ""
+        echo "PII scrub before the freeze: enter every name on this Amazon"
+        echo "account (yours + anyone on saved addresses), comma-separated."
+        echo "Used only to strip them from the profile — never stored."
+        read -rp "  Name(s): " SCRUB_NAMES
+      else
+        # non-interactive (tests, CI): generic patterns + header rewrite
+        # still run; only the name list is unavailable without a tty
+        SCRUB_NAMES=""
+      fi
+      # pseudonym from the persona files (workspace, or quarantine hold —
+      # during bootstrap the persona is held there by design); the main
+      # SID resolution happens later in this script, too late for us
+      SCRUB_SID=$(python3 - <<'PY'
+import csv, sys
+from pathlib import Path
+home = Path.home()
+for p in (home / "dtlab" / "workspace" / "persona_survey.csv",
+          home / "dtlab" / "quarantine" / "persona_hold"
+          / "persona_survey.csv"):
+    try:
+        with open(p, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        if rows and (rows[0].get("student_id") or "").strip():
+            print(rows[0]["student_id"].strip()); sys.exit(0)
+    except OSError:
+        pass
+print("unknown")
+PY
+)
+      # scrubber location: provisioned copy first, then the kit copy
+      # relative to this script (covers a launcher run straight from the
+      # repo before provisioning has staged ~/dtlab/tools)
+      SCRUB_TOOL=""
+      for c in "$HOME/dtlab/tools/scrub_profile.py" \
+               "$(dirname "$0")/../tools/scrub_profile.py" \
+               "$(dirname "$0")/scrub_profile.py"; do
+        [ -f "$c" ] && SCRUB_TOOL="$c" && break
+      done
+      if [ -z "$SCRUB_TOOL" ]; then
+        echo -e "${RED}scrub_profile.py not found — provisioning is"
+        echo -e "incomplete and the profile cannot be PII-scrubbed."
+        echo -e "The profile was NOT frozen. Tell a TA.${NC}"
+        exit 1
+      fi
+      if ! python3 "$SCRUB_TOOL" \
+             --profile "$WS/purchase_profile.md" \
+             --student-id "$SCRUB_SID" \
+             --names "$SCRUB_NAMES"; then
+        echo -e "${RED}PII scrub failed — the profile was NOT frozen."
+        echo -e "Fix the profile (or re-run the bootstrap) and try"
+        echo -e "dtlab-start again.${NC}"
+        exit 1
+      fi
+      unset SCRUB_NAMES
       chmod 444 "$WS/purchase_profile.md" 2>/dev/null || true
       sha256_file "$WS/purchase_profile.md" \
         > "$HOME/dtlab/purchase_profile.sha256"

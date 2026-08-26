@@ -335,6 +335,7 @@ printf '#!/usr/bin/env bash\nexit 7\n' > "$HOME/bin/curl"       # CDP dead
 # shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
 printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+cp "$REPO/tools/scrub_profile.py" "$HOME/dtlab/tools/" 2>/dev/null || true
 chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
          "$HOME/dtlab/tools/dtlab_browser.sh"
 printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
@@ -537,6 +538,7 @@ mkdir -p "$HOME/bin" "$HOME/dtlab/tools"
 # shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
 printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+cp "$REPO/tools/scrub_profile.py" "$HOME/dtlab/tools/" 2>/dev/null || true
 cat > "$HOME/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 for a in "$@"; do
@@ -674,6 +676,7 @@ printf '#!/usr/bin/env bash\nexit 7\n' > "$HOME/bin/curl"       # CDP dead
 # shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
 printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+cp "$REPO/tools/scrub_profile.py" "$HOME/dtlab/tools/" 2>/dev/null || true
 chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
          "$HOME/dtlab/tools/dtlab_browser.sh"
 printf 'P_FIRST\neconomy\ny\ny\n\n' | env PATH="$HOME/bin:$PATH" \
