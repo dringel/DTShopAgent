@@ -135,6 +135,7 @@ cp -v "$KIT/tools/capture_cart.py"         "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/scrub_profile.py"        "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_orders.py"       "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/validate_profile.py"     "$HOME/dtlab/tools/"
+cp -v "$KIT/tools/capture_tokens.py"       "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_verdicts.py"     "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/dtlab_browser.sh"        "$HOME/dtlab/tools/"
 # checkout-guard extension: kit code (never packed as evidence); the
@@ -191,6 +192,12 @@ cat > "$HOME/.local/bin/dtlab-cart" <<'EOF'
 # Run by the PARTNER after each agent run: cart screenshot + parsed cart
 # contents (cross-checked against the agent's picks at pack time).
 exec python3 "$HOME/dtlab/tools/capture_cart.py" "$@"
+EOF
+cat > "$HOME/.local/bin/dtlab-tokens" <<'EOF'
+#!/usr/bin/env bash
+# Token + cost accounting for a run (T-21 item 12). Run it after each
+# agent session, alongside dtlab-cart. Defaults to the newest run.
+exec python3 "$HOME/dtlab/tools/capture_tokens.py" "$@"
 EOF
 cat > "$HOME/.local/bin/dtlab-verdict" <<'EOF'
 #!/usr/bin/env bash
@@ -404,5 +411,6 @@ echo ""
 echo "Setup complete. Open the 'Lab Desktop' forwarded port (6080) in your"
 echo "browser — password printed above (or 'dtlab' if rotation failed)."
 echo "KEEP THE PORT PRIVATE. Then use the VS Code terminal for:"
-echo "  dtlab-shop | dtlab-start | dtlab-cart | dtlab-verdict |"
+echo "  dtlab-shop | dtlab-start | dtlab-cart | dtlab-tokens |"
+echo "  dtlab-verdict |"
 echo "  dtlab-record (optional) | dtlab-pack"
