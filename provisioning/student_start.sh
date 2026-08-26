@@ -561,6 +561,41 @@ PY
         exit 1
       fi
       unset SCRUB_NAMES
+
+      # ---- claim validation against the real order list ----
+      # The SOUL requires every claim in the profile to be traceable to
+      # an order the agent actually saw. Nothing enforced that, and the
+      # dry run produced a structurally perfect profile naming an
+      # appliance never bought, a substituted brand, three wrong prices,
+      # and three sidebar ADVERTS recorded as purchases. Advisory here
+      # rather than fail-closed: the ground truth is only as good as the
+      # scrape, and blocking a whole cohort on a selector change would be
+      # worse than a flagged profile a human looks at. Set
+      # DTLAB_STRICT_PROFILE=1 to make it blocking.
+      ORDERS_JSON="$QUAR/human/purchase_orders.json"
+      VALIDATOR=""
+      for c in "$HOME/dtlab/tools/validate_profile.py" \
+               "$(dirname "$0")/../tools/validate_profile.py"; do
+        [ -f "$c" ] && VALIDATOR="$c" && break
+      done
+      if [ -n "$VALIDATOR" ] && [ -f "$ORDERS_JSON" ]; then
+        if ! python3 "$VALIDATOR" --profile "$WS/purchase_profile.md" \
+               --orders "$ORDERS_JSON"; then
+          if [ "${DTLAB_STRICT_PROFILE:-0}" = "1" ]; then
+            echo -e "${RED}Profile validation failed and"
+            echo -e "DTLAB_STRICT_PROFILE=1 — not frozen.${NC}"
+            exit 1
+          fi
+          echo -e "${YEL}  [..] profile has unverifiable claims (above)."
+          echo -e "       READ IT before continuing; the frozen profile"
+          echo -e "       feeds every run.${NC}"
+        fi
+      elif [ -n "$VALIDATOR" ]; then
+        echo -e "${YEL}  [..] no order ground truth at $ORDERS_JSON —"
+        echo -e "       run  python3 ~/dtlab/tools/capture_orders.py"
+        echo -e "       (lab browser open) to enable claim checking.${NC}"
+      fi
+
       chmod 444 "$WS/purchase_profile.md" 2>/dev/null || true
       sha256_file "$WS/purchase_profile.md" \
         > "$HOME/dtlab/purchase_profile.sha256"
