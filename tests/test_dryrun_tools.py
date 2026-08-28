@@ -77,6 +77,31 @@ class OrderValidationTests(unittest.TestCase):
         self.assertEqual(parsed["order_total"], 1299.0)
         self.assertEqual(parsed["amounts_seen"], [1299.0, 304.0])
 
+    def test_order_card_chooses_title_not_image_price_or_action_link(self):
+        parsed = capture_orders.parse_card({
+            "asin": "B012345678",
+            "title_candidates": [
+                "-56%",
+                "₹999.00₹999.00",
+                "See all buying options",
+                "Wipro 16A Wi-Fi Smart Plug with Energy Monitoring",
+            ],
+            "card_text": "Order # 123-1234567-1234567 ₹999.00",
+        })
+        self.assertEqual(
+            parsed["title"],
+            "Wipro 16A Wi-Fi Smart Plug with Energy Monitoring")
+
+    def test_order_card_rejects_page_wide_multi_order_container(self):
+        with self.assertRaisesRegex(ValueError, "multiple order ids"):
+            capture_orders.parse_card({
+                "asin": "B012345678",
+                "title": "A real product",
+                "card_text": (
+                    "Order # 123-1234567-1234567 ₹999.00 "
+                    "Order # 456-7654321-7654321 ₹589.00"),
+            })
+
     def test_profile_checker_catches_invention_and_cross_order_price(self):
         profile = """# Purchase Profile: participant DT2026-999
 - boAt Stone Speaker B012345678 — ₹504

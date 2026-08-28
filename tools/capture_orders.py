@@ -46,53 +46,136 @@ DATE_RE = re.compile(
     r"(?:January|February|March|April|May|June|July|August|September|"
     r"October|November|December)\s+\d{4})\b")
 
-# Extracted in-page: walk each product link up to its order container,
-# then read the fields off that container's text. Sidebar/carousel
-# modules are excluded by requiring an order id in the ancestor — adverts
-# never carry one. That single condition is what would have kept Yale,
-# Wipro and the Mi air purifier out of the dry run's profile.
+# Extracted in-page, order first: locate each order-id text node, then walk
+# upward to the smallest ancestor that contains product links and exactly
+# one distinct order id. Starting from product links is unsafe: on the live
+# amazon.in DOM, shallow recommendation cards reach the page-wide orders
+# container before genuine product links reach their own order header.
+#
+# Once the order boundary is known, collect every text/image-alt candidate
+# for each ASIN. parse_card() chooses the useful title deterministically;
+# the first link is commonly an image link with no innerText.
 PAGE_JS = r"""
 () => {
-  const ORDER_ID = /\b(\d{3}-\d{7}-\d{7})\b/;
+  const ONE_ORDER_ID = /\b\d{3}-\d{7}-\d{7}\b/;
+  const ALL_ORDER_IDS = /\b\d{3}-\d{7}-\d{7}\b/g;
+  const ASIN = /\/(?:dp|gp\/product)\/([A-Z0-9]{10})/;
+  const PRODUCT_LINKS = 'a[href*="/dp/"],a[href*="/gp/product/"]';
   const out = [];
-  const seen = new Set();
-  document.querySelectorAll('a[href*="/dp/"],a[href*="/gp/product/"]')
-    .forEach(a => {
-      const m = a.getAttribute('href').match(
-        /\/(?:dp|gp\/product)\/([A-Z0-9]{10})/);
+  const seenOrders = new Set();
+  if (!document.body) return out;
+
+  // Text nodes avoid repeatedly scanning innerText for every element on
+  // the page, and give us the exact element that renders the order id.
+  const walker = document.createTreeWalker(
+    document.body, NodeFilter.SHOW_TEXT);
+  const orderIdNodes = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    const ids = (node.nodeValue || '').match(ALL_ORDER_IDS) || [];
+    ids.forEach(orderId => orderIdNodes.push({
+      orderId: orderId,
+      element: node.parentElement
+    }));
+  }
+
+  orderIdNodes.forEach(({orderId, element}) => {
+    if (!element || seenOrders.has(orderId)) return;
+
+    let el = element, card = null;
+    for (let i = 0; i < 20 && el; i++, el = el.parentElement) {
+      const text = el.innerText || '';
+      const distinctIds = new Set(text.match(ALL_ORDER_IDS) || []);
+      if (distinctIds.size > 1) break;       // crossed into all-orders UI
+      if (distinctIds.size === 1 &&
+          el.querySelectorAll(PRODUCT_LINKS).length) {
+        card = el;
+        break;
+      }
+    }
+    if (!card) return;
+    seenOrders.add(orderId);
+
+    const text = card.innerText || '';
+    // Defensive invariant: a selected card must never span two orders.
+    const cardIds = new Set(text.match(ALL_ORDER_IDS) || []);
+    if (cardIds.size !== 1 || !cardIds.has(orderId)) return;
+
+    const byAsin = new Map();
+    card.querySelectorAll(PRODUCT_LINKS).forEach(a => {
+      const m = (a.getAttribute('href') || '').match(ASIN);
       if (!m) return;
       const asin = m[1];
-      // climb to the nearest ancestor that carries an order id
-      let el = a, card = null;
-      for (let i = 0; i < 12 && el; i++) {
-        el = el.parentElement;
-        if (el && ORDER_ID.test(el.innerText || '')) { card = el; break; }
-      }
-      if (!card) return;                    // advert / recommendation
-      const text = card.innerText || '';
-      const key = asin + '|' + (text.match(ORDER_ID) || ['',''])[1];
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({
-        asin: asin,
-        title: (a.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-        card_text: text.replace(/\s+/g, ' ').trim().slice(0, 1200)
+      if (!byAsin.has(asin)) byAsin.set(asin, new Set());
+      const candidates = byAsin.get(asin);
+      const linkText = (a.innerText || '').replace(/\s+/g, ' ').trim();
+      if (linkText) candidates.add(linkText);
+      a.querySelectorAll('img[alt]').forEach(img => {
+        const alt = (img.alt || '').replace(/\s+/g, ' ').trim();
+        if (alt) candidates.add(alt);
       });
     });
+
+    byAsin.forEach((titleCandidates, asin) => out.push({
+      asin: asin,
+      title_candidates: [...titleCandidates],
+      card_text: text.replace(/\s+/g, ' ').trim().slice(0, 2400)
+    }));
+  });
   return out;
 }
 """
 
+TITLE_NOISE = {
+    "buy it again",
+    "get product support",
+    "return items",
+    "see all buying options",
+    "view order details",
+    "write a product review",
+}
+
+
+def select_title(rec):
+    """Choose a product title over image links, prices, and action links."""
+    raw = []
+    if rec.get("title"):
+        raw.append(rec["title"])
+    raw.extend(rec.get("title_candidates", []))
+
+    candidates = []
+    for value in raw:
+        value = re.sub(r"\s+", " ", str(value)).strip()
+        if value and value not in candidates:
+            candidates.append(value)
+
+    def useful(value):
+        lowered = value.casefold()
+        if lowered in TITLE_NOISE:
+            return False
+        if re.fullmatch(r"-?\d+%", value):
+            return False
+        if re.fullmatch(
+                r"(?:₹\s*[\d,]+(?:\.\d{1,2})?)+", value):
+            return False
+        return True
+
+    useful_candidates = [value for value in candidates if useful(value)]
+    choices = useful_candidates or candidates
+    return (max(choices, key=len) if choices else "")[:300]
+
 
 def parse_card(rec):
     t = rec.get("card_text", "")
-    oid = ORDER_ID_RE.search(t)
+    order_ids = list(dict.fromkeys(ORDER_ID_RE.findall(t)))
+    if len(order_ids) > 1:
+        raise ValueError("candidate order card spans multiple order ids")
     date = DATE_RE.search(t)
     amounts = [a.replace(",", "") for a in RUPEE_RE.findall(t)]
     return {
         "asin": rec["asin"],
-        "title": rec.get("title", ""),
-        "order_id": oid.group(1) if oid else None,
+        "title": select_title(rec),
+        "order_id": order_ids[0] if order_ids else None,
         "order_date": date.group(1) if date else None,
         # first rupee figure on an order card is the order total; keep
         # them all so a multi-item order can still be reconciled
@@ -146,7 +229,12 @@ def main():
 
     parsed, seen = [], set()
     for r in records:
-        rec = parse_card(r)
+        try:
+            rec = parse_card(r)
+        except ValueError as exc:
+            print(f"capture_orders: rejected contaminated card: {exc}",
+                  file=sys.stderr)
+            continue
         key = (rec["asin"], rec["order_id"])
         if key in seen:
             continue
