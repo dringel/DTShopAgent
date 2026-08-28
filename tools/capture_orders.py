@@ -145,9 +145,9 @@ def select_title(rec):
 
     candidates = []
     for value in raw:
-        value = re.sub(r"\s+", " ", str(value)).strip()
-        if value and value not in candidates:
-            candidates.append(value)
+        clean_value = re.sub(r"\s+", " ", str(value)).strip()
+        if clean_value and clean_value not in candidates:
+            candidates.append(clean_value)
 
     def useful(value):
         lowered = value.casefold()
