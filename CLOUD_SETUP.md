@@ -57,7 +57,9 @@ How it works for the student:
    in a browser tab (noVNC; the per-codespace password is printed in the
    setup log / terminal). **Never set this port to Public** — a public
    port hands a desktop logged into your Amazon account to anyone with
-   the URL. Chromium runs there.
+   the URL. Chromium runs there. For host-to-desktop paste, put the text
+   in noVNC's clipboard side panel, then use **Ctrl+V** in the Linux
+   desktop; **Cmd+V** is not the remote paste shortcut.
 4. Use the VS Code terminal for the six commands, same as the VM route:
    `dtlab-shop`, `dtlab-start`, `dtlab-cart` (partner, after every run),
    `dtlab-verdict`, `dtlab-record` (optional), `dtlab-pack`.

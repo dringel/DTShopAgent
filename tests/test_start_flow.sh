@@ -897,6 +897,50 @@ check $? 0 "GitHub actions pinned by commit SHA"
 grep -q 'PLAYWRIGHT_PIN is empty' "$REPO/.devcontainer/setup.sh" \
   && grep -q 'PLAYWRIGHT_PIN is empty' "$REPO/provisioning/provision.sh"
 check $? 0 "empty PLAYWRIGHT_PIN fails both builds (unpinned-gate style)"
+grep -Fq 'PLAYWRIGHT_PIN="==1.62.0"' "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'PLAYWRIGHT_PIN="==1.62.0"' "$REPO/provisioning/provision.sh"
+check $? 0 "Playwright is frozen identically in both provisioners"
+grep -Fq 'ANTHROPIC_PIN="==0.122.0"' "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'ANTHROPIC_PIN="==0.122.0"' "$REPO/provisioning/provision.sh"
+check $? 0 "Anthropic SDK is frozen identically in both provisioners"
+grep -Fq 'HERMES_INSTALLER_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/v2026.8.3/scripts/install.sh"' \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'HERMES_INSTALLER_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/v2026.8.3/scripts/install.sh"' \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "Hermes installer comes from the same immutable release tag"
+grep -Fq 'HERMES_INSTALLER_SHA256="45f589461248c7a6ec3aecd7522a69dd49c5c8dbf4798ba1296af5c0c5e7ccd3"' \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'HERMES_INSTALLER_SHA256="45f589461248c7a6ec3aecd7522a69dd49c5c8dbf4798ba1296af5c0c5e7ccd3"' \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "Hermes installer checksum is frozen identically"
+grep -Fq 'HERMES_COMMIT="3c27eb6234bf91b8ceee9e9071591b31e9b148cb"' \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'HERMES_COMMIT="3c27eb6234bf91b8ceee9e9071591b31e9b148cb"' \
+  "$REPO/provisioning/provision.sh" \
+  && grep -Fq -- "--commit \"\$HERMES_COMMIT\" --force-commit" \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq -- "--commit \"\$HERMES_COMMIT\" --force-commit" \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "Hermes checkout is frozen to the release commit in both routes"
+grep -Fq 'UV_INSTALLER_URL="https://astral.sh/uv/0.12.7/install.sh"' \
+  "$REPO/provisioning/provision.sh" \
+  && grep -Fq 'UV_INSTALLER_SHA256="92e8554321e2bde08c9b1445dae47a65360f885274f31df51cdc2f9faa84e001"' \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "VM uv installer is versioned and checksum-pinned"
+! grep -Eq '^[A-Z_]+.*="UNPINNED"' "$REPO/.devcontainer/setup.sh" \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "no provisioner ships an unresolved installer checksum"
+grep -Fq -- '--window-size=1180,680' "$REPO/tools/dtlab_browser.sh" \
+  && grep -Fq '"--window-size=1180,680"' \
+  "$REPO/tools/log_human_session.py" \
+  && grep -Fq 'viewport={"width": 1100, "height": 600}' \
+  "$REPO/tools/log_human_session.py"
+check $? 0 "both browser routes fit inside the 1280x720 lab desktop"
+grep -Fq -- '--disable-session-crashed-bubble' \
+  "$REPO/tools/dtlab_browser.sh" \
+  && grep -Fq '"--disable-session-crashed-bubble"' \
+  "$REPO/tools/log_human_session.py"
+check $? 0 "both browser routes suppress the stale-session restore bubble"
 grep -q 'counterbalance.csv missing at the repo root' \
   "$REPO/.devcontainer/setup.sh" \
   && grep -q 'counterbalance.csv missing at the repo root' \

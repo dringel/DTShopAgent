@@ -521,9 +521,15 @@ def main():
                 str(PROFILE), headless=False,
                 executable_path=exe or None,
                 args=[f"--load-extension={ext_dir}",
-                      f"--disable-extensions-except={ext_dir}"]
+                      f"--disable-extensions-except={ext_dir}",
+                      "--window-size=1180,680",
+                      "--window-position=10,10",
+                      "--disable-session-crashed-bubble"]
                      + sandbox_args,
-                viewport={"width": 1280, "height": 900})
+                # desktop-lite's display is 1280x720. Leave room for
+                # browser chrome and the desktop panel so every control
+                # remains reachable without an undocumented Alt-drag.
+                viewport={"width": 1100, "height": 600})
         except Exception as exc:
             # Do NOT assume a profile lock: a sandbox/namespace abort
             # lands here too, and telling a student to close windows they

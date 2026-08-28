@@ -342,6 +342,9 @@ hard-coded anywhere.
    forwarded **Lab Desktop** port (noVNC; per-codespace password printed
    in the terminal — NEVER set the port to Public) → Tuesday: API key
    in, persona zip in, pre-flight green, sandbox smoke run watched.
+   To paste from the host into that Linux desktop, use noVNC's clipboard
+   side panel, then press **Ctrl+V** inside Chromium (**Cmd+V does not
+   apply** inside the remote desktop).
 3. (No data-export step — on Thursday, before any shopping run, your
    agent reads your order history once in a short questionnaire-blind
    **bootstrap session** and writes your purchase profile, which is

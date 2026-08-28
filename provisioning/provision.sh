@@ -16,19 +16,23 @@ KIT="$(cd "$(dirname "$0")/.." && pwd)"   # repo root = the dt-lab kit
 
 # ---- pinned downloads -------------------------------------------------
 # Every remote installer is downloaded to a file, checksum-verified, then
-# executed. "UNPINNED" makes the build FAIL until the TA pins a release
-# (procedure: TA_ONBOARDING.md > "Updating installer pins").
-# TODO(dry-run): pin real versions + checksums at image-build time.
-UV_INSTALLER_URL="https://astral.sh/uv/install.sh"
-UV_INSTALLER_SHA256="UNPINNED"
-HERMES_INSTALLER_URL="https://hermes-agent.nousresearch.com/install.sh"
-HERMES_INSTALLER_SHA256="UNPINNED"
-PLAYWRIGHT_PIN=""   # e.g. "==1.55.0"; empty = latest (pin at dry run)
+# executed. URLs and hashes were resolved and scripts inspected 2026-08-28.
+# Hermes is pinned twice: the installer comes from an immutable signed
+# release tag and is told the exact release commit to check out, so its
+# internal git clone cannot drift to main.
+UV_INSTALLER_URL="https://astral.sh/uv/0.12.7/install.sh"
+UV_INSTALLER_SHA256="92e8554321e2bde08c9b1445dae47a65360f885274f31df51cdc2f9faa84e001"
+HERMES_INSTALLER_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/v2026.8.3/scripts/install.sh"
+HERMES_INSTALLER_SHA256="45f589461248c7a6ec3aecd7522a69dd49c5c8dbf4798ba1296af5c0c5e7ccd3"
+HERMES_COMMIT="3c27eb6234bf91b8ceee9e9071591b31e9b148cb"
+PLAYWRIGHT_PIN="==1.62.0"
+ANTHROPIC_PIN="==0.122.0"
 
 # Flags passed to the Hermes installer. These are load-bearing, not
 # cosmetic — see the "Hermes Agent" step below. Keep .devcontainer/setup.sh
 # and provisioning/provision.sh in lockstep.
-HERMES_INSTALL_FLAGS=(--skip-setup --non-interactive)
+HERMES_INSTALL_FLAGS=(--skip-setup --non-interactive
+  --commit "$HERMES_COMMIT" --force-commit)
 # Wall-clock ceiling for the installer. A blocked prompt must fail the
 # build with a diagnosis, never hang a creation hook forever.
 HERMES_INSTALL_TIMEOUT="${DTLAB_HERMES_INSTALL_TIMEOUT:-2400}"
@@ -145,14 +149,14 @@ fi
 # the only way in. Both paths are derived, not hard-coded: the launcher
 # wrapper names its own interpreter, and uv ships inside the Hermes
 # tree at ~/.hermes/bin/uv.
-# TODO(freeze): pin an exact anthropic version alongside the other
-# installer pins; ">=0.39.0" is only Hermes' own stated floor.
+# 0.122.0 is the exact SDK present for the successful 18 Aug live
+# bootstrap. Do not float across the SDK's 1.x migration at freeze.
 HERMES_PY="$(sed -n 's|^exec "\([^"]*python\)".*|\1|p' \
              "$HOME/.local/bin/hermes" 2>/dev/null | head -1)"
 HERMES_UV="$HOME/.hermes/bin/uv"
 [ -x "$HERMES_UV" ] || HERMES_UV="$(command -v uv || true)"
 if [ -n "$HERMES_PY" ] && [ -x "$HERMES_PY" ] && [ -n "$HERMES_UV" ]; then
-  "$HERMES_UV" pip install --python "$HERMES_PY" "anthropic>=0.39.0"
+  "$HERMES_UV" pip install --python "$HERMES_PY" "anthropic$ANTHROPIC_PIN"
   if "$HERMES_PY" -c "import anthropic" 2>/dev/null; then
     echo "anthropic SDK present in the Hermes venv"
   else

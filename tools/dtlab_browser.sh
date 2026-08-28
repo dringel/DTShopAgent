@@ -77,5 +77,7 @@ exec "$BIN" \
   --remote-debugging-port="$PORT" \
   --load-extension="$EXTDIR" \
   --disable-extensions-except="$EXTDIR" \
+  --window-size=1180,680 --window-position=10,10 \
+  --disable-session-crashed-bubble \
   --no-first-run --no-default-browser-check \
   "$URL"
