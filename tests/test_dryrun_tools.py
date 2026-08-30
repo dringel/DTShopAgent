@@ -102,6 +102,17 @@ class OrderValidationTests(unittest.TestCase):
                     "Order # 456-7654321-7654321 ₹589.00"),
             })
 
+    def test_order_card_skips_both_cancellation_spellings(self):
+        for spelling in ("Cancelled", "Canceled"):
+            with self.subTest(spelling=spelling):
+                with self.assertRaisesRegex(ValueError, "cancelled order"):
+                    capture_orders.parse_card({
+                        "asin": "B012345678",
+                        "title": "Duplicate snack order",
+                        "card_text": (
+                            "Order # 123-1234567-1234567 " + spelling),
+                    })
+
     def test_profile_checker_catches_invention_and_cross_order_price(self):
         profile = """# Purchase Profile: participant DT2026-999
 - boAt Stone Speaker B012345678 — ₹504

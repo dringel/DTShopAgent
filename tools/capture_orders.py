@@ -45,6 +45,7 @@ DATE_RE = re.compile(
     r"\b(\d{1,2}\s+"
     r"(?:January|February|March|April|May|June|July|August|September|"
     r"October|November|December)\s+\d{4})\b")
+CANCELLED_RE = re.compile(r"\b(?:cancelled|canceled)\b", re.IGNORECASE)
 
 # Extracted in-page, order first: locate each order-id text node, then require
 # its explicit Amazon order-card ancestor. Starting from product links is
@@ -159,6 +160,8 @@ def select_title(rec):
 
 def parse_card(rec):
     t = rec.get("card_text", "")
+    if CANCELLED_RE.search(t):
+        raise ValueError("cancelled order")
     order_ids = list(dict.fromkeys(ORDER_ID_RE.findall(t)))
     if len(order_ids) > 1:
         raise ValueError("candidate order card spans multiple order ids")
@@ -224,7 +227,7 @@ def main():
         try:
             rec = parse_card(r)
         except ValueError as exc:
-            print(f"capture_orders: rejected contaminated card: {exc}",
+            print(f"capture_orders: skipped order card: {exc}",
                   file=sys.stderr)
             continue
         key = (rec["asin"], rec["order_id"])
