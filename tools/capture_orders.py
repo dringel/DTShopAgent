@@ -46,21 +46,22 @@ DATE_RE = re.compile(
     r"(?:January|February|March|April|May|June|July|August|September|"
     r"October|November|December)\s+\d{4})\b")
 
-# Extracted in-page, order first: locate each order-id text node, then walk
-# upward to the smallest ancestor that contains product links and exactly
-# one distinct order id. Starting from product links is unsafe: on the live
-# amazon.in DOM, shallow recommendation cards reach the page-wide orders
-# container before genuine product links reach their own order header.
+# Extracted in-page, order first: locate each order-id text node, then require
+# its explicit Amazon order-card ancestor. Starting from product links is
+# unsafe: on the live amazon.in DOM, recommendation cards can carry an
+# order-id-like value or reach the page-wide orders container. If Amazon
+# changes the semantic order-card marker, fail closed instead of admitting
+# recommendations into the ground truth.
 #
 # Once the order boundary is known, collect every text/image-alt candidate
 # for each ASIN. parse_card() chooses the useful title deterministically;
 # the first link is commonly an image link with no innerText.
 PAGE_JS = r"""
 () => {
-  const ONE_ORDER_ID = /\b\d{3}-\d{7}-\d{7}\b/;
   const ALL_ORDER_IDS = /\b\d{3}-\d{7}-\d{7}\b/g;
   const ASIN = /\/(?:dp|gp\/product)\/([A-Z0-9]{10})/;
   const PRODUCT_LINKS = 'a[href*="/dp/"],a[href*="/gp/product/"]';
+  const ORDER_CARD = '.order-card, .js-order-card';
   const out = [];
   const seenOrders = new Set();
   if (!document.body) return out;
@@ -82,24 +83,15 @@ PAGE_JS = r"""
   orderIdNodes.forEach(({orderId, element}) => {
     if (!element || seenOrders.has(orderId)) return;
 
-    let el = element, card = null;
-    for (let i = 0; i < 20 && el; i++, el = el.parentElement) {
-      const text = el.innerText || '';
-      const distinctIds = new Set(text.match(ALL_ORDER_IDS) || []);
-      if (distinctIds.size > 1) break;       // crossed into all-orders UI
-      if (distinctIds.size === 1 &&
-          el.querySelectorAll(PRODUCT_LINKS).length) {
-        card = el;
-        break;
-      }
-    }
+    const card = element.closest(ORDER_CARD);
     if (!card) return;
-    seenOrders.add(orderId);
 
     const text = card.innerText || '';
     // Defensive invariant: a selected card must never span two orders.
     const cardIds = new Set(text.match(ALL_ORDER_IDS) || []);
     if (cardIds.size !== 1 || !cardIds.has(orderId)) return;
+    if (!card.querySelectorAll(PRODUCT_LINKS).length) return;
+    seenOrders.add(orderId);
 
     const byAsin = new Map();
     card.querySelectorAll(PRODUCT_LINKS).forEach(a => {
