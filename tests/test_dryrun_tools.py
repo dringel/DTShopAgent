@@ -235,6 +235,159 @@ class OrderValidationTests(unittest.TestCase):
         self.assertFalse(any(kind == "BRAND" for kind in kinds))
 
 
+class ProfileStatsTests(unittest.TestCase):
+    """P0.2: aggregate claims are reconciled against ground truth.
+
+    The ASIN/price/brand checks are per-claim and exempt anything that
+    reads as a computed statistic (DERIVED_HINTS) — deliberately, since
+    "average order value" is not any single order's amount. That left a
+    gap the 30 Aug live bootstrap fell straight through: a wrong average,
+    a double-counted cancelled duplicate inflating the order count, and a
+    category split that does not sum to 100% all passed clean, because
+    nothing computed what the real numbers were and compared. These
+    tests cover order_stats() (the ground-truth arithmetic),
+    stats_problems() (reconciliation against the mandatory Summary
+    Stats block from agent/SOUL_bootstrap.md), and
+    category_share_problems() (the internal-consistency-only check —
+    capture_orders.py has no category field to reconcile against).
+    """
+
+    def setUp(self):
+        # one multi-item order (O2, two line items sharing one total) is
+        # the exact shape that caused the live double-count: a validator
+        # that counts LINE ITEMS instead of distinct ORDER IDS would say
+        # 3 orders here instead of 2
+        self.items = [
+            {"asin": "B0000001", "title": "boAt Stone Speaker",
+             "order_id": "O1", "order_total": 304.0,
+             "amounts_seen": [304.0]},
+            {"asin": "B0000002", "title": "Pringles Potato Crisps",
+             "order_id": "O2", "order_total": 900.0,
+             "amounts_seen": [900.0]},
+            {"asin": "B0000003", "title": "Colgate Toothpaste",
+             "order_id": "O2", "order_total": 900.0,
+             "amounts_seen": [900.0]},
+        ]
+        self.asins = {i["asin"] for i in self.items}
+        self.titles = " | ".join(i["title"] for i in self.items).lower()
+        self.amounts = {304.0, 900.0}
+
+    def test_order_stats_counts_distinct_orders_not_line_items(self):
+        truth = validate_profile.order_stats(self.items)
+        self.assertEqual(truth["n_orders"], 2)          # O1, O2 — not 3
+        self.assertEqual(truth["n_line_items"], 3)
+        self.assertEqual(truth["total_spend"], 1204.0)   # 304 + 900, once
+        self.assertAlmostEqual(truth["avg_order_value"], 602.0)
+
+    def test_order_stats_ignores_items_with_no_order_id(self):
+        items = self.items + [{"asin": "B0000004", "title": "no-order-id",
+                                "order_total": 50.0}]
+        truth = validate_profile.order_stats(items)
+        self.assertEqual(truth["n_orders"], 2)           # unchanged
+        self.assertEqual(truth["n_line_items"], 4)       # still counted
+
+    def _profile(self, n_orders=2, n_items=3, total="1,204",
+                 avg="602", categories="Grocery 40%, Beauty 60%"):
+        return f"""# Purchase Profile: participant DT2026-999
+
+## Summary Stats
+Completed orders: {n_orders}
+Purchased line items: {n_items}
+Total spend: ₹{total}
+Average order value: ₹{avg}
+
+## Observations
+Top categories: {categories}
+- boAt Stone Speaker B0000001 — ₹304
+
+## Inferences
+- Buys the same snack brands repeatedly.
+- Prefers mid-range electronics.
+- Shows no seasonal spending spikes.
+"""
+
+    def test_well_formed_profile_has_no_stats_problems(self):
+        problems = validate_profile.check(
+            self._profile(), self.asins, self.titles, self.amounts,
+            self.items, strict_brands=False)
+        self.assertEqual([p for p in problems if p[0] == "STATS"], [])
+
+    def test_double_counted_order_is_caught(self):
+        profile = self._profile(n_orders=3)   # the live-log failure shape
+        problems = validate_profile.stats_problems(profile, self.items)
+        self.assertTrue(any(
+            "Completed orders" in what for _, what, _ in problems))
+
+    def test_wrong_average_is_caught_but_one_rupee_rounding_is_not(self):
+        exact = self._profile(avg="602")
+        rounded = self._profile(avg="602.7")     # within the ₹1 tolerance
+        wrong = self._profile(avg="3,200")
+        self.assertEqual(
+            validate_profile.stats_problems(exact, self.items), [])
+        self.assertEqual(
+            validate_profile.stats_problems(rounded, self.items), [])
+        problems = validate_profile.stats_problems(wrong, self.items)
+        self.assertTrue(any(
+            "Average order value" in what for _, what, _ in problems))
+
+    def test_wrong_total_spend_is_caught(self):
+        problems = validate_profile.stats_problems(
+            self._profile(total="9,999"), self.items)
+        self.assertTrue(any(
+            "Total spend" in what for _, what, _ in problems))
+
+    def test_missing_summary_stats_block_reports_every_field(self):
+        profile = ("# Purchase Profile: participant DT2026-999\n"
+                   "## Observations\nsomething\n"
+                   "## Inferences\n- a\n- b\n- c\n")
+        problems = validate_profile.stats_problems(profile, self.items)
+        labels = {what for _, what, _ in problems}
+        self.assertEqual(labels, {"Completed orders",
+                                   "Purchased line items", "Total spend",
+                                   "Average order value"})
+
+    def test_category_shares_must_sum_to_about_100(self):
+        clean = self._profile(categories="Grocery 40%, Beauty 60%")
+        broken = self._profile(
+            categories="Grocery 40%, Beauty 30%, Home 45%")   # 115%
+        self.assertEqual(
+            validate_profile.category_share_problems(clean), [])
+        problems = validate_profile.category_share_problems(broken)
+        self.assertTrue(any(
+            "Category percentages" in what for _, what, _ in problems))
+
+    def test_category_shares_sum_across_one_line_not_per_line(self):
+        # "Grocery 40%, Beauty 30%, Home 30%" is ONE line with THREE
+        # shares — summing "lines" instead of "percentages found" would
+        # silently skip this check entirely
+        profile = self._profile(
+            categories="Grocery 40%, Beauty 30%, Home 30%")
+        self.assertEqual(
+            validate_profile.category_share_problems(profile), [])
+        broken = self._profile(
+            categories="Grocery 40%, Beauty 30%, Home 45%")
+        problems = validate_profile.category_share_problems(broken)
+        self.assertEqual(len(problems), 1)
+
+    def test_stats_block_rupee_lines_do_not_double_report_as_price(self):
+        # Total spend/Average order value are sums/derived figures, not
+        # any single order's amount — the old per-line PRICE loop must
+        # skip them (stats_problems() is the one that reconciles them)
+        problems = validate_profile.check(
+            self._profile(), self.asins, self.titles, self.amounts,
+            self.items, strict_brands=False)
+        self.assertEqual([p for p in problems if p[0] == "PRICE"], [])
+
+    def test_schema_header_words_are_not_flagged_as_brands(self):
+        problems = validate_profile.check(
+            self._profile(), self.asins, self.titles, self.amounts,
+            self.items, strict_brands=False)
+        flagged = {what for kind, what, _ in problems
+                   if kind in ("BRAND", "brand?")}
+        self.assertFalse(flagged & {"Stats", "Completed", "Purchased",
+                                    "Total"})
+
+
 class TokenCaptureTests(unittest.TestCase):
     def test_scan_accepts_json_and_jsonl_usage_shapes(self):
         with tempfile.TemporaryDirectory() as tmp:
