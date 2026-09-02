@@ -24,6 +24,7 @@ capture_orders = load_tool("capture_orders")
 capture_tokens = load_tool("capture_tokens")
 scrub_profile = load_tool("scrub_profile")
 validate_profile = load_tool("validate_profile")
+pack_evidence = load_tool("pack_evidence")
 
 
 class ScrubProfileTests(unittest.TestCase):
@@ -50,6 +51,107 @@ Account: amzn1.account.ABC-123
             out, "DT2026-999", pats)
         self.assertEqual(again, out)
         self.assertEqual(second_count, 0)
+
+
+class PackRedactionTests(unittest.TestCase):
+    """P0.1: the pack applies the SAME identity rules as the freeze.
+
+    The 30 Aug live bootstrap leaked an account-holder name into agent-
+    written Markdown. Freezing scrubs the two bootstrap artifacts; these
+    cover the surfaces it never touched — transcripts, manifest values,
+    and the rendered report — all of which funnel through redact_line.
+    """
+
+    PLANTED = [
+        "# Purchase Profile: Vinita Gupta Rai",
+        "Hello, Vinita",
+        "Deliver to Vinita Gupta Rai",
+        "Address: 12 MG Road, Kota 324005",
+        "- Address: 12 MG Road",
+        "Shipped to Kota 324005",
+        "Account: amzn1.account.ABC-123",
+        "call 9876543210 or 98765 43210",
+    ]
+
+    def setUp(self):
+        # module-level by design (redact_line is the single choke point);
+        # restored in tearDown so test order cannot matter
+        self._saved = list(pack_evidence.NAME_PATS)
+        pack_evidence.NAME_PATS[:] = scrub_profile.name_variants(
+            ["Vinita Gupta Rai"])
+
+    def tearDown(self):
+        pack_evidence.NAME_PATS[:] = self._saved
+
+    def test_pack_reuses_the_freeze_time_identity_rules(self):
+        # The pack imports the scrubber's list rather than restating it,
+        # so a rule added at freeze time reaches the pack automatically.
+        # (Identity, not `is`: this test file loads scrub_profile once
+        # and pack_evidence loads its own copy, so the two module objects
+        # differ here while the rule source must not.)
+        self.assertEqual(
+            [pat.pattern for pat, _ in pack_evidence.IDENTITY_PATTERNS],
+            [pat.pattern for pat, _ in scrub_profile.IDENTITY_PATTERNS])
+        self.assertNotIn(
+            "IDENTITY_PATTERNS = [",
+            (REPO / "tools" / "pack_evidence.py").read_text(),
+            "the pack must import the rules, never restate them")
+
+    def test_planted_identity_is_removed_and_rescans_clean(self):
+        for line in self.PLANTED:
+            with self.subTest(line=line):
+                self.assertGreater(
+                    pack_evidence.scan_text_for_leaks(line), 0,
+                    "the scan must see the leak BEFORE redaction")
+                out, _ = pack_evidence.redact_text(line)
+                for secret in ("Vinita", "Gupta", "Rai", "Kota", "324005",
+                               "9876543210", "98765 43210",
+                               "amzn1.account", "12 MG Road"):
+                    self.assertNotIn(secret, out)
+                self.assertEqual(pack_evidence.scan_text_for_leaks(out), 0)
+
+    def test_redaction_is_idempotent(self):
+        # the fail-closed scan treats any hit as a real leak, so a rule
+        # that re-matched its own output would block every pack
+        for line in self.PLANTED:
+            with self.subTest(line=line):
+                once, _ = pack_evidence.redact_text(line)
+                twice, n = pack_evidence.redact_text(once)
+                self.assertEqual(once, twice)
+                self.assertEqual(n, 0)
+
+    def test_hashes_and_ordinary_text_are_left_alone(self):
+        digest = "a3f5b2c1d4e6f7a8b9c0" + "d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6"
+        title = "Wireless Mouse 1200 DPI, 2 AA batteries"
+        for keep in (digest, title):
+            with self.subTest(keep=keep):
+                out, n = pack_evidence.redact_text(keep)
+                self.assertEqual(out, keep)
+                self.assertEqual(n, 0)
+                self.assertEqual(pack_evidence.scan_text_for_leaks(keep), 0)
+
+    def test_manifest_values_are_redacted_recursively(self):
+        manifest = {"rationale": ["Deliver to Vinita Gupta Rai"],
+                    "nested": {"note": "Address: 12 MG Road, Kota 324005"},
+                    "sha256": "b" * 64,
+                    "count": 7}
+        out, n = pack_evidence.redact_obj(manifest)
+        self.assertGreater(n, 0)
+        self.assertEqual(out["sha256"], "b" * 64)   # hash untouched
+        self.assertEqual(out["count"], 7)
+        blob = json.dumps(out)
+        for secret in ("Vinita", "Gupta", "Rai", "Kota", "324005"):
+            self.assertNotIn(secret, blob)
+
+    def test_name_marker_is_never_counted_as_a_surviving_name(self):
+        out, _ = pack_evidence.redact_text("Deliver to Vinita")
+        self.assertIn("[REDACTED-NAME]", out)
+        self.assertEqual(pack_evidence.scan_text_for_leaks(out), 0)
+
+    def test_bootstrap_transcripts_are_excluded_with_a_reason(self):
+        decision = pack_evidence.BOOTSTRAP_TRANSCRIPTS
+        self.assertFalse(decision["collected"])
+        self.assertIn("order history", decision["reason"])
 
 
 class OrderValidationTests(unittest.TestCase):

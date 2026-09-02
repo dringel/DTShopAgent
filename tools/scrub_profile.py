@@ -34,8 +34,15 @@ import re
 import sys
 from pathlib import Path
 
-# Generic Amazon-page PII that needs no name list.
-GENERIC_PATTERNS = [
+# Identity furniture visible on amazon.in pages: names, addresses, and
+# account identifiers that need no supplied name list. Kept separate from
+# the contact rules because pack_evidence.py (P0.1) imports THIS list to
+# apply the same identity rules to transcripts, the report, and manifest
+# values. One rule set, so freeze-time and pack-time filters cannot drift
+# apart. Every rule is idempotent: re-running it over its own output is a
+# no-op, which is what lets the pack's detection-only scan treat a
+# surviving match as a real leak.
+IDENTITY_PATTERNS = [
     # "Hello, Vinir" / "Deliver to Vinita" / "Ship to X" page furniture
     (re.compile(r"(?im)^(.*\b(?:hello|deliver(?:ing)? to|ship to)[,:]?\s+)"
                 r"[A-Z][a-zA-Z .'-]{1,40}$"), r"\1[REDACTED-NAME]"),
@@ -47,14 +54,23 @@ GENERIC_PATTERNS = [
     # Indian PIN codes in address-like context: "Kota 324005"
     (re.compile(r"\b([A-Z][a-z]{2,20})[ ,-]{1,3}(\d{6})\b"),
      "[REDACTED-CITY-PIN]"),
+    # Amazon customer/account ids
+    (re.compile(r"\bamzn1\.[\w.-]+\b", re.IGNORECASE), "[REDACTED-AMZN-ID]"),
+]
+
+# Contact rules. pack_evidence.py deliberately does NOT reuse these: its
+# own email/phone detectors are hash-aware (a phone-shaped digit run
+# inside a sha256 must never be rewritten) and safe on multi-MB lines.
+CONTACT_PATTERNS = [
     # phone numbers (10+ digits, allowing separators)
     (re.compile(r"(?<!\d)(?:\+?91[ -]?)?\d{5}[ -]?\d{5}(?!\d)"),
      "[REDACTED-PHONE]"),
     # emails
     (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]+\b"), "[REDACTED-EMAIL]"),
-    # Amazon customer/account ids
-    (re.compile(r"\bamzn1\.[\w.-]+\b", re.IGNORECASE), "[REDACTED-AMZN-ID]"),
 ]
+
+# Generic Amazon-page PII that needs no name list.
+GENERIC_PATTERNS = IDENTITY_PATTERNS + CONTACT_PATTERNS
 
 
 def name_variants(raw_names):
