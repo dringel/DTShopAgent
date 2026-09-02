@@ -773,12 +773,51 @@ check "$(cat "$HOME/dtlab/runs/bootstrap/model_id.txt")" "claude-eco-test-1" \
 [ -f "$HOME/dtlab/quarantine/persona_hold/persona_survey.md" ] \
   && [ ! -f "$HOME/dtlab/workspace/persona_survey.md" ]
 check $? 0 "persona held in quarantine during bootstrap (questionnaire-blind)"
+# Give the freeze step a valid pseudonym without using real participant
+# data. The bootstrap launch moved this CSV into persona_hold above.
+printf 'student_id,answer\nDT2026-999,synthetic\n' \
+  > "$HOME/dtlab/quarantine/persona_hold/persona_survey.csv"
 # the bootstrap agent writes the profile + its PROTOCOL-opened log
-printf 'PROTOCOL | soul=bootstrap-v1\nprofile written\n' \
+printf 'PROTOCOL | soul=bootstrap-v1\nAddress: 17 Example Road, Sampleton 411001\nContact: Avery Example, avery@example.invalid, 98765 00000\nprofile written\n' \
   > "$HOME/dtlab/workspace/decision_log.md"
-printf '# Purchase profile\n- top categories: y\n' \
+printf '# Purchase Profile: Avery Example\n- Deliver to Avery Example\n- Address: 17 Example Road, Sampleton 411001\n- Contact: avery@example.invalid, 98765 00000\n- top categories: y\n' \
   > "$HOME/dtlab/workspace/purchase_profile.md"
-rc=$(run 'P_FIRST\ny\ny\n\n')
+# A real captured-order file makes validation authoritative. Stub the
+# validator here because this state-machine case tests the launcher's
+# response to its exit status; validate_profile.py has focused unit tests.
+mkdir -p "$HOME/dtlab/tools" "$HOME/dtlab/quarantine/human"
+printf '{"items":[{"asin":"B012345678"}]}\n' \
+  > "$HOME/dtlab/quarantine/human/purchase_orders.json"
+printf 'raise SystemExit(1)\n' \
+  > "$HOME/dtlab/tools/validate_profile.py"
+rc=$(run 'Avery Example\nP_FIRST\ny\ny\n\n')
+check "$rc" 1 "failed profile validation blocks the freeze"
+grep -q "profile was NOT" "$HOME/last_out.txt"
+check $? 0 "validation refusal says the profile was not frozen"
+[ ! -f "$HOME/dtlab/.bootstrap_done" ] \
+  && [ ! -f "$HOME/dtlab/purchase_profile.sha256" ] \
+  && [ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "failed validation leaves no freeze marker, hash, or run 1"
+[ -f "$HOME/dtlab/workspace/decision_log.md" ]
+check $? 0 "failed validation leaves the bootstrap log in the workspace"
+grep -q '^# Purchase Profile: participant DT2026-999$' \
+  "$HOME/dtlab/workspace/purchase_profile.md"
+check $? 0 "profile is pseudonym-attributed before validation"
+grep -q '\[REDACTED-ADDRESS\]' \
+  "$HOME/dtlab/workspace/purchase_profile.md" \
+  && grep -q '\[REDACTED-ADDRESS\]' \
+       "$HOME/dtlab/workspace/decision_log.md"
+check $? 0 "profile and bootstrap log have labelled addresses scrubbed"
+! grep -Eqi 'Avery|Example|Sampleton|411001|avery@example\.invalid|98765 00000' \
+    "$HOME/dtlab/workspace/purchase_profile.md" \
+    "$HOME/dtlab/workspace/decision_log.md"
+check $? 0 "synthetic name, address, email, and phone do not survive"
+head -n 1 "$HOME/dtlab/workspace/decision_log.md" \
+  | grep -q '^PROTOCOL | soul=bootstrap-v1$'
+check $? 0 "scrubbing preserves the bootstrap log PROTOCOL header"
+printf 'raise SystemExit(0)\n' \
+  > "$HOME/dtlab/tools/validate_profile.py"
+rc=$(run 'Avery Example\nP_FIRST\ny\ny\n\n')
 check "$rc" 0 "second dtlab-start freezes the profile and starts run 1"
 grep -q "purchase profile frozen" "$HOME/last_out.txt"
 check $? 0 "freeze announced"
@@ -792,6 +831,9 @@ check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
 [ -f "$HOME/dtlab/runs/bootstrap/decision_log.md" ] \
   && [ ! -f "$HOME/dtlab/workspace/decision_log.md" ]
 check $? 0 "bootstrap log parked under runs/bootstrap/ (run 1 starts clean)"
+! grep -Eqi 'Avery|Example|Sampleton|411001|avery@example\.invalid|98765 00000' \
+    "$HOME/dtlab/runs/bootstrap/decision_log.md"
+check $? 0 "archived bootstrap log contains no synthetic PII"
 [ -f "$HOME/dtlab/runs/run1/purchase_profile.md" ]
 check $? 0 "per-run profile snapshot recorded at launch"
 finish_run

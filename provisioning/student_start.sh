@@ -496,25 +496,38 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
   # freezes it, and proceeds to run 1.
   if [ ! -f "$HOME/dtlab/.bootstrap_done" ]; then
     if [ -s "$WS/purchase_profile.md" ]; then
-      # ---- PII scrub BEFORE the freeze (instructor decision, 18 Aug
-      # call): the bootstrap agent pulled the account holder's real name
-      # from a saved address into the profile, despite the SOUL never
-      # asking for it. Instructions caused the leak; a deterministic
-      # filter removes it. Names are prompted, used in memory by the
-      # scrubber, and never written anywhere. Runs before chmod 444 +
-      # hash so the frozen artifact is the CLEAN one. Fail-closed: a
-      # profile that still leaks is never frozen.
-      chmod 644 "$WS/purchase_profile.md" 2>/dev/null || true
+      # ---- PII scrub BEFORE the freeze/archive (instructor decision,
+      # 18 Aug call): the bootstrap agent can pull real account-holder
+      # details into both the profile and its decision log. Instructions
+      # caused the leak; a deterministic filter removes it. Names are
+      # prompted, passed to the scrubber on stdin, used in memory, and
+      # never written or exposed in a process command line. Runs before
+      # chmod 444 + hash and before the log is archived. Fail-closed: a
+      # bootstrap artifact that cannot be scrubbed is never frozen.
+      chmod 644 "$WS/purchase_profile.md" "$WS/decision_log.md" \
+        2>/dev/null || true
       if [ -t 0 ]; then
         echo ""
         echo "PII scrub before the freeze: enter every name on this Amazon"
         echo "account (yours + anyone on saved addresses), comma-separated."
-        echo "Used only to strip them from the profile — never stored."
+        echo "Used only to strip them from bootstrap outputs — never stored."
         read -rp "  Name(s): " SCRUB_NAMES
+      elif [ "${DTLAB_TEST:-0}" = "1" ]; then
+        # State-machine tests supply a synthetic name as the next line
+        # of scripted stdin. Real noninteractive launches fail closed.
+        IFS= read -r SCRUB_NAMES || SCRUB_NAMES=""
       else
-        # non-interactive (tests, CI): generic patterns + header rewrite
-        # still run; only the name list is unavailable without a tty
-        SCRUB_NAMES=""
+        echo -e "${RED}PII scrub needs an interactive name list and this"
+        echo -e "terminal has no input TTY. The profile was NOT frozen."
+        echo -e "Re-run dtlab-start interactively or tell a TA.${NC}"
+        exit 1
+      fi
+      if [[ ! "$SCRUB_NAMES" =~ [[:alnum:]] ]]; then
+        echo -e "${RED}No account-holder name was supplied, so bootstrap"
+        echo -e "artifacts cannot be checked safely. The profile was"
+        echo -e "NOT frozen. Re-run dtlab-start and enter the names.${NC}"
+        unset SCRUB_NAMES
+        exit 1
       fi
       # pseudonym from the persona files (workspace, or quarantine hold —
       # during bootstrap the persona is held there by design); the main
@@ -536,6 +549,13 @@ for p in (home / "dtlab" / "workspace" / "persona_survey.csv",
 print("unknown")
 PY
 )
+      if [[ ! "$SCRUB_SID" =~ ^DT[0-9]{4}-[0-9]{3}$ ]]; then
+        echo -e "${RED}A valid participant pseudonym was not found in the"
+        echo -e "persona CSV, so the profile cannot be attributed safely."
+        echo -e "The profile was NOT frozen. Tell a TA.${NC}"
+        unset SCRUB_NAMES SCRUB_SID
+        exit 1
+      fi
       # scrubber location: provisioned copy first, then the kit copy
       # relative to this script (covers a launcher run straight from the
       # repo before provisioning has staged ~/dtlab/tools)
@@ -549,29 +569,28 @@ PY
         echo -e "${RED}scrub_profile.py not found — provisioning is"
         echo -e "incomplete and the profile cannot be PII-scrubbed."
         echo -e "The profile was NOT frozen. Tell a TA.${NC}"
+        unset SCRUB_NAMES SCRUB_SID
         exit 1
       fi
-      if ! python3 "$SCRUB_TOOL" \
+      if ! printf '%s\n' "$SCRUB_NAMES" | python3 "$SCRUB_TOOL" \
              --profile "$WS/purchase_profile.md" \
+             --text-file "$WS/decision_log.md" \
              --student-id "$SCRUB_SID" \
-             --names "$SCRUB_NAMES"; then
-        echo -e "${RED}PII scrub failed — the profile was NOT frozen."
+             --names-stdin; then
+        echo -e "${RED}PII scrub failed — bootstrap outputs were NOT frozen."
         echo -e "Fix the profile (or re-run the bootstrap) and try"
         echo -e "dtlab-start again.${NC}"
+        unset SCRUB_NAMES SCRUB_SID
         exit 1
       fi
-      unset SCRUB_NAMES
+      unset SCRUB_NAMES SCRUB_SID
 
       # ---- claim validation against the real order list ----
       # The SOUL requires every claim in the profile to be traceable to
-      # an order the agent actually saw. Nothing enforced that, and the
-      # dry run produced a structurally perfect profile naming an
-      # appliance never bought, a substituted brand, three wrong prices,
-      # and three sidebar ADVERTS recorded as purchases. Advisory here
-      # rather than fail-closed: the ground truth is only as good as the
-      # scrape, and blocking a whole cohort on a selector change would be
-      # worse than a flagged profile a human looks at. Set
-      # DTLAB_STRICT_PROFILE=1 to make it blocking.
+      # an order the agent actually saw. When captured ground truth is
+      # available, any validator failure is a hard freeze gate: writing
+      # the hash or .bootstrap_done after a failed reconciliation would
+      # make a known-bad profile immutable and feed it into every run.
       ORDERS_JSON="$QUAR/human/purchase_orders.json"
       VALIDATOR=""
       for c in "$HOME/dtlab/tools/validate_profile.py" \
@@ -581,14 +600,10 @@ PY
       if [ -n "$VALIDATOR" ] && [ -f "$ORDERS_JSON" ]; then
         if ! python3 "$VALIDATOR" --profile "$WS/purchase_profile.md" \
                --orders "$ORDERS_JSON"; then
-          if [ "${DTLAB_STRICT_PROFILE:-0}" = "1" ]; then
-            echo -e "${RED}Profile validation failed and"
-            echo -e "DTLAB_STRICT_PROFILE=1 — not frozen.${NC}"
-            exit 1
-          fi
-          echo -e "${YEL}  [..] profile has unverifiable claims (above)."
-          echo -e "       READ IT before continuing; the frozen profile"
-          echo -e "       feeds every run.${NC}"
+          echo -e "${RED}Profile validation failed — the profile was NOT"
+          echo -e "frozen. Fix it or re-run the bootstrap, then try"
+          echo -e "dtlab-start again.${NC}"
+          exit 1
         fi
       elif [ -n "$VALIDATOR" ]; then
         echo -e "${YEL}  [..] no order ground truth at $ORDERS_JSON —"
