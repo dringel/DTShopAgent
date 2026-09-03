@@ -29,9 +29,13 @@ account.
    ```
    "Completed orders" counts distinct orders (an order with several
    items is ONE order); "purchased line items" counts individual
-   products across all of them. Never count a cancelled order or a
-   cancelled duplicate of an order you already counted. Average order
-   value = total spend / completed orders.
+   products across all of them. COUNT the products inside each order
+   card — a card listing two products contributes 1 to completed orders
+   and 2 to purchased line items. Never ASSUME one product per order:
+   open or expand any card whose product count is not plain from the
+   list view, and count what is actually there. Never count a cancelled
+   order or a cancelled duplicate of an order you already counted.
+   Average order value = total spend / completed orders.
 
    ## Observations — facts read directly off order pages: top categories
    with approximate purchase frequency (percentages must sum to
