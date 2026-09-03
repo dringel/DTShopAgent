@@ -338,12 +338,16 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
 cp "$REPO/tools/scrub_profile.py" "$HOME/dtlab/tools/" 2>/dev/null || true
 chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
          "$HOME/dtlab/tools/dtlab_browser.sh"
-printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
-  > "$HOME/last_out.txt" 2>&1
+# DTLAB_CDP_WAIT_TRIES keeps this fast: the real budget is 30s (60
+# tries), which a stubbed-dead CDP would otherwise burn on every run.
+printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" DTLAB_CDP_WAIT_TRIES=2 \
+  bash "$START" > "$HOME/last_out.txt" 2>&1
 rc=$?
 check "$rc" 1 "exit nonzero when the CDP port never comes up"
-grep -q "Close ALL open lab-browser windows" "$HOME/last_out.txt"
-check $? 0 "prints the one action that fixes the profile lock"
+grep -q "close ALL of them" "$HOME/last_out.txt"
+check $? 0 "names the close-all-windows fix for the profile-lock case"
+grep -q "dtlab_browser.sh" "$HOME/last_out.txt"
+check $? 0 "names the diagnostic command when NO window is open"
 [ ! -f "$HOME/hermes_ran" ]
 check $? 0 "Hermes never started on a dead CDP port"
 # CDP alive AND the checkout-guard canary lands on blocked.html

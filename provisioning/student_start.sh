@@ -69,17 +69,32 @@ FAIL=0
 # /browser connect has nothing to attach to. Poll the CDP endpoint for ~5s
 # after launching; fail LOUD with the one action that fixes it.
 wait_cdp() {
+  # Cold Chromium starts are SLOW. The 3 Sep dry run measured ~5.5s from
+  # launch to the "DevTools listening" line on a cold cache, against the
+  # fixed 5s (10 x 0.5s) budget this used to allow -- so every cold
+  # Codespace lost the race by about half a second. The browser was
+  # starting correctly and being abandoned just before it finished, and
+  # the operator was then told to "close all browser windows" when none
+  # were open. Poll up to 30s (the value proven live on 30 Aug), still
+  # bounded, still fail-closed. DTLAB_CDP_WAIT_TRIES keeps the tests fast.
   local port="${DTLAB_CDP_PORT:-9222}" i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  local tries="${DTLAB_CDP_WAIT_TRIES:-60}"   # 60 x 0.5s = 30s
+  for ((i = 1; i <= tries; i++)); do
     if curl -fsS "http://127.0.0.1:${port}/json/version" >/dev/null 2>&1; then
+      if [ "$i" -gt 10 ]; then
+        ok "browser automation port ready after ~$(( i / 2 ))s (cold start)"
+      fi
       return 0
     fi
     sleep 0.5
   done
   echo ""
-  echo -e "${RED}The lab browser did not come up with its automation (CDP) port."
-  echo -e "Close ALL open lab-browser windows (including the shopping session),"
-  echo -e "then re-run dtlab-start.${NC}"
+  echo -e "${RED}The lab browser did not come up with its automation (CDP)"
+  echo -e "port within $(( tries / 2 ))s."
+  echo -e "If a lab-browser window IS open, close ALL of them (including the"
+  echo -e "shopping session) and re-run dtlab-start."
+  echo -e "If none are open, the browser failed to start -- run this to see"
+  echo -e "why:  DISPLAY=:1 bash ~/dtlab/tools/dtlab_browser.sh${NC}"
   return 1
 }
 
