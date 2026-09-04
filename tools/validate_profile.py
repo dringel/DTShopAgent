@@ -91,6 +91,27 @@ GENERIC_WORDS = {
 DERIVED_HINTS = ("average", "avg", "mean", "range", "typical", "between",
                  "distribution", "per order", "price point")
 
+# A rupee RANGE ("₹350-₹1,500", "₹350-400") is a summary statistic by
+# construction: its endpoints are rounded bracket values, not amounts any
+# single order carries. The SOUL asks for exactly this ("typical price
+# points per category"). On 3 Sep the agent supplied it and was hard-
+# failed anyway, because DERIVED_HINTS is matched per LINE and the profile
+# put the "Typical Price Points" label on a header line with the ranges on
+# the bullets under it -- so the exemption never reached them. Detect the
+# SHAPE of a range rather than depending on a keyword landing on the same
+# line. A single amount has no trailing "- <number>" and stays checked.
+RANGE_RE = re.compile(
+    r"₹\s*[\d,]+(?:\.\d{1,2})?\s*(?:[-\u2013\u2014]|to)\s*"
+    r"₹?\s*[\d,]+(?:\.\d{1,2})?")
+
+
+def is_derived(line):
+    """True when a line states a COMPUTED figure rather than an observed
+    amount. Both price checks call this, so the rule cannot drift between
+    them (it previously existed only as an inline expression in each)."""
+    return bool(RANGE_RE.search(line)) or any(
+        h in line.lower() for h in DERIVED_HINTS)
+
 # Summary Stats block (agent/SOUL_bootstrap.md, P0.2): four required
 # lines, in prose the agent writes, so match loosely on wording/spacing
 # but strictly on which four fields exist — a MISSING field is itself a
@@ -182,7 +203,7 @@ def price_pairing_problems(profile_text, items):
     for line in profile_text.splitlines():
         vals = [round(float(r.replace(",", "")), 2)
                 for r in RUPEE_RE.findall(line)]
-        if not vals or any(h in line.lower() for h in DERIVED_HINTS):
+        if not vals or is_derived(line):
             continue
         line_toks = title_tokens(line)
         # candidates: orders sharing at least two distinctive words, or
@@ -300,7 +321,7 @@ def check(profile_text, asins, titles, amounts, items, strict_brands):
         # single-order amount check every time
         if any(pat.match(line) for pat in STATS_FIELD_RES.values()):
             continue
-        derived = any(h in line.lower() for h in DERIVED_HINTS)
+        derived = is_derived(line)
         for raw in RUPEE_RE.findall(line):
             val = round(float(raw.replace(",", "")), 2)
             if val in amounts:

@@ -346,6 +346,46 @@ Top categories: {categories}
                                    "Purchased line items", "Total spend",
                                    "Average order value"})
 
+    def test_price_ranges_are_derived_not_observations(self):
+        # The SOUL asks for "typical price points per category", and the
+        # 3 Sep live run supplied them as ranges and was hard-failed:
+        # DERIVED_HINTS is matched per LINE, and the profile put the
+        # "Typical Price Points" label on a header with the ranges on the
+        # bullets below, so the exemption never reached them.
+        for line in ("- Electronics: \u20b9350\u2013\u20b91,500 per item",
+                     "- Beauty & Personal Care: \u20b9350\u2013400",
+                     "- Snacks: \u20b9300\u2013500 per order"):
+            with self.subTest(line=line):
+                self.assertTrue(validate_profile.is_derived(line))
+
+    def test_a_fabricated_per_item_price_is_still_caught(self):
+        # The other half of the same live finding: a two-item order shows
+        # only an ORDER total, and the agent split it evenly and presented
+        # the halves as observed amounts. Exempting ranges must not exempt
+        # this.
+        items = [
+            {"asin": "B0000010", "title": "Mixed Chips Pack", "order_id": "O9",
+             "order_total": 488.0, "amounts_seen": [488.0]},
+            {"asin": "B0000011", "title": "Protein Minis Bars", "order_id": "O9",
+             "order_total": 488.0, "amounts_seen": [488.0]},
+        ]
+        line = ("10 Aug 2026 | Snacks > Chips | Brand | Mixed Chips Pack "
+                "| 1 | \u20b9244.00")
+        self.assertFalse(validate_profile.is_derived(line))
+        problems = validate_profile.price_pairing_problems(line, items)
+        self.assertTrue(any(kind == "PRICE" for kind, _, _ in problems))
+        self.assertTrue(any("488" in why for _, _, why in problems),
+                        "the report should name the real order amount")
+
+    def test_both_price_checks_share_one_derived_rule(self):
+        # They used to carry the same inline expression twice; a range rule
+        # added to one and not the other would fail closed in one path and
+        # open in the other.
+        src = (REPO / "tools" / "validate_profile.py").read_text()
+        self.assertIn("if not vals or is_derived(line):", src)   # pairing
+        self.assertIn("derived = is_derived(line)", src)          # check()
+        self.assertNotIn("any(h in line.lower() for h in DERIVED_HINTS)", src)
+
     def test_category_shares_must_sum_to_about_100(self):
         clean = self._profile(categories="Grocery 40%, Beauty 60%")
         broken = self._profile(
