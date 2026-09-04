@@ -1734,6 +1734,34 @@ assert m['redaction']['final_scan_clean'] is True
 sys.exit(0)
 PY2
 
+echo "[56] token_usage.json is staged and summarized in the manifest"
+# Discovered live 4 Sep: capture_tokens.py's own output was never staged
+# by the packer, so working cost measurement still never reached a pack.
+mkenv_4run
+cat > "$HOME/dtlab/runs/run1/token_usage.json" <<'JSON'
+{"model":"claude-haiku-4-5-20251001","usage_source":"state.db",
+ "billable_tokens":647011,"reasoning_tokens":0,"usd_estimate":0.1656}
+JSON
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with a run's token_usage.json present exits 0"
+python3 - <<'PY2'; check $? 0 "token_usage.json staged in the zip and summarized in the manifest"
+import json, zipfile, os, sys
+z = zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+staged = json.loads(z.read('DT2026-999/run1/token_usage.json'))
+assert staged['usd_estimate'] == 0.1656, staged
+m = json.loads(z.read('DT2026-999/manifest.json'))
+tu = m['token_usage_by_run']['run1']
+assert tu['model'] == 'claude-haiku-4-5-20251001', tu
+assert tu['usage_source'] == 'state.db', tu
+assert tu['billable_tokens'] == 647011, tu
+assert tu['reasoning_tokens'] == 0, tu
+assert tu['usd_estimate'] == 0.1656, tu
+# run2/3/4 have no token_usage.json: warned, not blocking
+assert 'run2' not in m['token_usage_by_run']
+assert m['validation_issues'] == [], m['validation_issues']
+sys.exit(0)
+PY2
+
 guard
 rm -rf "$SANDBOX"
 echo ""; echo "Results: $PASS passed, $FAIL failed"

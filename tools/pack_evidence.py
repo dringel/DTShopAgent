@@ -1048,7 +1048,7 @@ def main():
                       "condition.txt", "tier.txt", "started_at.txt",
                       "ist_date.txt", "soul_sha256.txt",
                       "config_sha256.txt", "model_id.txt",
-                      "purchase_profile.md"):
+                      "purchase_profile.md", "token_usage.json"):
                 if (rdir / f).exists():
                     shutil.copy2(rdir / f, sdir / f)
                 elif f in ("decision_log.md", "agent_picks.csv"):
@@ -1548,7 +1548,7 @@ def main():
         sb = staging / "bootstrap"
         sb.mkdir(exist_ok=True)
         for f in ("decision_log.md", "tier.txt", "model_id.txt",
-                  "started_at.txt"):
+                  "started_at.txt", "token_usage.json"):
             if (bs_dir / f).exists():
                 shutil.copy2(bs_dir / f, sb / f)
         blog = sb / "decision_log.md"
@@ -1599,11 +1599,49 @@ def main():
         n_logs = collect_home_logs(single_home, staging / "hermes_logs")
         need(n_logs > 0, "no Hermes session logs found in the run's "
                          "hermes_home (did the agent session start?)")
+        # capture_tokens.py writes token_usage.json as a SIBLING of
+        # hermes_home (run_dir = home.parent), which nothing staged --
+        # only hermes_logs/ was ever copied out of RUNS/single/.
+        single_tokens = single_home.parent / "token_usage.json"
+        if single_tokens.exists():
+            shutil.copy2(single_tokens, staging / "token_usage.json")
     else:
         transcript_collection = "legacy_pool"
         n_logs = collect_hermes_logs(staging)
         need(n_logs > 0, "no Hermes session logs found since run start "
                          "(did dtlab-start create the run marker?)")
+
+    # ---- token/cost summary (T-21 item 12): read whatever staging
+    #      already holds, never re-touch ~/dtlab/runs directly. Only
+    #      checked in the two layouts that actually have a per-run/
+    #      per-session token_usage.json to look for -- legacy_pool has no
+    #      run subdirectory for the concept to live in. Absence is a
+    #      WARNING, not a blocking failure: dtlab-tokens is a separate
+    #      manual step, unlike the mandatory decision_log/agent_picks
+    #      pair, so a student who skipped it should not lose their pack
+    #      over a manifest nicety.
+    token_usage_by_run = {}
+    token_usage_run_paths = {}
+    if ablation:
+        token_usage_run_paths = {rn: staging / rn / "token_usage.json"
+                                 for rn in conds}
+    elif not ablation and single_home.is_dir():
+        token_usage_run_paths = {"single": staging / "token_usage.json"}
+    if bs_dir.is_dir():
+        token_usage_run_paths["bootstrap"] = staging / "bootstrap" / "token_usage.json"
+    for rn, tup in token_usage_run_paths.items():
+        if not tup.exists():
+            warn(f"{rn}: no token_usage.json staged (run dtlab-tokens "
+                 "to capture cost/token data for this run)")
+            continue
+        try:
+            tu = json.loads(tup.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        token_usage_by_run[rn] = {
+            k: tu.get(k) for k in
+            ("model", "usage_source", "billable_tokens",
+             "reasoning_tokens", "usd_estimate")}
 
     # ---- checkout-attempt scan (B22): decision logs + collected
     #      transcripts. Query strings are stripped (they may embed
@@ -2145,6 +2183,7 @@ def main():
         "model_tier": tier,
         "transcript_collection": transcript_collection,
         "protocol_tokens_by_run": protocol_tokens,
+        "token_usage_by_run": token_usage_by_run,
         "purchase_profile_sha256": frozen_sha,
         "purchase_profile_verified_by_run": profile_verified,
         "sensitive_items_excluded": bool(pmeta.get("sensitive_excluded")),
