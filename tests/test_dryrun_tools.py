@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import date
@@ -446,10 +447,68 @@ class TokenCaptureTests(unittest.TestCase):
 
             usage = capture_tokens.scan(root)
 
+        # reads and writes are kept apart because they price differently
         self.assertEqual(usage, {
-            "input": 113, "output": 27, "cache": 11,
+            "input": 113, "output": 27,
+            "cache_read": 4, "cache_write": 7, "reasoning": 0,
             "records": 3, "files": 2,
         })
+
+    def test_state_db_is_read_and_reports_reasoning_tokens(self):
+        """Hermes v0.20.0 keeps sessions in SQLite, not JSONL. Nothing read
+        that format, so every run reported zero usage until 4 Sep 2026."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            con = sqlite3.connect(home / "state.db")
+            con.execute(
+                "create table sessions (model text, input_tokens int, "
+                "output_tokens int, cache_read_tokens int, "
+                "cache_write_tokens int, reasoning_tokens int)")
+            con.executemany(
+                "insert into sessions values (?,?,?,?,?,?)",
+                [("m", 72, 3992, 572299, 70648, 0),
+                 ("m", 10, 20, 30, 40, 1234)])
+            con.commit()
+            con.close()
+
+            acc, per_model = capture_tokens.scan_state_db(home)
+
+        self.assertEqual(acc["input"], 82)
+        self.assertEqual(acc["output"], 4012)
+        self.assertEqual(acc["cache_read"], 572329)
+        self.assertEqual(acc["cache_write"], 70688)
+        self.assertEqual(acc["reasoning"], 1234)   # the thinking signal
+        self.assertEqual(acc["records"], 2)
+        self.assertEqual(per_model, [])   # table absent is not fatal
+
+    def test_no_state_db_falls_back_to_the_json_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(
+                capture_tokens.scan_state_db(Path(tmp)), (None, None))
+
+    def test_cache_tokens_are_priced_not_dropped(self):
+        """The live 3 Sep session: 72 raw input tokens against ~572k cache
+        reads. Pricing input+output alone reported ~8x too little."""
+        acc = {"input": 72, "output": 3992, "cache_read": 572299,
+               "cache_write": 70648, "reasoning": 0}
+        cost, parts = capture_tokens.compute_cost(acc, (1.00, 5.00))
+
+        self.assertAlmostEqual(cost, 0.1656, places=4)
+        # cache dominates: the naive input+output figure is a small slice
+        naive = round(parts["input"] + parts["output"], 4)
+        self.assertAlmostEqual(naive, 0.0200, places=4)
+        self.assertGreater(parts["cache_read"] + parts["cache_write"],
+                           naive * 5)
+
+    def test_reasoning_tokens_are_reported_but_not_billed_twice(self):
+        # deliberate: whether Hermes nests reasoning inside output_tokens
+        # is unconfirmed, so adding it could double-count
+        base = {"input": 0, "output": 1000, "cache_read": 0,
+                "cache_write": 0, "reasoning": 0}
+        with_reasoning = dict(base, reasoning=5000)
+        rate = (1.00, 5.00)
+        self.assertEqual(capture_tokens.compute_cost(base, rate)[0],
+                         capture_tokens.compute_cost(with_reasoning, rate)[0])
 
     def test_sonnet_rate_switches_after_intro_cutoff(self):
         intro, intro_basis = capture_tokens.price_for(
