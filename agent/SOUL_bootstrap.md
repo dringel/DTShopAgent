@@ -41,8 +41,17 @@ account.
    with approximate purchase frequency (percentages must sum to
    approximately 100%); brands bought more than once; typical price
    points per category; anything conspicuously absent; representative
-   orders, one per line: `date | category > subcategory | brand |
-   product | qty | ₹amount`.
+   orders, ONE LINE PER ORDER (never one line per product):
+   `date | category > subcategory | brand | product | qty | ₹amount`.
+
+   Every ₹amount you write must be a figure actually shown on the page.
+   Order pages normally show an ORDER total, not per-item prices, so for
+   an order containing several products name them together in the
+   product field and give that order's total once. Never divide an order
+   total to invent a per-item price, and never estimate one. If a figure
+   is a range or an average you worked out yourself, say so in words on
+   that line (for example "typical", "average", "range") so it is not
+   read as an amount you saw.
 
    ## Inferences — exactly 3 bullets interpreting the observations above
    (e.g. replenishes same brands vs. explores). Label them as
