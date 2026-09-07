@@ -112,6 +112,27 @@ def is_derived(line):
     return bool(RANGE_RE.search(line)) or any(
         h in line.lower() for h in DERIVED_HINTS)
 
+# agent/SOUL_bootstrap.md #3 scopes traceability explicitly: "Every claim
+# in the Observations section... must be traceable". Inferences is the
+# one section the SOUL deliberately exempts -- "an inference is your
+# reading of a pattern, not something to cite an order for" -- and its
+# free prose routinely contains capitalised words (a category rollup
+# like "TVs", a restated date, its own "Inference:" label) that are not
+# claims about any order at all. Caught live, 7 Sept: a clean, PASSING
+# profile still printed ten "brand? not found" lines, all traceable to
+# this section, none to anything the agent actually claimed happened.
+INFERENCES_RE = re.compile(r"(?m)^##\s*Inferences\b")
+
+
+def traceable_scope(profile_text):
+    """The prefix of the profile the SOUL actually requires to trace to a
+    real order -- everything up to (not including) '## Inferences'. Falls
+    back to the whole text if that heading is missing/misspelled, since a
+    malformed profile should fail LOUDER, not have half its content
+    silently exempted from checking."""
+    m = INFERENCES_RE.search(profile_text)
+    return profile_text[:m.start()] if m else profile_text
+
 # Summary Stats block (agent/SOUL_bootstrap.md, P0.2): four required
 # lines, in prose the agent writes, so match loosely on wording/spacing
 # but strictly on which four fields exist — a MISSING field is itself a
@@ -314,7 +335,14 @@ def check(profile_text, asins, titles, amounts, items, strict_brands):
             problems.append(("ASIN", asin,
                              "cited but not in any captured order"))
 
-    for line in profile_text.splitlines():
+    # Price and brand checks enforce SOUL #3's traceability requirement,
+    # which is scoped to Observations (and the representative-order
+    # lines within it) by the SOUL's own text — Inferences is explicitly
+    # exempt, so it must not be scanned for either check. Everything else
+    # (ASINs, Stats, category shares) keeps scanning the full document.
+    traceable_text = traceable_scope(profile_text)
+
+    for line in traceable_text.splitlines():
         # the Summary Stats block's own rupee lines are reconciled
         # exactly by stats_problems() below — Total spend is a SUM
         # across orders and would otherwise spuriously fail the
@@ -337,7 +365,7 @@ def check(profile_text, asins, titles, amounts, items, strict_brands):
     problems += category_share_problems(profile_text)
 
     brand_hits = []
-    for tok in set(re.findall(r"\b([A-Z][a-zA-Z]{2,})\b", profile_text)):
+    for tok in set(re.findall(r"\b([A-Z][a-zA-Z]{2,})\b", traceable_text)):
         if tok in STOPWORDS:
             continue
         if tok.lower() in titles:
