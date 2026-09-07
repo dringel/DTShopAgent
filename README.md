@@ -12,7 +12,9 @@ with/without the questionnaire × economy/frontier model — and compare
 (assessment-blinded), producing a paired human/agent
 choice-and-process dataset.
 
-**New here? Read `TA_ONBOARDING.md` first, then `COURSE_PLAN_1WEEK.md`.**
+**Student in the course? Skip straight to [Getting Started](#getting-started-students) below — you do not need anything else on this page.**
+
+**TA or instructor? Read `TA_ONBOARDING.md` first, then `COURSE_PLAN_1WEEK.md`.**
 Run `bash tests/simulate_submission.sh` after touching the validation
 chain and `python3 tests/test_instrument_lockstep.py` after touching the
 instrument or `dtlab_config.env` (CI runs both, plus shellcheck/ruff, on
@@ -37,6 +39,59 @@ with a research-grade data pipeline.
 > browsing-history-derived modules banned and every candidate's
 > provenance logged (daily history pause + measured contamination
 > index).
+
+## Getting Started (Students)
+
+Everything below happens in your browser. You never install anything on
+your own laptop, and you never need `git` — GitHub builds you a cloud
+computer with one click.
+
+**Tonight — before class:**
+
+1. **Three accounts, if you don't already have them:** [GitHub](https://github.com/join) ·
+   [Anthropic Console](https://console.anthropic.com) (create an API key,
+   and set a spending limit while you're there — it's your own money) ·
+   your own real Amazon India account (its order history is half of what
+   makes your agent yours).
+2. **Copy the lab:** on this page, click green **Code** → **Codespaces**
+   tab → **Create codespace on main** — that builds your own private
+   copy automatically. Wait for the terminal to print `Setup complete.`
+   before typing anything.
+3. **Add your key:** the first time you run `dtlab-start` (below), it
+   asks for your API key directly — input is hidden as you paste, and it
+   is checked against Anthropic before it's saved. Never paste your key
+   anywhere else.
+4. **Amazon prep, inside the Lab Desktop** (Ports tab → port `6080` →
+   Open in Browser): sign in, then Accounts & Lists → Browsing History →
+   gear icon → **Pause History → 1 day** → Remove all items from view.
+   **Repeat this every lab morning** — the pause lasts only one day.
+5. **The questionnaire** (~30 min, do it in one sitting, answer as
+   yourself, not aspirationally): link is on the course LMS, not here —
+   this repository is public and the form isn't meant for the open
+   internet. Submit it tonight; profiles are generated overnight, so
+   late means no profile for the lab.
+
+**In the lab, in this order:**
+
+| Command | What it does |
+|---|---|
+| `dtlab-shop` | Records your own shopping pick per task, before the agent runs |
+| `dtlab-start` | Runs the agent for one condition — pre-flight checks, then launches |
+| `dtlab-persona on` / `off` | Set **before every run** — the TA announces this live in class |
+| `dtlab-tier economy` / `frontier` | Set **once per lab day** — the TA announces this too |
+| `dtlab-cart` | Screenshots and verifies the cart right after each run, then empty it (Delete, never "Save for later") |
+| `dtlab-verdict` | After all your runs: blind rating of every agent pick against your own |
+| `dtlab-pack` | Builds the one file you submit — `DT2026-###_evidence.zip` — cleaned and validated automatically |
+
+Run `dtlab-persona status` or `dtlab-tier status` any time you're not
+sure what's currently set — never guess. Full detail on every step is
+in [Student experience](#student-experience-the-whole-thing-from-their-side)
+further down this page.
+
+**If something breaks:** read what the terminal printed, tell a TA,
+say what you already tried. Don't rerun to make a failure look clean
+and don't edit any files by hand — a recorded problem is useful data;
+a silently patched one isn't.
 
 ## How this actually runs (read this first if you're new to GitHub)
 
