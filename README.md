@@ -357,9 +357,22 @@ hard-coded anywhere.
    agent is barred from reading; your picks are now committed (one
    attempt — a redo needs a TA reset).
 5. Thursday and Friday: two agent runs per day — persona and ablated
-   grounding in your assigned order, on your assigned day's model tier
-   (the counterbalance sheet says whether your economy day is Thursday
-   or Friday).
+   grounding, on that day's model tier. **The TA announces the setting
+   live in class before each run** — listen for it, then set the
+   matching switch before you run `dtlab-start`:
+   ```bash
+   dtlab-persona on      # TA says "persona on" — grounded run
+   dtlab-persona off     # TA says "persona off" — ablated run
+   dtlab-tier economy    # TA says "economy tier"
+   dtlab-tier frontier   # TA says "frontier tier"
+   dtlab-persona status  # check what's currently set, any time
+   dtlab-tier status
+   ```
+   Set persona before every single run — it applies to the next run
+   only. The tier switch applies once per day (whichever day hasn't
+   already picked a tier) and does not need repeating per run. If you
+   are unsure what's currently active, run the `status` commands above
+   before typing anything — never guess.
    **You never watch your own agent**: you and your partner swap seats
    for every run; the partner handles CAPTCHAs, runs `dtlab-cart` after
    each run (automatic cart screenshot + parsed cart contents into
