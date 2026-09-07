@@ -27,13 +27,25 @@ PHASE="${1:-postCreate}"
 
 # ---- pinned downloads -------------------------------------------------
 # Remote installers are downloaded to a file, checksum-verified, then
-# executed. "UNPINNED" FAILS the build until the TA pins a release
-# (procedure: TA_ONBOARDING.md > "Updating installer pins") — with
-# Codespaces prebuilds enabled, all 161 students then share one frozen,
-# pre-tested image. TODO(dry-run): pin real version + checksum.
-HERMES_INSTALLER_URL="https://hermes-agent.nousresearch.com/install.sh"
-HERMES_INSTALLER_SHA256="UNPINNED"
-PLAYWRIGHT_PIN=""   # e.g. "==1.55.0"; empty = latest (pin at dry run)
+# executed. The Hermes URL is an immutable signed release tag, and the
+# installer is additionally told which exact release commit to check out:
+# hashing a script that still clones floating main would not be a real pin.
+# Pins resolved and scripts inspected 2026-08-28; update only via
+# TA_ONBOARDING.md > "Updating installer pins" and a fresh build.
+HERMES_INSTALLER_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/v2026.8.3/scripts/install.sh"
+HERMES_INSTALLER_SHA256="45f589461248c7a6ec3aecd7522a69dd49c5c8dbf4798ba1296af5c0c5e7ccd3"
+HERMES_COMMIT="3c27eb6234bf91b8ceee9e9071591b31e9b148cb"
+PLAYWRIGHT_PIN="==1.62.0"
+ANTHROPIC_PIN="==0.122.0"
+
+# Flags passed to the Hermes installer. These are load-bearing, not
+# cosmetic — see the "Hermes Agent" step below. Keep .devcontainer/setup.sh
+# and provisioning/provision.sh in lockstep.
+HERMES_INSTALL_FLAGS=(--skip-setup --non-interactive
+  --commit "$HERMES_COMMIT" --force-commit)
+# Wall-clock ceiling for the installer. A blocked prompt must fail the
+# build with a diagnosis, never hang a creation hook forever.
+HERMES_INSTALL_TIMEOUT="${DTLAB_HERMES_INSTALL_TIMEOUT:-2400}"
 
 fetch_verified() {  # url sha256 dest
   local url="$1" sha="$2" dest="$3"
@@ -124,6 +136,10 @@ mkdir -p "$HOME/dtlab/assets"
 cp -v "$KIT/assets/ringelai.png"           "$HOME/dtlab/assets/" 2>/dev/null || true
 cp -v "$KIT/tools/log_human_session.py"    "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_cart.py"         "$HOME/dtlab/tools/"
+cp -v "$KIT/tools/scrub_profile.py"        "$HOME/dtlab/tools/"
+cp -v "$KIT/tools/capture_orders.py"       "$HOME/dtlab/tools/"
+cp -v "$KIT/tools/validate_profile.py"     "$HOME/dtlab/tools/"
+cp -v "$KIT/tools/capture_tokens.py"       "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/capture_verdicts.py"     "$HOME/dtlab/tools/"
 cp -v "$KIT/tools/dtlab_browser.sh"        "$HOME/dtlab/tools/"
 # checkout-guard extension: kit code (never packed as evidence); the
@@ -181,10 +197,54 @@ cat > "$HOME/.local/bin/dtlab-cart" <<'EOF'
 # contents (cross-checked against the agent's picks at pack time).
 exec python3 "$HOME/dtlab/tools/capture_cart.py" "$@"
 EOF
+cat > "$HOME/.local/bin/dtlab-tokens" <<'EOF'
+#!/usr/bin/env bash
+# Token + cost accounting for a run (T-21 item 12). Run it after each
+# agent session, alongside dtlab-cart. Defaults to the newest run.
+exec python3 "$HOME/dtlab/tools/capture_tokens.py" "$@"
+EOF
 cat > "$HOME/.local/bin/dtlab-verdict" <<'EOF'
 #!/usr/bin/env bash
 # Guided verdict/rating/rationale capture after each day's runs.
 exec python3 "$HOME/dtlab/tools/capture_verdicts.py" "$@"
+EOF
+cat > "$HOME/.local/bin/dtlab-persona" <<'EOF'
+#!/usr/bin/env bash
+# Manual grounding switch, announced live in class before each run —
+# NOT the counterbalanced order file. When set, dtlab-start uses this
+# switch directly as the run's condition instead of computing one from
+# the counterbalance sheet. The model tier (economy/frontier) is
+# UNAFFECTED — this only ever touches grounding.
+set -euo pipefail
+SW="$HOME/dtlab/persona_switch.txt"
+case "${1:-status}" in
+  on)  echo persona > "$SW"; echo "Grounding switch: ON (persona) — next run uses your persona." ;;
+  off) echo ablated > "$SW"; echo "Grounding switch: OFF (ablated) — next run has no persona." ;;
+  clear) rm -f "$SW"; echo "Switch cleared — dtlab-start falls back to the counterbalance sheet." ;;
+  status)
+    if [ -f "$SW" ]; then echo "Grounding switch: $(cat "$SW") (set — overrides the counterbalance sheet)"
+    else echo "Grounding switch: not set (dtlab-start uses the counterbalance sheet as normal)"
+    fi ;;
+  *) echo "usage: dtlab-persona on|off|clear|status" >&2; exit 1 ;;
+esac
+EOF
+cat > "$HOME/.local/bin/dtlab-tier" <<'EOF'
+#!/usr/bin/env bash
+# Manual model-tier switch, same mechanism as dtlab-persona: announced
+# live in class, overrides the counterbalance sheet for students who
+# don't have a row yet. Only takes effect for a day that hasn't already
+# resolved a tier (existing tier_dayN.txt always wins).
+set -euo pipefail
+SW="$HOME/dtlab/tier_switch.txt"
+case "${1:-status}" in
+  economy|frontier) echo "$1" > "$SW"; echo "Tier switch: $1 — next unresolved day uses this tier." ;;
+  clear) rm -f "$SW"; echo "Switch cleared — dtlab-start falls back to the counterbalance sheet." ;;
+  status)
+    if [ -f "$SW" ]; then echo "Tier switch: $(cat "$SW") (set — overrides the counterbalance sheet)"
+    else echo "Tier switch: not set (dtlab-start uses the counterbalance sheet as normal)"
+    fi ;;
+  *) echo "usage: dtlab-tier economy|frontier|clear|status" >&2; exit 1 ;;
+esac
 EOF
 chmod +x "$HOME/.local/bin/"dtlab-*
 grep -q 'dtlab PATH' "$HOME/.bashrc" || cat >> "$HOME/.bashrc" <<'EOF'
@@ -221,7 +281,82 @@ if [ "$PHASE" = "onCreate" ]; then
     echo "== [4/5] Hermes Agent (network) =="
     fetch_verified "$HERMES_INSTALLER_URL" "$HERMES_INSTALLER_SHA256" \
         /tmp/hermes-install.sh
-    bash /tmp/hermes-install.sh && rm -f /tmp/hermes-install.sh
+    # --skip-setup and --non-interactive are REQUIRED here.
+    #
+    # The upstream installer finishes by running `hermes setup` — an arrow-key
+    # TUI — and it reads that wizard from /dev/tty DIRECTLY, not from stdin
+    # (installer: run_setup_wizard runs `... hermes_cli.main setup < /dev/tty`;
+    # its six prompt_yes_no() calls fall back to /dev/tty the same way). A
+    # container lifecycle hook HAS an openable /dev/tty, but nothing is
+    # attached to the other end: the Codespaces creation-log panel is a log
+    # stream, not a terminal. The wizard therefore renders, blocks on read,
+    # and the build hangs with no way to answer it. Keystrokes typed into the
+    # creation-log panel never reach the container.
+    #
+    # Before "simplifying" the line below, note what does NOT fix this:
+    #   * `< /dev/null` — the wizard bypasses stdin entirely.
+    #   * `curl ... | bash` — the installer's own `[ -t 0 ]` probe only
+    #     decides WHICH terminal it reads from, never whether to prompt.
+    #   * --skip-setup alone — the yes/no prompts (build tools, gateway
+    #     service, WhatsApp pairing) can still block on /dev/tty.
+    #
+    # The wizard is redundant for this kit in any case: dtlab-start generates
+    # each run's own $HERMES_HOME/config.yaml from
+    # provisioning/hermes_config.template.yaml, and that per-run config is
+    # authoritative for provider + model.
+    hermes_rc=0
+    timeout "$HERMES_INSTALL_TIMEOUT" bash /tmp/hermes-install.sh \
+        "${HERMES_INSTALL_FLAGS[@]}" </dev/null || hermes_rc=$?
+    if [ "$hermes_rc" -eq 0 ]; then
+      rm -f /tmp/hermes-install.sh
+    else
+      if [ "$hermes_rc" -eq 124 ]; then
+        echo "ERROR: the Hermes installer exceeded ${HERMES_INSTALL_TIMEOUT}s."
+        echo "The usual cause is an interactive prompt blocking on /dev/tty in a"
+        echo "non-interactive build. Confirm HERMES_INSTALL_FLAGS still match the"
+        echo "pinned installer's --help output before raising the timeout."
+      else
+        echo "ERROR: the Hermes installer failed (exit $hermes_rc)."
+      fi
+      exit 1
+    fi
+
+    # The Anthropic provider SDK is NOT installed by the Hermes installer
+    # when --skip-setup is passed: the interactive wizard is where a
+    # provider is chosen and its package pulled in. Skipping that wizard is
+    # mandatory here (it deadlocks a lifecycle hook, see above), so the
+    # provider package must be installed explicitly -- otherwise Hermes
+    # starts, connects, and only then dies with "Failed to initialize
+    # agent: The 'anthropic' package is required for the Anthropic
+    # provider." Anthropic is the only provider this course uses.
+    #
+    # The venv is built by uv and has neither pip nor ensurepip, so uv is
+    # the only way in. Both paths are derived, not hard-coded: the launcher
+    # wrapper names its own interpreter, and uv ships inside the Hermes
+    # tree at ~/.hermes/bin/uv.
+    # 0.122.0 is the exact SDK present for the successful 18 Aug live
+    # bootstrap. Do not float across the SDK's 1.x migration at freeze.
+    HERMES_PY="$(sed -n 's|^exec "\([^"]*python\)".*|\1|p' \
+                 "$HOME/.local/bin/hermes" 2>/dev/null | head -1)"
+    HERMES_UV="$HOME/.hermes/bin/uv"
+    [ -x "$HERMES_UV" ] || HERMES_UV="$(command -v uv || true)"
+    if [ -n "$HERMES_PY" ] && [ -x "$HERMES_PY" ] && [ -n "$HERMES_UV" ]; then
+      "$HERMES_UV" pip install --python "$HERMES_PY" "anthropic$ANTHROPIC_PIN"
+      if "$HERMES_PY" -c "import anthropic" 2>/dev/null; then
+        echo "anthropic SDK present in the Hermes venv"
+      else
+        echo "ERROR: the Anthropic provider SDK did not install into the"
+        echo "Hermes venv ($HERMES_PY). Hermes would start but fail to"
+        echo "initialize the agent. Tell a TA."
+        exit 1
+      fi
+    else
+      echo "ERROR: could not locate the Hermes interpreter or uv."
+      echo "  interpreter: ${HERMES_PY:-<not found>}"
+      echo "  uv:          ${HERMES_UV:-<not found>}"
+      echo "Hermes cannot use the Anthropic provider without its SDK."
+      exit 1
+    fi
   fi
   echo "onCreate phase done (layout + installs). Per-codespace steps run"
   echo "at creation via postCreateCommand."
@@ -237,30 +372,78 @@ printf 'commit=%s built=%s route=codespaces image=%s\n' \
 
 echo "== [4/5] Desktop password (per-codespace, replaces the shipped default) =="
 # The desktop-lite feature bakes a fixed password at build time; rotate it
-# to a per-codespace random one so a leaked/public port is not an open door.
-NEWPW="$(tr -dc 'a-z0-9' < /dev/urandom | head -c 10 || true)"
+# to a per-codespace random one so a leaked port is not an open door.
+#
+# The previous approach sed-ed the shipped init script and assumed x11vnc
+# would pick the change up. It did not: the dry run found every codespace
+# still running the shipped default. The authoritative secret is whatever
+# the RUNNING x11vnc reads, so detect that at runtime instead of guessing
+# desktop-lite's internals, and verify before announcing anything.
+NEWPW="$(tr -dc 'a-z0-9' < /dev/urandom | head -c 14 || true)"
 ROTATED=0
+ROTATE_NOTE=""
 if [ -n "$NEWPW" ] && [ "${DTLAB_TEST:-0}" != "1" ]; then
+  # 1. update the shipped init scripts too, so a container restart does
+  #    not quietly revert to the default
   for f in /usr/local/share/desktop-init.sh /usr/local/etc/desktop-init.sh; do
     if [ -f "$f" ] && sudo grep -q 'dtlab' "$f"; then
       sudo sed -i "/passw/s/dtlab/$NEWPW/g" "$f"
-      # verify the edit actually landed before announcing the password
-      # as fact (TODO(dry-run): confirm x11vnc restarts pick it up)
-      if sudo grep -q "$NEWPW" "$f"; then
-        ROTATED=1
-      fi
     fi
   done
+
+  # 2. the store that actually matters: parse it off the live process
+  VNC_CMD="$(pgrep -a x11vnc 2>/dev/null | head -1 || true)"
+  RFBAUTH="$(printf '%s' "$VNC_CMD" \
+             | sed -n 's/.*-rfbauth[= ]\([^ ]*\).*/\1/p')"
+  if [ -z "$RFBAUTH" ]; then
+    RFBAUTH="$(printf '%s' "$VNC_CMD" \
+               | sed -n 's/.*-passwdfile[= ]\([^ ]*\).*/\1/p')"
+  fi
+  if [ -n "$RFBAUTH" ] && command -v x11vnc >/dev/null 2>&1 \
+     && sudo x11vnc -storepasswd "$NEWPW" "$RFBAUTH" >/dev/null 2>&1; then
+    ROTATED=1
+    ROTATE_NOTE="rfbauth store: $RFBAUTH"
+  fi
+
+  # 3. x11vnc may not be up yet during onCreate — try the usual stores
+  if [ "$ROTATED" != "1" ] && command -v x11vnc >/dev/null 2>&1; then
+    for cand in "$HOME/.vnc/passwd" /usr/local/etc/vnc_passwd \
+                /root/.vnc/passwd; do
+      if [ -e "$cand" ] \
+         && sudo x11vnc -storepasswd "$NEWPW" "$cand" >/dev/null 2>&1; then
+        ROTATED=1
+        ROTATE_NOTE="rfbauth store: $cand"
+        break
+      fi
+    done
+  fi
+
+  # 4. restart so the new secret is read
+  if [ "$ROTATED" = "1" ]; then
+    sudo pkill x11vnc 2>/dev/null || true
+  fi
 fi
+rm -f "$HOME/dtlab/.desktop_password_unrotated"
 if [ "$ROTATED" = "1" ]; then
-  sudo pkill x11vnc 2>/dev/null || true   # supervisor restarts it with the new password
   echo "*** Your personal Lab Desktop password (write it down): $NEWPW ***"
+  echo "    ($ROTATE_NOTE)"
 else
-  # TODO(dry-run): locate the desktop-lite password store in the built image
-  # and make the rotation stick; until verified, the default applies.
-  echo "WARNING: could not rotate the desktop password automatically —"
-  echo "the shipped default 'dtlab' is in effect."
+  # Deliberately NOT a build failure: bricking the environment for 161
+  # students is worse than a shared password on a port that is private
+  # by default. But it must not be forgettable either, so leave a marker
+  # the pre-flight re-warns about on every single run.
+  touch "$HOME/dtlab/.desktop_password_unrotated" 2>/dev/null || true
+  echo ""
+  echo "!!! ============================================================"
+  echo "!!! DESKTOP PASSWORD NOT ROTATED — the shipped default 'dtlab'"
+  echo "!!! is in effect. Every environment built this way shares it."
+  echo "!!! The forwarded port is private, which is what is protecting"
+  echo "!!! you; the password is NOT. Keep port 6080 private, and tell"
+  echo "!!! a TA that rotation failed on this build."
+  echo "!!! ============================================================"
+  echo ""
 fi
+
 echo ""
 echo "*** NEVER set the forwarded port 6080 to Public. A public port gives"
 echo "*** anyone with the URL a desktop logged into YOUR Amazon account."
@@ -270,5 +453,6 @@ echo ""
 echo "Setup complete. Open the 'Lab Desktop' forwarded port (6080) in your"
 echo "browser — password printed above (or 'dtlab' if rotation failed)."
 echo "KEEP THE PORT PRIVATE. Then use the VS Code terminal for:"
-echo "  dtlab-shop | dtlab-start | dtlab-cart | dtlab-verdict |"
+echo "  dtlab-shop | dtlab-start | dtlab-cart | dtlab-tokens |"
+echo "  dtlab-verdict |"
 echo "  dtlab-record (optional) | dtlab-pack"

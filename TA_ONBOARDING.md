@@ -233,10 +233,13 @@ concrete machinery, so you recognize it when you see it:
       information, not as a change to the run policy.
 - [ ] Turn this repo into a **template repo** (Settings → Template
       repository) once the Form is frozen.
-- [ ] **Pin the installers** (see "Updating installer pins" below) —
-      the provisioning scripts refuse to build while any checksum is
-      `UNPINNED`. Then enable **Codespaces prebuilds** on the template
-      repo so all students share one frozen, pre-tested image.
+- [x] **Pin the installers** (see "Updating installer pins" below) —
+      resolved 28 Aug 2026: Hermes v2026.8.3 installer + exact release
+      commit, uv 0.12.7, Playwright 1.62.0, and Anthropic 0.122.0.
+      The exact values are enforced by `tests/test_start_flow.sh`.
+- [ ] Build those pins from scratch on both routes, then enable
+      **Codespaces prebuilds** on the template repo so all students
+      share one frozen, pre-tested image.
 - [ ] **Full dry run from a Codespace** against real amazon.in with a real
       account: build time, `/browser connect`, the bootstrap session
       (order-history reading quality), one complete task,
@@ -328,6 +331,16 @@ concrete machinery, so you recognize it when you see it:
       manifest's `redaction_report` and `validation_issues` while
       grading; the same test shows the expected zip shape if a
       submission fails to parse.
+
+**Task order is derived, not stored.** Each student's task order comes
+from `sorted(task_ids, key=sha256(f"{student_id}|{task_id}"))` in
+`provisioning/student_start.sh` — deterministic per pseudonym, not an
+RNG, which is why it can be recomputed identically for the human session
+and all four agent runs without persisting anything. Change the
+pseudonym and the order changes; `~/dtlab/task_order.txt` records what
+was used, and `tasks.md` is rewritten in place to match. The pre-flight
+calls it "randomized across students", which is true in effect but not
+literally a random draw — it is fully reproducible for the analysis.
 
 ## The T-21 trial run — TA work items (each with its procedure)
 
@@ -446,17 +459,22 @@ The TA runs the machine; these calls stay with the instructor:
 
 `provisioning/provision.sh` and `.devcontainer/setup.sh` download remote
 installers (Hermes, uv) to a file, verify a SHA-256 recorded in the
-script, then execute — never `curl | bash`. Ships with `UNPINNED`
-placeholders that make the build fail on purpose. To pin (or re-pin after
-a release):
+script, then execute — never `curl | bash`. The course pins were resolved
+on 28 Aug 2026; the `UNPINNED` and empty-version guards remain so an
+incomplete future update fails on purpose. To re-pin after a release:
 
 1. On a trusted machine, download the installer at the exact URL in the
    script and read it once (sanity check, it's a shell script).
 2. `sha256sum <file>` → paste the hash into the `*_SHA256` variable and,
    where the project offers versioned URLs, pin the URL to that release.
-3. Pin `PLAYWRIGHT_PIN` (e.g. `==1.55.0`) to the version you dry-ran.
-4. Rebuild a fresh codespace/VM from scratch and re-run the dry run.
-5. Commit the pin change; rebuild the Codespaces prebuild.
+3. For Hermes, also pin the exact release commit passed through
+   `--commit ... --force-commit`; a checksum-pinned installer that clones
+   floating `main` is not a reproducible Hermes install. Pin
+   `PLAYWRIGHT_PIN` and `ANTHROPIC_PIN` to the versions you dry-ran.
+4. Update the exact-value assertions in `tests/test_start_flow.sh` in the
+   same change; differing values between the two provisioners must fail.
+5. Rebuild a fresh codespace/VM from scratch and re-run the dry run.
+6. Commit the pin change; rebuild the Codespaces prebuild.
 
 Never set `DTLAB_ALLOW_UNPINNED=1` for anything students will use — it
 exists only for throwaway test builds.

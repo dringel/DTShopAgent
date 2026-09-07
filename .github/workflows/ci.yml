@@ -48,6 +48,9 @@ jobs:
       - name: instrument lockstep test (N1/N3)
         run: python tests/test_instrument_lockstep.py
 
+      - name: dry-run safety tools (PII, orders, token cost)
+        run: python tests/test_dryrun_tools.py
+
       - name: submission regression harness (sandboxed HOME)
         run: bash tests/simulate_submission.sh
 

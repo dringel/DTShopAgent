@@ -18,6 +18,7 @@ evidence/
 human/
 persona_survey.csv
 persona_survey.md
+persona_meta.json
 purchase_history*.csv
 purchase_profile.md
 human_session.jsonl

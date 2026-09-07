@@ -39,6 +39,7 @@ import base64
 import csv
 import hashlib
 import html
+import importlib.util
 import json
 import os
 import re
@@ -140,6 +141,23 @@ def derived_task_order(student_id, task_ids):
 PROTO_RE = re.compile(r"(?m)^\s*PROTOCOL\s*\|\s*soul=([\w.-]+)")
 SOUL_TOKENS = {"persona": "persona-v4", "ablated": "ablated-v4"}
 BOOTSTRAP_TOKEN = "bootstrap-v1"
+
+# ---- bootstrap transcripts (P0.1 decision, 2 Sep 2026): the
+#      questionnaire-blind bootstrap session reads raw amazon.in order
+#      history end to end, which makes its Hermes transcripts the highest
+#      PII-density text the kit produces, and they add nothing a grader
+#      needs beyond the scrubbed bootstrap decision_log.md that IS
+#      packed. They stay out. Before this the exclusion was merely
+#      incidental — nothing ever called collect_home_logs() on
+#      runs/bootstrap/hermes_home — so it is recorded in manifest.json to
+#      make it an auditable decision rather than an accident. ----
+BOOTSTRAP_TRANSCRIPTS = {
+    "collected": False,
+    "reason": "excluded by design: the questionnaire-blind bootstrap "
+              "reads raw amazon.in order history, so its transcripts are "
+              "the highest PII-density text in the kit; the scrubbed "
+              "bootstrap decision_log.md is packed in their place",
+}
 
 # quarantine-leakage detectors (D3): a transcript or decision log naming
 # quarantined material means the agent saw, or tried to see, what it is
@@ -263,11 +281,54 @@ GUARD_FIRED_RE = re.compile(r"chrome-extension://[^\s\"'<>]*blocked\.html")
 KEY_RE = re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}")
 KEYLINE_RE = re.compile(r"(ANTHROPIC_API_KEY\s*[=:]\s*)[^\s\"']+")
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-PHONE_RE = re.compile(r"(?<!\d)(?:\+91[-\s]?)?[6-9]\d{9}(?!\d)")
+# grouped as 5+5 with an optional separator: the freeze-time filter
+# already caught "98765 43210", and a transcript must not be the one
+# surface where that spelling survives. The [6-9] lead and the
+# hex-span skip in _sub_phones still keep hashes and prices out.
+PHONE_RE = re.compile(r"(?<!\d)(?:\+91[-\s]?)?[6-9]\d{4}[-\s]?\d{5}(?!\d)")
 # long hex runs (sha256 etc.): a phone-shaped digit run INSIDE a hash is
 # a false positive that would corrupt the audit trail — phone detection
 # skips matches inside these spans
 HEX_RE = re.compile(r"[0-9a-f]{32,}")
+
+# ---- account-holder identity (P0.1): the bootstrap freeze already
+#      strips names, addresses, and Amazon customer IDs out of the two
+#      bootstrap artifacts. Nothing repeated that work at pack time, so
+#      the SAME name could still reach the archive through a Hermes
+#      transcript, report.html, or a manifest value — which is exactly
+#      what the 30 Aug live bootstrap produced. Import the scrubber's
+#      rules rather than restating them: one rule set for both gates, so
+#      a rule added at freeze time cannot silently miss the pack.
+#      Packing on weaker rules than the freeze used is a silent
+#      downgrade, so a missing scrubber fails closed.
+#      Cost: all four rules are linear; measured ~30 ms each on a 4 MB
+#      line, so they need none of the windowing EMAIL_RE requires. ----
+def _load_scrub_rules():
+    path = Path(__file__).resolve().parent / "scrub_profile.py"
+    spec = importlib.util.spec_from_file_location("scrub_profile", path)
+    if spec is None or spec.loader is None:
+        return None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+try:
+    _SCRUB = _load_scrub_rules()
+except (OSError, ImportError, SyntaxError, AttributeError):
+    _SCRUB = None
+if _SCRUB is None or not getattr(_SCRUB, "IDENTITY_PATTERNS", None):
+    sys.exit("pack_evidence: tools/scrub_profile.py is missing or "
+             "unusable, so this pack cannot apply the same PII rules the "
+             "bootstrap freeze used. Nothing was packed; tell a TA.")
+
+IDENTITY_PATTERNS = _SCRUB.IDENTITY_PATTERNS
+NAME_MARKER = "[REDACTED-NAME]"
+# Supplied account-holder name patterns. Filled in by collect_names()
+# before ANY redaction runs; an empty list is a valid state (the identity
+# rules above need no name list). Module-level because redact_line is the
+# single choke point every surface goes through.
+NAME_PATS = []
 
 
 def _sub_phones(line, redact=True):
@@ -463,7 +524,7 @@ def redact_line(line):
     """One line -> (redacted line, counts dict, was_long). Linear cost
     at any line length."""
     was_long = len(line) > REDACT_LINE_CAP
-    n_key = n_line = n_email = n_phone = 0
+    n_key = n_line = n_email = n_phone = n_name = n_ident = 0
     if "sk-ant-" in line:
         line, n_key = KEY_RE.subn("[REDACTED-API-KEY]", line)
     if "ANTHROPIC_API_KEY" in line:
@@ -474,8 +535,17 @@ def redact_line(line):
         else:
             line, n_email = EMAIL_RE.subn("[REDACTED-EMAIL]", line)
     line, n_phone = _sub_phones(line)
+    # supplied names first: "Deliver to Vinita" becomes "Deliver to
+    # [REDACTED-NAME]", which the identity rule then leaves alone (its
+    # trailing group requires a capital letter, not "[")
+    for pat in NAME_PATS:
+        line, k = pat.subn(NAME_MARKER, line)
+        n_name += k
+    for pat, repl in IDENTITY_PATTERNS:
+        line, k = pat.subn(repl, line)
+        n_ident += k
     return line, {"key": n_key + n_line, "email": n_email,
-                  "phone": n_phone,
+                  "phone": n_phone, "name": n_name, "identity": n_ident,
                   "deliver": line.lower().count("deliver to")}, was_long
 
 
@@ -490,7 +560,8 @@ def redact_staging(staging):
         if not p.is_file() or p.suffix.lower() not in TEXT_SUFFIXES:
             continue
         t0 = time.monotonic()
-        totals = {"key": 0, "email": 0, "phone": 0, "deliver": 0}
+        totals = {"key": 0, "email": 0, "phone": 0, "name": 0,
+                  "identity": 0, "deliver": 0}
         n_long = 0
         changed = False
         budget_hit = False
@@ -529,6 +600,10 @@ def redact_staging(staging):
             flags["emails_redacted"] = totals["email"]
         if totals["phone"]:
             flags["phones_redacted"] = totals["phone"]
+        if totals["name"]:
+            flags["names_redacted"] = totals["name"]
+        if totals["identity"]:
+            flags["identity_redacted"] = totals["identity"]
         if totals["deliver"]:
             flags["deliver_to"] = totals["deliver"]
         entry = {}
@@ -551,7 +626,8 @@ def redact_text(s):
     parts, hits = [], 0
     for line in s.split("\n"):
         new, counts, _ = redact_line(line)
-        hits += counts["key"] + counts["email"] + counts["phone"]
+        hits += (counts["key"] + counts["email"] + counts["phone"]
+                 + counts["name"] + counts["identity"])
         parts.append(new)
     return "\n".join(parts), hits
 
@@ -583,7 +659,11 @@ def redact_obj(o):
 
 def scan_text_for_leaks(text):
     """Detection-only counterpart of redact_line — counts raw key/email/
-    phone patterns (same line discipline, linear cost)."""
+    phone/name/identity patterns (same line discipline, linear cost).
+
+    Every rule it applies is idempotent, so a match here means redaction
+    genuinely missed something rather than that it left its own marker
+    behind. That is what lets the caller treat any hit as fail-closed."""
     hits = 0
     for line in text.split("\n"):
         if "sk-ant-" in line:
@@ -595,7 +675,53 @@ def scan_text_for_leaks(text):
                 k = len(EMAIL_RE.findall(line))
             hits += k
         hits += _sub_phones(line, redact=False)[1]
+        if NAME_PATS:
+            # the marker itself must never count as a surviving name
+            bare = line.replace(NAME_MARKER, "")
+            hits += sum(len(pat.findall(bare)) for pat in NAME_PATS)
+        for pat, _repl in IDENTITY_PATTERNS:
+            hits += len(pat.findall(line))
     return hits
+
+
+def collect_names():
+    """Account-holder names for the pack-time name filter.
+
+    Same policy as the bootstrap freeze (18 Aug instructor call): the
+    names cannot be derived — only the person packing knows who is on the
+    account's saved addresses — so they are typed in, used in memory, and
+    never written to disk or exposed in a process command line.
+
+    Empty is a valid answer. The identity rules run unconditionally and
+    catch the page furniture ("Deliver to X", address lines, city+PIN,
+    customer IDs) with no name list at all; a supplied list adds the bare
+    prose spellings on top. The manifest records which of the two the
+    pack actually got, so a grader can tell a name-filtered pack from an
+    identity-rules-only one.
+
+    Returns (patterns, status).
+    """
+    if os.environ.get("DTLAB_PACK_NAMES_STDIN") == "1":
+        raw = sys.stdin.read()
+        source = "stdin"
+    elif sys.stdin.isatty():
+        print("\nPII filter before packing: enter every name on this "
+              "Amazon account")
+        print("(yours + anyone on saved addresses), comma-separated. Used "
+              "only to strip")
+        print("them from transcripts and the report — never stored. Press "
+              "Enter to skip.")
+        try:
+            raw = input("  Name(s): ")
+        except EOFError:
+            raw = ""
+        source = "prompt"
+    else:
+        return [], "not_prompted_no_tty"
+    names = [n.strip() for n in re.split(r"[,\n]", raw) if n.strip()]
+    if not names:
+        return [], f"none_supplied_{source}"
+    return _SCRUB.name_variants(names), f"supplied_{source}"
 
 
 def run_day(rn):
@@ -747,6 +873,13 @@ def parse_head_to_head_lines(text):
 
 
 def main():
+    # FIRST, before any staging or redaction: redact_line is the single
+    # choke point every packed surface goes through, and it has to know
+    # the names before the first byte is scanned. Mutated in place rather
+    # than rebound so the module-level list stays the one source.
+    name_pats, name_filter = collect_names()
+    NAME_PATS[:] = name_pats
+
     sandbox = SANDBOX_MARKER.exists()
     student_id = find_student_id() or (
         sys.argv[sys.argv.index("--student-id") + 1]
@@ -915,7 +1048,7 @@ def main():
                       "condition.txt", "tier.txt", "started_at.txt",
                       "ist_date.txt", "soul_sha256.txt",
                       "config_sha256.txt", "model_id.txt",
-                      "purchase_profile.md"):
+                      "purchase_profile.md", "token_usage.json"):
                 if (rdir / f).exists():
                     shutil.copy2(rdir / f, sdir / f)
                 elif f in ("decision_log.md", "agent_picks.csv"):
@@ -1415,7 +1548,7 @@ def main():
         sb = staging / "bootstrap"
         sb.mkdir(exist_ok=True)
         for f in ("decision_log.md", "tier.txt", "model_id.txt",
-                  "started_at.txt"):
+                  "started_at.txt", "token_usage.json"):
             if (bs_dir / f).exists():
                 shutil.copy2(bs_dir / f, sb / f)
         blog = sb / "decision_log.md"
@@ -1466,11 +1599,49 @@ def main():
         n_logs = collect_home_logs(single_home, staging / "hermes_logs")
         need(n_logs > 0, "no Hermes session logs found in the run's "
                          "hermes_home (did the agent session start?)")
+        # capture_tokens.py writes token_usage.json as a SIBLING of
+        # hermes_home (run_dir = home.parent), which nothing staged --
+        # only hermes_logs/ was ever copied out of RUNS/single/.
+        single_tokens = single_home.parent / "token_usage.json"
+        if single_tokens.exists():
+            shutil.copy2(single_tokens, staging / "token_usage.json")
     else:
         transcript_collection = "legacy_pool"
         n_logs = collect_hermes_logs(staging)
         need(n_logs > 0, "no Hermes session logs found since run start "
                          "(did dtlab-start create the run marker?)")
+
+    # ---- token/cost summary (T-21 item 12): read whatever staging
+    #      already holds, never re-touch ~/dtlab/runs directly. Only
+    #      checked in the two layouts that actually have a per-run/
+    #      per-session token_usage.json to look for -- legacy_pool has no
+    #      run subdirectory for the concept to live in. Absence is a
+    #      WARNING, not a blocking failure: dtlab-tokens is a separate
+    #      manual step, unlike the mandatory decision_log/agent_picks
+    #      pair, so a student who skipped it should not lose their pack
+    #      over a manifest nicety.
+    token_usage_by_run = {}
+    token_usage_run_paths = {}
+    if ablation:
+        token_usage_run_paths = {rn: staging / rn / "token_usage.json"
+                                 for rn in conds}
+    elif not ablation and single_home.is_dir():
+        token_usage_run_paths = {"single": staging / "token_usage.json"}
+    if bs_dir.is_dir():
+        token_usage_run_paths["bootstrap"] = staging / "bootstrap" / "token_usage.json"
+    for rn, tup in token_usage_run_paths.items():
+        if not tup.exists():
+            warn(f"{rn}: no token_usage.json staged (run dtlab-tokens "
+                 "to capture cost/token data for this run)")
+            continue
+        try:
+            tu = json.loads(tup.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        token_usage_by_run[rn] = {
+            k: tu.get(k) for k in
+            ("model", "usage_source", "billable_tokens",
+             "reasoning_tokens", "usd_estimate")}
 
     # ---- checkout-attempt scan (B22): decision logs + collected
     #      transcripts. Query strings are stripped (they may embed
@@ -2012,6 +2183,7 @@ def main():
         "model_tier": tier,
         "transcript_collection": transcript_collection,
         "protocol_tokens_by_run": protocol_tokens,
+        "token_usage_by_run": token_usage_by_run,
         "purchase_profile_sha256": frozen_sha,
         "purchase_profile_verified_by_run": profile_verified,
         "sensitive_items_excluded": bool(pmeta.get("sensitive_excluded")),
@@ -2058,7 +2230,12 @@ def main():
             if MARKER.exists() else None),
         "redaction_report": redaction_report,
         "redaction": {"pass1": bool(redaction_report),
-                      "final_scan_clean": not final_hits},
+                      "final_scan_clean": not final_hits,
+                      # which filter this pack actually got: a grader can
+                      # tell a name-filtered pack from one that ran on
+                      # the identity rules alone
+                      "name_filter": name_filter,
+                      "bootstrap_transcripts": BOOTSTRAP_TRANSCRIPTS},
         "validation_issues": issues,
         "sha256": {k: v["sha256"] for k, v in inventory.items()},
         "file_inventory": inventory,
@@ -2093,10 +2270,24 @@ def main():
                 z.read(zn).decode("utf-8", "replace"))
             if h:
                 zip_hits[zn] = h
-    for zn, h in sorted(zip_hits.items()):
-        need(False,
-             f"zip-content leak scan: {h} raw key/email/phone pattern(s) "
-             f"in {zn} — the zip MUST NOT be submitted; tell a TA")
+    if zip_hits:
+        # fail closed (P0.1): leaving a leaking archive at the LMS-upload
+        # path relies on the student reading the error, and a pack that
+        # exits non-zero still leaves a submittable file behind. Move it
+        # out of the submission path instead — but KEEP it, because a TA
+        # needs the artifact itself to see which rule missed.
+        quar = QUAR / "leaked_packs"
+        quar.mkdir(parents=True, exist_ok=True)
+        held = quar / f"{out.name}.LEAKED"
+        held.unlink(missing_ok=True)
+        out.replace(held)
+        for zn, h in sorted(zip_hits.items()):
+            need(False,
+                 f"zip-content leak scan: {h} raw key/email/phone/name "
+                 f"pattern(s) in {zn} — this pack is NOT submittable; the "
+                 f"archive was moved out of the submission path to {held} "
+                 "for TA review; tell a TA")
+        out = held
 
     print(f"\nPacked -> {out}")
     if warnings_:

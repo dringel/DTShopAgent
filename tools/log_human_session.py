@@ -42,7 +42,9 @@ import csv
 import json
 import os
 import re
+import select
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -106,6 +108,45 @@ PROFILE = Path.home() / CFG.get("DTLAB_BROWSER_PROFILE",
 # Main frame only; page_load also covers pushState/popstate SPA navigation.
 # No Playwright sync-API call ever happens inside an event handler (the sync
 # API forbids that), and titles arrive from the page itself.
+def wait_enter(prompt, ctx=None, page=None):
+    """Wait for Enter WITHOUT freezing Playwright's event pump.
+
+    Playwright's sync API only dispatches exposed-binding callbacks while
+    the caller is inside a Playwright call. A bare input() therefore stops
+    the clickstream for exactly as long as the student is shopping — i.e.
+    the whole session — and every window.dtlabEvent() call queues as a
+    pending promise that is never delivered. The session then completes
+    with a full cart and an empty human_session.jsonl, which is worse than
+    failing outright because nothing looks wrong until pack time.
+
+    Poll stdin instead, handing time back to the driver between polls.
+    Falls back to plain input() where select() on stdin is unavailable.
+    """
+    try:
+        select.select([sys.stdin], [], [], 0)
+    except Exception:
+        return input(prompt)          # non-POSIX / not a tty: old behaviour
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    while True:
+        try:
+            if select.select([sys.stdin], [], [], 0)[0]:
+                return sys.stdin.readline()
+        except Exception:
+            return input("")
+        pumped = False
+        for pg in ([page] if page else []) + (list(ctx.pages) if ctx else []):
+            try:
+                if pg and not pg.is_closed():
+                    pg.wait_for_timeout(150)
+                    pumped = True
+                    break
+            except Exception:
+                continue
+        if not pumped:
+            time.sleep(0.15)
+
+
 PAGE_JS = """
 (() => {
   if (window !== window.top) return;
@@ -318,8 +359,13 @@ def confirm_picks(log: Logger, student_id):
 def find_student_id():
     """The pseudonym from the persona files — the same source every
     other tool resolves it from."""
+    # The hold path MUST match student_start.sh's HOLD ("$QUAR/persona_hold",
+    # i.e. ~/dtlab/quarantine/persona_hold). It previously omitted the
+    # "quarantine" segment, so the fallback could never match: once
+    # dtlab-start had held the persona files for the questionnaire-blind
+    # bootstrap, dtlab-shop could no longer resolve the pseudonym at all.
     for p in (Path.home() / "dtlab" / "workspace" / "persona_survey.csv",
-              Path.home() / "dtlab" / "persona_hold" /
+              Path.home() / "dtlab" / "quarantine" / "persona_hold" /
               "persona_survey.csv"):
         try:
             with open(p, newline="", encoding="utf-8-sig") as f:
@@ -452,19 +498,49 @@ def main():
     # add-to-cart-only by protocol, so checkout is network-blocked here
     # exactly like in the agent session (same dir dtlab_browser.sh loads)
     ext_dir = Path(__file__).resolve().parent / "checkout_guard_extension"
+
+    # Same sandbox probe as tools/dtlab_browser.sh — see the security note
+    # there. Containers that refuse unprivileged user namespaces kill
+    # Chromium before it opens; the VM route keeps its sandbox.
+    sandbox_args = []
+    try:
+        userns_ok = subprocess.run(["unshare", "--user", "--net", "true"],
+                                   capture_output=True,
+                                   check=False).returncode == 0
+    except OSError:
+        userns_ok = False
+    if not userns_ok:
+        sandbox_args = ["--no-sandbox", "--disable-dev-shm-usage"]
+        print("NOTICE: unprivileged user namespaces are unavailable in "
+              "this container, so Chromium starts WITHOUT its sandbox "
+              "(expected on the Codespaces route).", file=sys.stderr)
+
     with sync_playwright() as p:
         try:
             ctx = p.chromium.launch_persistent_context(
                 str(PROFILE), headless=False,
                 executable_path=exe or None,
                 args=[f"--load-extension={ext_dir}",
-                      f"--disable-extensions-except={ext_dir}"],
-                viewport={"width": 1280, "height": 900})
-        except Exception:
-            sys.exit("Could not open the shared lab browser profile — "
-                     "another window is holding its lock.\n"
-                     "Close ALL open lab-browser windows (including the "
-                     "shopping session), then re-run dtlab-shop.")
+                      f"--disable-extensions-except={ext_dir}",
+                      "--window-size=1180,680",
+                      "--window-position=10,10",
+                      "--disable-session-crashed-bubble"]
+                     + sandbox_args,
+                # desktop-lite's display is 1280x720. Leave room for
+                # browser chrome and the desktop panel so every control
+                # remains reachable without an undocumented Alt-drag.
+                viewport={"width": 1100, "height": 600})
+        except Exception as exc:
+            # Do NOT assume a profile lock: a sandbox/namespace abort
+            # lands here too, and telling a student to close windows they
+            # never opened costs a lab session.
+            sys.exit("Could not open the shared lab browser profile.\n"
+                     f"  {type(exc).__name__}: {exc}\n"
+                     "If that names a namespace or sandbox failure, the "
+                     "container refused Chromium's sandbox — tell a TA.\n"
+                     "Otherwise another lab-browser window holds the "
+                     "profile lock: close ALL of them (including the "
+                     "shopping session) and re-run dtlab-shop.")
         ctx.expose_binding("dtlabEvent", log.on_binding)
         ctx.add_init_script(PAGE_JS)
 
@@ -482,8 +558,8 @@ def main():
             blabel = f" [{budget}]" if budget else ""
             print(f"\n>>> ({i}/{len(seq)}) Task {task}: "
                   f"{ptype[:70]}{blabel}")
-            input(">>> Shop for it now; AFTER adding your pick to the "
-                  "cart, press Enter... ")
+            wait_enter(">>> Shop for it now; AFTER adding your pick to "
+                       "the cart, press Enter... ", ctx, page)
             log.emit("task_end", task_id=task)
         # live capture summary WHILE the browser is still open — a
         # Wednesday problem must be visible Wednesday, not at pack time
@@ -498,10 +574,12 @@ def main():
             print(">>> open a product page. Open each pick's product page")
             print(">>> NOW (click its title) so the view is on record,")
             print(">>> then continue.")
-            input(">>> Done browsing your picks? Press Enter... ")
+            wait_enter(">>> Done browsing your picks? Press Enter... ",
+                       ctx, page)
         print("\n>>> All tasks done. Now EMPTY the cart (your picks are")
         print(">>> recorded next; the cart must be clean for the agent).")
-        input(">>> Cart emptied? Press Enter to confirm your picks... ")
+        wait_enter(">>> Cart emptied? Press Enter to confirm your "
+                   "picks... ", ctx, page)
         try:
             ctx.close()
         except Exception:

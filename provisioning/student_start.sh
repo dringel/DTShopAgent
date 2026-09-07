@@ -69,17 +69,32 @@ FAIL=0
 # /browser connect has nothing to attach to. Poll the CDP endpoint for ~5s
 # after launching; fail LOUD with the one action that fixes it.
 wait_cdp() {
+  # Cold Chromium starts are SLOW. The 3 Sep dry run measured ~5.5s from
+  # launch to the "DevTools listening" line on a cold cache, against the
+  # fixed 5s (10 x 0.5s) budget this used to allow -- so every cold
+  # Codespace lost the race by about half a second. The browser was
+  # starting correctly and being abandoned just before it finished, and
+  # the operator was then told to "close all browser windows" when none
+  # were open. Poll up to 30s (the value proven live on 30 Aug), still
+  # bounded, still fail-closed. DTLAB_CDP_WAIT_TRIES keeps the tests fast.
   local port="${DTLAB_CDP_PORT:-9222}" i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  local tries="${DTLAB_CDP_WAIT_TRIES:-60}"   # 60 x 0.5s = 30s
+  for ((i = 1; i <= tries; i++)); do
     if curl -fsS "http://127.0.0.1:${port}/json/version" >/dev/null 2>&1; then
+      if [ "$i" -gt 10 ]; then
+        ok "browser automation port ready after ~$(( i / 2 ))s (cold start)"
+      fi
       return 0
     fi
     sleep 0.5
   done
   echo ""
-  echo -e "${RED}The lab browser did not come up with its automation (CDP) port."
-  echo -e "Close ALL open lab-browser windows (including the shopping session),"
-  echo -e "then re-run dtlab-start.${NC}"
+  echo -e "${RED}The lab browser did not come up with its automation (CDP)"
+  echo -e "port within $(( tries / 2 ))s."
+  echo -e "If a lab-browser window IS open, close ALL of them (including the"
+  echo -e "shopping session) and re-run dtlab-start."
+  echo -e "If none are open, the browser failed to start -- run this to see"
+  echo -e "why:  DISPLAY=:1 bash ~/dtlab/tools/dtlab_browser.sh${NC}"
   return 1
 }
 
@@ -196,13 +211,43 @@ make_hermes_home() {  # $1 = home dir, $2 = SOUL variant file, $3 = model id
       -e "s|{{MODEL_ID}}|$model|g" "$tpl" > "$hh/config.yaml"
 }
 
-# Effective-config verification, FAIL CLOSED: re-read the file Hermes
-# will actually load and assert it names the assigned provider + model.
-# Kept as ONE function so the dry run can extend it to the live
-# /api/model read if the pinned release exposes one.
+# Effective-config verification, FAIL CLOSED.
+#
+# Grepping the file we just wrote proves only that we wrote it. It cannot
+# detect the failure this gate exists to catch: a config whose SCHEMA the
+# pinned Hermes release does not understand. That happened at the 2026-08-18
+# dry run -- the old template used `model.id`, Hermes v0.20.0 wants
+# `model.default`, so Hermes reported "no model configured", fell back to its
+# own default, and this check still returned green. Four runs would have
+# executed on one model while the manifest claimed two tiers.
+#
+# So: keep the cheap written-file check (it catches a broken substitution),
+# then ask Hermes what it ACTUALLY loaded from this home.
 verify_hermes_config() {  # $1 = home dir, $2 = provider, $3 = model id
-  grep -qF -- "$3" "$1/config.yaml" 2>/dev/null \
-    && grep -qF -- "$2" "$1/config.yaml" 2>/dev/null
+  grep -qF -- "$3" "$1/config.yaml" 2>/dev/null || return 1
+  grep -qF -- "$2" "$1/config.yaml" 2>/dev/null || return 1
+
+  local eff
+  eff="$(HERMES_HOME="$1" hermes config get model.default 2>/dev/null \
+         | tr -d '[:space:]')"
+  if [ -z "$eff" ]; then
+    # Could not ask Hermes (older release, or the subcommand moved). The
+    # file check passed, so proceed -- but say so, because this is the
+    # assurance the gate is meant to provide.
+    echo -e "${YEL}  [..] could not read the effective model from Hermes;" \
+            "relying on the generated file only${NC}"
+    return 0
+  fi
+  case "$eff" in
+    *"$3"*) return 0 ;;
+    *)
+      echo -e "${RED}  [!!] Hermes loaded model '$eff' but this run is" \
+              "assigned '$3'.${NC}"
+      echo -e "${RED}       The config schema in" \
+              "hermes_config.template.yaml does not match the pinned" \
+              "Hermes release.${NC}"
+      return 1 ;;
+  esac
 }
 
 config_mismatch_abort() {
@@ -431,6 +476,14 @@ fi
 
 # 2. Required workspace files
 if [ -f "$WS/SOUL.md" ]; then ok "SOUL.md (agent identity) present"
+# Desktop password: setup leaves this marker when rotation failed, so the
+# shared default is still in effect. Re-warn on EVERY run -- a one-time
+# warning during a 20-minute build scrolls past and is never seen again.
+if [ -f "$HOME/dtlab/.desktop_password_unrotated" ]; then
+  echo -e "${YEL}  [..] desktop password was NOT rotated on this build --"
+  echo -e "       the shared default is in effect. Keep port 6080 PRIVATE"
+  echo -e "       and tell a TA.${NC}"
+fi
 else bad "SOUL.md missing from $WS"; fi
 if [ -f "$WS/tasks.md" ] && ! grep -q "INSTRUCTOR_TASK" "$WS/tasks.md"; then
   ok "tasks.md present and filled"
@@ -458,6 +511,121 @@ if [ "$PERSONA_FACTOR" = "1" ]; then
   # freezes it, and proceeds to run 1.
   if [ ! -f "$HOME/dtlab/.bootstrap_done" ]; then
     if [ -s "$WS/purchase_profile.md" ]; then
+      # ---- PII scrub BEFORE the freeze/archive (instructor decision,
+      # 18 Aug call): the bootstrap agent can pull real account-holder
+      # details into both the profile and its decision log. Instructions
+      # caused the leak; a deterministic filter removes it. Names are
+      # prompted, passed to the scrubber on stdin, used in memory, and
+      # never written or exposed in a process command line. Runs before
+      # chmod 444 + hash and before the log is archived. Fail-closed: a
+      # bootstrap artifact that cannot be scrubbed is never frozen.
+      chmod 644 "$WS/purchase_profile.md" "$WS/decision_log.md" \
+        2>/dev/null || true
+      if [ -t 0 ]; then
+        echo ""
+        echo "PII scrub before the freeze: enter every name on this Amazon"
+        echo "account (yours + anyone on saved addresses), comma-separated."
+        echo "Used only to strip them from bootstrap outputs — never stored."
+        read -rp "  Name(s): " SCRUB_NAMES
+      elif [ "${DTLAB_TEST:-0}" = "1" ]; then
+        # State-machine tests supply a synthetic name as the next line
+        # of scripted stdin. Real noninteractive launches fail closed.
+        IFS= read -r SCRUB_NAMES || SCRUB_NAMES=""
+      else
+        echo -e "${RED}PII scrub needs an interactive name list and this"
+        echo -e "terminal has no input TTY. The profile was NOT frozen."
+        echo -e "Re-run dtlab-start interactively or tell a TA.${NC}"
+        exit 1
+      fi
+      if [[ ! "$SCRUB_NAMES" =~ [[:alnum:]] ]]; then
+        echo -e "${RED}No account-holder name was supplied, so bootstrap"
+        echo -e "artifacts cannot be checked safely. The profile was"
+        echo -e "NOT frozen. Re-run dtlab-start and enter the names.${NC}"
+        unset SCRUB_NAMES
+        exit 1
+      fi
+      # pseudonym from the persona files (workspace, or quarantine hold —
+      # during bootstrap the persona is held there by design); the main
+      # SID resolution happens later in this script, too late for us
+      SCRUB_SID=$(python3 - <<'PY'
+import csv, sys
+from pathlib import Path
+home = Path.home()
+for p in (home / "dtlab" / "workspace" / "persona_survey.csv",
+          home / "dtlab" / "quarantine" / "persona_hold"
+          / "persona_survey.csv"):
+    try:
+        with open(p, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        if rows and (rows[0].get("student_id") or "").strip():
+            print(rows[0]["student_id"].strip()); sys.exit(0)
+    except OSError:
+        pass
+print("unknown")
+PY
+)
+      if [[ ! "$SCRUB_SID" =~ ^DT[0-9]{4}-[0-9]{3}$ ]]; then
+        echo -e "${RED}A valid participant pseudonym was not found in the"
+        echo -e "persona CSV, so the profile cannot be attributed safely."
+        echo -e "The profile was NOT frozen. Tell a TA.${NC}"
+        unset SCRUB_NAMES SCRUB_SID
+        exit 1
+      fi
+      # scrubber location: provisioned copy first, then the kit copy
+      # relative to this script (covers a launcher run straight from the
+      # repo before provisioning has staged ~/dtlab/tools)
+      SCRUB_TOOL=""
+      for c in "$HOME/dtlab/tools/scrub_profile.py" \
+               "$(dirname "$0")/../tools/scrub_profile.py" \
+               "$(dirname "$0")/scrub_profile.py"; do
+        [ -f "$c" ] && SCRUB_TOOL="$c" && break
+      done
+      if [ -z "$SCRUB_TOOL" ]; then
+        echo -e "${RED}scrub_profile.py not found — provisioning is"
+        echo -e "incomplete and the profile cannot be PII-scrubbed."
+        echo -e "The profile was NOT frozen. Tell a TA.${NC}"
+        unset SCRUB_NAMES SCRUB_SID
+        exit 1
+      fi
+      if ! printf '%s\n' "$SCRUB_NAMES" | python3 "$SCRUB_TOOL" \
+             --profile "$WS/purchase_profile.md" \
+             --text-file "$WS/decision_log.md" \
+             --student-id "$SCRUB_SID" \
+             --names-stdin; then
+        echo -e "${RED}PII scrub failed — bootstrap outputs were NOT frozen."
+        echo -e "Fix the profile (or re-run the bootstrap) and try"
+        echo -e "dtlab-start again.${NC}"
+        unset SCRUB_NAMES SCRUB_SID
+        exit 1
+      fi
+      unset SCRUB_NAMES SCRUB_SID
+
+      # ---- claim validation against the real order list ----
+      # The SOUL requires every claim in the profile to be traceable to
+      # an order the agent actually saw. When captured ground truth is
+      # available, any validator failure is a hard freeze gate: writing
+      # the hash or .bootstrap_done after a failed reconciliation would
+      # make a known-bad profile immutable and feed it into every run.
+      ORDERS_JSON="$QUAR/human/purchase_orders.json"
+      VALIDATOR=""
+      for c in "$HOME/dtlab/tools/validate_profile.py" \
+               "$(dirname "$0")/../tools/validate_profile.py"; do
+        [ -f "$c" ] && VALIDATOR="$c" && break
+      done
+      if [ -n "$VALIDATOR" ] && [ -f "$ORDERS_JSON" ]; then
+        if ! python3 "$VALIDATOR" --profile "$WS/purchase_profile.md" \
+               --orders "$ORDERS_JSON"; then
+          echo -e "${RED}Profile validation failed — the profile was NOT"
+          echo -e "frozen. Fix it or re-run the bootstrap, then try"
+          echo -e "dtlab-start again.${NC}"
+          exit 1
+        fi
+      elif [ -n "$VALIDATOR" ]; then
+        echo -e "${YEL}  [..] no order ground truth at $ORDERS_JSON —"
+        echo -e "       run  python3 ~/dtlab/tools/capture_orders.py"
+        echo -e "       (lab browser open) to enable claim checking.${NC}"
+      fi
+
       chmod 444 "$WS/purchase_profile.md" 2>/dev/null || true
       sha256_file "$WS/purchase_profile.md" \
         > "$HOME/dtlab/purchase_profile.sha256"
@@ -585,8 +753,23 @@ with open(sys.argv[1], newline="", encoding="utf-8-sig") as f:
             break
 PY
   }
+  # Manual grounding switch (dtlab-persona), announced live in class
+  # before each run. When set, it REPLACES the counterbalance-sheet
+  # order entirely -- including the prompt below, which would otherwise
+  # ask a student for a P_FIRST/NP_FIRST value that no longer exists for
+  # them. Tier is NEVER touched by this switch, only grounding.
+  SWITCHFILE="$HOME/dtlab/persona_switch.txt"
+  SWITCH_ACTIVE=0
+  if [ "$BOOTSTRAP_RUN" = "0" ] && [ -f "$SWITCHFILE" ]; then
+    SWITCH_ACTIVE=1
+    PORDER=$(cat "$SWITCHFILE")
+    case "$PORDER" in
+      persona|ablated) ;;
+      *) bad "dtlab/persona_switch.txt has an invalid value ('$PORDER') — expected persona or ablated. Fix it or run: dtlab-persona clear"; exit 1 ;;
+    esac
+  fi
   ORDERFILE="$HOME/dtlab/persona_order_day$DAY.txt"
-  if [ ! -f "$ORDERFILE" ] && [ "$BOOTSTRAP_RUN" = "0" ]; then
+  if [ "$SWITCH_ACTIVE" = "0" ] && [ ! -f "$ORDERFILE" ] && [ "$BOOTSTRAP_RUN" = "0" ]; then
     ASSIGNED=$(cb_lookup "day${DAY}_order")
     if [ "$ASSIGNED" = "P_FIRST" ] || [ "$ASSIGNED" = "NP_FIRST" ]; then
       echo "  Your assigned DAY-$DAY grounding order (course counterbalance sheet): $ASSIGNED"
@@ -603,11 +786,23 @@ PY
       esac
     fi
   fi
-  [ "$BOOTSTRAP_RUN" = "0" ] && PORDER=$(cat "$ORDERFILE")
+  [ "$SWITCH_ACTIVE" = "0" ] && [ "$BOOTSTRAP_RUN" = "0" ] && PORDER=$(cat "$ORDERFILE")
   # ---- model tier for this day: counterbalanced ACROSS DAYS per
   # student (tier_day1/tier_day2 on the sheet). The tier is assigned,
   # never guessed: no sheet row + no valid typed entry = fail closed.
   TIERFILE="$HOME/dtlab/tier_day$DAY.txt"
+  # Manual tier switch (dtlab-tier), same mechanism and same reason as
+  # the grounding switch above: announced live in class, overrides the
+  # counterbalance sheet entirely for students who don't have a row yet.
+  TIER_SWITCHFILE="$HOME/dtlab/tier_switch.txt"
+  if [ ! -f "$TIERFILE" ] && [ -f "$TIER_SWITCHFILE" ]; then
+    SW_TIER=$(cat "$TIER_SWITCHFILE")
+    case "$SW_TIER" in
+      economy|frontier) echo "$SW_TIER" > "$TIERFILE"
+        note "tier switch active ($SW_TIER) — overriding the counterbalance order for this run" ;;
+      *) bad "dtlab/tier_switch.txt has an invalid value ('$SW_TIER') — expected economy or frontier. Fix it or run: dtlab-tier clear"; exit 1 ;;
+    esac
+  fi
   if [ ! -f "$TIERFILE" ]; then
     ASSIGNED_TIER=$(cb_lookup "tier_day$DAY")
     if [ "$ASSIGNED_TIER" = "economy" ] || [ "$ASSIGNED_TIER" = "frontier" ]; then
@@ -652,12 +847,21 @@ PY
     echo -e "     (read-only, hash-recorded) and starts run 1.${NC}"
     ok "bootstrap session prepared ($TIER tier writes the profile; tier recorded)"
   else
-  COND=$(run_cond "$RUN" "$PORDER")
+  if [ "$SWITCH_ACTIVE" = "1" ]; then
+    COND="$PORDER"   # already validated as persona|ablated above
+    note "grounding switch active ($COND) — overriding the counterbalance order for this run"
+  else
+    COND=$(run_cond "$RUN" "$PORDER")
+  fi
   # run-dir creation happens ONLY at launch (after every gate below has
   # passed) — a refused gate must never leave a phantom "started" run
   [ -d "$RUNSDIR/run$RUN" ] || FRESH_RUN=1
   if [ "$FRESH_RUN" = "1" ]; then
-    ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; day-$DAY order $PORDER)"
+    if [ "$SWITCH_ACTIVE" = "1" ]; then
+      ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; manual switch, not the counterbalance sheet)"
+    else
+      ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; day-$DAY order $PORDER)"
+    fi
   else
     ok "resuming agent run $RUN of 4 ($TIER tier, $COND grounding)"
   fi
@@ -822,6 +1026,11 @@ echo "and OTPs must never be on screen while the recorder runs):"
 echo "  1. Chromium opens next -> log into amazon.in MANUALLY, empty the cart."
 echo "  2. Only AFTER login: in ANOTHER terminal run  dtlab-record  (optional)."
 echo "  3. Hermes CLI starts    -> run: /browser connect"
+echo "     If garbled text like ']11;rgb:...' appears in the input box the"
+echo "     moment Hermes starts, that is harmless terminal noise (Hermes"
+echo "     asking the terminal its background color) — clear the line"
+echo "     (Ctrl+U or select-and-delete) before typing anything, so it is"
+echo "     not sent to the agent as your first message."
 echo "  4. Paste the standardized task prompt from tasks.md (dtlab-start"
 echo "     announced above which one — standard or ABLATED)."
 echo "  5. PARTNER watches (owner swaps seats). Intervene ONLY for CAPTCHAs"

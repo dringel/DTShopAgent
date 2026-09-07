@@ -1,28 +1,57 @@
 # hermes_config.template.yaml — per-run Hermes model configuration.
 #
-# dtlab-start generates each run's $HERMES_HOME/config.yaml from this
-# file, filling {{PROVIDER}} and {{MODEL_ID}} with the pinned values for
-# the run's assigned tier (dtlab_config.env: DTLAB_PROVIDER,
-# DTLAB_MODEL_ECONOMY / DTLAB_MODEL_FRONTIER). The launcher then re-reads
-# the generated file and fails closed unless it names exactly the
-# assigned provider + model — the run never starts on a mismatch.
+# dtlab-start generates each run's $HERMES_HOME/config.yaml from this file,
+# substituting the provider and model-id placeholders with the pinned values
+# for the run's assigned tier (dtlab_config.env: DTLAB_PROVIDER,
+# DTLAB_MODEL_ECONOMY / DTLAB_MODEL_FRONTIER). The launcher then re-reads the
+# generated file AND asks Hermes what it actually loaded, failing closed on a
+# mismatch — the run never starts on the wrong model.
 #
-# SINGLE PATCH POINT (dry run): validate this schema against the PINNED
-# Hermes release (TA_ONBOARDING.md > T-21 trial-run work items #1) and
-# adjust the keys here if that release expects different ones. The
-# launcher substitutes the placeholders wherever they appear and does
-# not depend on the key names, so this file is the only thing to edit.
+# SCHEMA VALIDATED against Hermes Agent v0.20.0 (2026.8.3), upstream 36cb5ae5,
+# on 2026-08-18. The previous schema used `model.id` and a flat `auxiliary`
+# block; neither key exists in this release, so Hermes reported "no model
+# configured" and silently fell back to its own default (claude-opus-4.6) for
+# every run. Re-validate against any newer pinned release — this file is still
+# the single patch point.
 #
-# The auxiliary model is pinned to the SAME id as the main model on
-# purpose: an auxiliary model from a different tier would contaminate
-# the tier manipulation.
+# Two things this release requires that the old schema got wrong:
+#   * the key is `model.default`, not `model.id`
+#   * the value is a COMBINED "provider/model-id" string, not a bare id
+#     (`hermes config get model.default` returns e.g. anthropic/claude-opus-4.6)
+# `model.provider` is a separate key selecting the inference provider; it is
+# set explicitly rather than left on "auto" so credential auto-detection can
+# never silently route a run somewhere else.
 #
-# NEVER put an API key in this file. Hermes reads ANTHROPIC_API_KEY from
-# the environment (~/.dtlab_env); pack-time redaction treats any key in
-# a config as a leak.
+# Every auxiliary task is pinned to the SAME model as the main one, on purpose.
+# Auxiliary models run inside the shopping loop — web_extract does browser page
+# text extraction and vision reads browser screenshots — so a different-tier
+# side model would contaminate the tier manipulation directly.
+#
+# NEVER put an API key in this file. Hermes reads ANTHROPIC_API_KEY from the
+# environment (~/.dtlab_env); pack-time redaction treats any key in a config
+# as a leak.
 model:
+  default: "{{PROVIDER}}/{{MODEL_ID}}"
   provider: "{{PROVIDER}}"
-  id: "{{MODEL_ID}}"
+
 auxiliary:
-  provider: "{{PROVIDER}}"
-  id: "{{MODEL_ID}}"
+  # Image analysis: vision_analyze tool + browser screenshots
+  vision:
+    provider: "{{PROVIDER}}"
+    model: "{{PROVIDER}}/{{MODEL_ID}}"
+  # Web page scraping / summarization + browser page text extraction
+  web_extract:
+    provider: "{{PROVIDER}}"
+    model: "{{PROVIDER}}/{{MODEL_ID}}"
+  # Context compression — summarizes long sessions to shrink the prompt
+  compression:
+    provider: "{{PROVIDER}}"
+    model: "{{PROVIDER}}/{{MODEL_ID}}"
+  # Automatic session title generation after the first exchange
+  title_generation:
+    provider: "{{PROVIDER}}"
+    model: "{{PROVIDER}}/{{MODEL_ID}}"
+  # Session search — summarizes matching past sessions
+  session_search:
+    provider: "{{PROVIDER}}"
+    model: "{{PROVIDER}}/{{MODEL_ID}}"

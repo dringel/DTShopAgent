@@ -15,15 +15,52 @@ account.
 1. Navigate to Your Orders. Review orders from roughly the last 12
    months (cap your effort: at most ~30 orders / ~8 minutes; open
    individual order pages only when the list view is ambiguous).
-2. Write `purchase_profile.md` in this workspace: top categories with
-   approximate purchase frequency; brands bought more than once; typical
-   price points per category; average order value; anything
-   conspicuously absent; 3 bullet inferences about decision style (e.g.
-   replenishes same brands vs. explores). When listing representative
-   orders, use compact one-per-line entries:
+2. Write `purchase_profile.md` in this workspace with THREE sections, in
+   this order:
+
+   ## Summary Stats — exactly these four lines, machine-checked, no other
+   text on them. Count every order you saw in the list view, including
+   ones you did not open (do not extrapolate or estimate):
+   ```
+   Completed orders: <integer>
+   Purchased line items: <integer>
+   Total spend: ₹<amount>
+   Average order value: ₹<amount>
+   ```
+   "Completed orders" counts distinct orders (an order with several
+   items is ONE order); "purchased line items" counts individual
+   products across all of them. COUNT the products inside each order
+   card — a card listing two products contributes 1 to completed orders
+   and 2 to purchased line items. Never ASSUME one product per order:
+   open or expand any card whose product count is not plain from the
+   list view, and count what is actually there. Never count a cancelled
+   order or a cancelled duplicate of an order you already counted.
+   Average order value = total spend / completed orders.
+
+   ## Observations — facts read directly off order pages: top categories
+   with approximate purchase frequency (percentages must sum to
+   approximately 100%); brands bought more than once; typical price
+   points per category; anything conspicuously absent; representative
+   orders, ONE LINE PER ORDER (never one line per product):
    `date | category > subcategory | brand | product | qty | ₹amount`.
-3. Every claim in purchase_profile.md must be traceable to an order you
-   actually saw — never invent orders.
+
+   Every ₹amount you write must be a figure actually shown on the page.
+   Order pages normally show an ORDER total, not per-item prices, so for
+   an order containing several products name them together in the
+   product field and give that order's total once. Never divide an order
+   total to invent a per-item price, and never estimate one. If a figure
+   is a range or an average you worked out yourself, say so in words on
+   that line (for example "typical", "average", "range") so it is not
+   read as an amount you saw.
+
+   ## Inferences — exactly 3 bullets interpreting the observations above
+   (e.g. replenishes same brands vs. explores). Label them as
+   inferences, not facts: an inference is your reading of a pattern, not
+   something to cite an order for.
+3. Every claim in the Observations section, and every representative
+   order line, must be traceable to an order you actually saw — never
+   invent orders. The Summary Stats numbers must match your own count of
+   what you saw exactly — do not round or approximate them.
 4. When purchase_profile.md is complete, say so and stop — do not begin
    any shopping task.
 

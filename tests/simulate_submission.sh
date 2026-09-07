@@ -1456,8 +1456,12 @@ OUT48="$(DTLAB_REDACT_BUDGET_S=0.0000001 python3 "$PACK" 2>&1)"; RC48=$?
 check "$([ "$RC48" -ne 0 ]; echo $?)" 0 "leak surviving pass1 blocks via the final scan"
 echo "$OUT48" | grep -q "final leak scan"
 check $? 0 "final-scan issue names the leaking file"
-[ -f "$HOME/dtlab/DT2026-999_evidence.zip" ]
-check $? 0 "zip still built for TA review (exit stays non-zero)"
+[ ! -f "$HOME/dtlab/DT2026-999_evidence.zip" ]
+check $? 0 "leaking archive is NOT left at the submission path (P0.1)"
+[ -f "$HOME/dtlab/quarantine/leaked_packs/DT2026-999_evidence.zip.LEAKED" ]
+check $? 0 "leaking archive is held in quarantine for TA review"
+echo "$OUT48" | grep -q "moved out of the submission path"
+check $? 0 "the message says where the held archive went"
 
 echo "[49] C2.3: unclipped cart captures block; quarantined shots never packed"
 mkenv_4run
@@ -1629,6 +1633,134 @@ assert len(m['verdicts'])==6 and ab['agent_pick_overlap_tasks']==['1']
 assert ab['manipulation_check_cited_codes']==[]
 sys.exit(0)
 PY
+
+echo "[54] P0.1: a planted synthetic identity cannot enter the archive"
+# The 30 Aug live bootstrap put a real account-holder name into agent-
+# written Markdown. Freeze-time scrubbing closed that for the two
+# bootstrap artifacts; this proves the SAME identity cannot reach the
+# archive through the surfaces the freeze never touched — a Hermes
+# transcript, the bootstrap decision log, report.html, or manifest.json.
+mkenv_4run
+mkdir -p "$HOME/dtlab/runs/bootstrap" "$HOME/dtlab/quarantine/verdicts"
+printf 'PROTOCOL | soul=bootstrap-v1\nProfile written for Vinita Gupta Rai\nDeliver to Vinita\nAddress: 12 MG Road, Kota 324005\n' \
+  > "$HOME/dtlab/runs/bootstrap/decision_log.md"
+# transcript surface (legacy pool: newer than .run_started, so collected)
+printf '{"role":"assistant","text":"Hello, Vinita — shipping to Kota 324005, phone 98765 43210, acct amzn1.account.ABC-123"}\n' \
+  > "$HOME/.hermes/sessions/s.jsonl"
+# profile surface
+printf '# Purchase Profile: Vinita Gupta Rai\n- top categories: x\n' \
+  > "$HOME/dtlab/workspace/purchase_profile.md"
+# manifest + report surfaces: rationales are parsed into manifest values
+python3 - <<'PY2'
+import csv, os
+verdict = {
+    ("1","persona","economy"):"identical",("2","persona","economy"):"inferior",
+    ("3","persona","economy"):"better",("1","ablated","economy"):"identical",
+    ("2","ablated","economy"):"equivalent",("3","ablated","economy"):"inferior",
+    ("1","ablated","frontier"):"equivalent",("2","ablated","frontier"):"equivalent",
+    ("3","ablated","frontier"):"inferior",("1","persona","frontier"):"identical",
+    ("2","persona","frontier"):"better",("3","persona","frontier"):"equivalent",
+}
+vd = os.path.expanduser("~/dtlab/quarantine/verdicts")
+with open(f"{vd}/verdicts.csv","w",newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["student_id","task_id","condition","tier","verdict",
+                "rating_self","rating_agent","rationale"])
+    for (t,c,ti),v in verdict.items():
+        w.writerow(["DT2026-999",t,c,ti,v,"8","5",
+                    "Vinita Gupta Rai asked; deliver to Vinita"])
+with open(f"{vd}/head_to_heads.csv","w",newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["task_id","contrast","winner"])
+    for t in ("1","2","3"):
+        w.writerow([t,"grounding_economy","persona"])
+        w.writerow([t,"grounding_frontier","tie"])
+        w.writerow([t,"tier_persona","frontier"])
+        w.writerow([t,"tier_ablated","same"])
+open(f"{vd}/overall_reflections.md","w").write("# Overall reflections\nanswers\n")
+PY2
+rm -f "$HOME/dtlab/workspace/comparison.md"
+printf 'Vinita Gupta Rai\n' | DTLAB_PACK_NAMES_STDIN=1 python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with a planted identity exits 0 (everything redacted)"
+python3 - <<'PY2'; check $? 0 "the identity reaches NO member of the zip"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+secrets=("Vinita","Gupta","Rai","Kota","324005","98765 43210","amzn1.account")
+for zn in z.namelist():
+    if zn.endswith("/"): continue
+    blob=z.read(zn)
+    if zn.rsplit(".",1)[-1].lower() not in {"md","txt","log","json","jsonl","csv","html","env"}:
+        continue
+    text=blob.decode("utf-8","replace")
+    for sec in secrets:
+        assert sec not in text, f"{sec!r} survived in {zn}"
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['redaction']['final_scan_clean'] is True
+assert m['redaction']['name_filter']=='supplied_stdin', m['redaction']['name_filter']
+assert m['redaction']['bootstrap_transcripts']['collected'] is False
+assert 'reason' in m['redaction']['bootstrap_transcripts']
+rr=m['redaction_report']
+names=sum(v.get('pii_flags',{}).get('names_redacted',0) for v in rr.values())
+ident=sum(v.get('pii_flags',{}).get('identity_redacted',0) for v in rr.values())
+assert names>=1 and ident>=1, (names,ident)
+# the surfaces the freeze never touched are the point of this test
+assert any('hermes_logs' in k for k in rr), sorted(rr)
+assert any('bootstrap' in k for k in rr), sorted(rr)
+assert m['validation_issues']==[], m['validation_issues']
+sys.exit(0)
+PY2
+
+echo "[55] P0.1: identity rules hold with NO name list supplied"
+# The name list is optional (a student may press Enter). The page
+# furniture must still be stripped without it — only the bare prose
+# spelling of a name depends on the list.
+mkenv
+printf 'Hello, Vinita\nDeliver to Vinita Gupta Rai\nAddress: 12 MG Road\nShipped to Kota 324005\nAcct amzn1.account.ABC-123\nCall 98765 43210\n' \
+  >> "$HOME/dtlab/workspace/purchase_profile.md"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack without a name list still exits 0"
+python3 - <<'PY2'; check $? 0 "furniture stripped; manifest records the weaker filter"
+import json,zipfile,os,sys
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+pp=z.read('DT2026-999/purchase_profile.md').decode()
+for sec in ("Kota","324005","98765 43210","amzn1.account","12 MG Road"):
+    assert sec not in pp, f"{sec!r} survived: {pp!r}"
+assert "[REDACTED-NAME]" in pp and "[REDACTED-ADDRESS]" in pp
+assert "[REDACTED-CITY-PIN]" in pp and "[REDACTED-AMZN-ID]" in pp
+assert "[REDACTED-PHONE]" in pp
+m=json.loads(z.read('DT2026-999/manifest.json'))
+assert m['redaction']['name_filter']=='not_prompted_no_tty', m['redaction']['name_filter']
+assert m['redaction']['final_scan_clean'] is True
+sys.exit(0)
+PY2
+
+echo "[56] token_usage.json is staged and summarized in the manifest"
+# Discovered live 4 Sep: capture_tokens.py's own output was never staged
+# by the packer, so working cost measurement still never reached a pack.
+mkenv_4run
+cat > "$HOME/dtlab/runs/run1/token_usage.json" <<'JSON'
+{"model":"claude-haiku-4-5-20251001","usage_source":"state.db",
+ "billable_tokens":647011,"reasoning_tokens":0,"usd_estimate":0.1656}
+JSON
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with a run's token_usage.json present exits 0"
+python3 - <<'PY2'; check $? 0 "token_usage.json staged in the zip and summarized in the manifest"
+import json, zipfile, os, sys
+z = zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+staged = json.loads(z.read('DT2026-999/run1/token_usage.json'))
+assert staged['usd_estimate'] == 0.1656, staged
+m = json.loads(z.read('DT2026-999/manifest.json'))
+tu = m['token_usage_by_run']['run1']
+assert tu['model'] == 'claude-haiku-4-5-20251001', tu
+assert tu['usage_source'] == 'state.db', tu
+assert tu['billable_tokens'] == 647011, tu
+assert tu['reasoning_tokens'] == 0, tu
+assert tu['usd_estimate'] == 0.1656, tu
+# run2/3/4 have no token_usage.json: warned, not blocking
+assert 'run2' not in m['token_usage_by_run']
+assert m['validation_issues'] == [], m['validation_issues']
+sys.exit(0)
+PY2
 
 guard
 rm -rf "$SANDBOX"

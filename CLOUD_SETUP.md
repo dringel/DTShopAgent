@@ -17,16 +17,33 @@ launched from a browser link with zero local installation, on Windows,
 Intel Mac, Apple Silicon, or a library computer alike. This dissolves the
 two-architecture VM problem entirely.
 
-Why it's free (**verify all quota numbers at term start** — GitHub has
-shifted these repeatedly; the two figures below come from different plan
-tiers and must be reconciled against GitHub's current docs before the
-course commits):
-- Free personal accounts include ~120 core-hours/month (≈60 h runtime on
-  the 2-core machine this config requests) — the figure the operative plan
-  (`COURSE_PLAN_1WEEK.md`) relies on; the lab needs ~8–10 h.
-- Verified students (GitHub Student Developer Pack) get more (~180
-  core-hours), but the Pack adds a verification wait the one-week format
-  can't absorb — treat it as headroom, not a dependency.
+Why it's free — **quota figures reconciled against GitHub's docs on
+2026-08-26 (T-21 item 7). Re-check at term start; GitHub has shifted
+these repeatedly.**
+- **Free personal accounts: 120 core-hours + 15 GB storage per month.**
+  Core-hours are runtime x the machine multiplier, so 120 core-hours is
+  ~60 h on the 2-core machine this config requests. The lab needs ~8-10 h.
+  Comfortable headroom on compute.
+- **GitHub Pro: 180 core-hours + 20 GB storage.** The Student Developer
+  Pack grants Pro, which is where the 180 figure comes from — so the two
+  numbers were never in conflict, they are simply different plans. The
+  Pack adds a verification wait the one-week format can't absorb; treat
+  it as headroom, not a dependency.
+- **Free Codespaces usage is personal-account only** — it is explicitly
+  not included in organization or enterprise accounts. Each student
+  therefore spends their own allowance, which is the intended design, but
+  it also means the TA's testing burns the TA's personal quota.
+- ⚠️ **Storage is the tighter constraint, not compute.** This config
+  requests `"storage": "32gb"` in `hostRequirements`, against a 15 GB
+  free monthly allowance (20 GB on Pro). Storage is billed per GB-month
+  across all live codespaces and prebuilds, so a student who leaves one
+  codespace alive through the lab week can plausibly exceed the free
+  allowance even though compute is nowhere near the limit. **Verify how
+  GitHub meters this against the actual machine type before the week**,
+  and tell students to delete their codespace when the lab ends rather
+  than leaving it stopped-but-present.
+- Machine size matters twice over: a 4-core machine halves the available
+  runtime (multiplier 4 rather than 2). Use 2-core for students.
 - GitHub Classroom (billing to a classroom org) exists as an alternative,
   but the plan deliberately avoids the organizational dependency.
 
@@ -40,7 +57,9 @@ How it works for the student:
    in a browser tab (noVNC; the per-codespace password is printed in the
    setup log / terminal). **Never set this port to Public** — a public
    port hands a desktop logged into your Amazon account to anyone with
-   the URL. Chromium runs there.
+   the URL. Chromium runs there. For host-to-desktop paste, put the text
+   in noVNC's clipboard side panel, then use **Ctrl+V** in the Linux
+   desktop; **Cmd+V** is not the remote paste shortcut.
 4. Use the VS Code terminal for the six commands, same as the VM route:
    `dtlab-shop`, `dtlab-start`, `dtlab-cart` (partner, after every run),
    `dtlab-verdict`, `dtlab-record` (optional), `dtlab-pack`.

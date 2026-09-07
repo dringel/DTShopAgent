@@ -27,9 +27,14 @@ guard
 rm -rf "$HOME/dtlab" "$HOME/.dtlab_env" "$HOME/.bashrc"
 mkdir -p "$HOME/dtlab/workspace" "$HOME/dtlab/soul" "$HOME/dtlab/quarantine/human" \
          "$HOME/dtlab/evidence"
-sed -e "s/DTLAB_PERSONA_FACTOR='1'/DTLAB_PERSONA_FACTOR='$1'/" \
-    -e "s/DTLAB_MODEL_ECONOMY='PIN-AT-DRYRUN'/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/" \
-    -e "s/DTLAB_MODEL_FRONTIER='PIN-AT-DRYRUN'/DTLAB_MODEL_FRONTIER='claude-fro-test-1'/" \
+# Substitute by KEY, not by matching the shipped VALUE. Matching
+# 'PIN-AT-DRYRUN' meant the fixture silently stopped applying the moment
+# anyone pinned real model IDs -- i.e. exactly when the instructor does
+# T-21 item 2 before the freeze -- and ten assertions then failed for
+# reasons unrelated to the change being made.
+sed -E -e "s/^DTLAB_PERSONA_FACTOR=.*/DTLAB_PERSONA_FACTOR='$1'/" \
+       -e "s/^DTLAB_MODEL_ECONOMY=.*/DTLAB_MODEL_ECONOMY='claude-eco-test-1'/" \
+       -e "s/^DTLAB_MODEL_FRONTIER=.*/DTLAB_MODEL_FRONTIER='claude-fro-test-1'/" \
     "$REPO/dtlab_config.env" > "$HOME/dtlab/dtlab_config.env"
 cp "$REPO/tasks_config.csv" "$HOME/dtlab/"
 cp "$REPO/provisioning/hermes_config.template.yaml" "$HOME/dtlab/"
@@ -330,14 +335,19 @@ printf '#!/usr/bin/env bash\nexit 7\n' > "$HOME/bin/curl"       # CDP dead
 # shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
 printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+cp "$REPO/tools/scrub_profile.py" "$HOME/dtlab/tools/" 2>/dev/null || true
 chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
          "$HOME/dtlab/tools/dtlab_browser.sh"
-printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" bash "$START" \
-  > "$HOME/last_out.txt" 2>&1
+# DTLAB_CDP_WAIT_TRIES keeps this fast: the real budget is 30s (60
+# tries), which a stubbed-dead CDP would otherwise burn on every run.
+printf 'y\ny\n\n' | env PATH="$HOME/bin:$PATH" DTLAB_CDP_WAIT_TRIES=2 \
+  bash "$START" > "$HOME/last_out.txt" 2>&1
 rc=$?
 check "$rc" 1 "exit nonzero when the CDP port never comes up"
-grep -q "Close ALL open lab-browser windows" "$HOME/last_out.txt"
-check $? 0 "prints the one action that fixes the profile lock"
+grep -q "close ALL of them" "$HOME/last_out.txt"
+check $? 0 "names the close-all-windows fix for the profile-lock case"
+grep -q "dtlab_browser.sh" "$HOME/last_out.txt"
+check $? 0 "names the diagnostic command when NO window is open"
 [ ! -f "$HOME/hermes_ran" ]
 check $? 0 "Hermes never started on a dead CDP port"
 # CDP alive AND the checkout-guard canary lands on blocked.html
@@ -532,6 +542,7 @@ mkdir -p "$HOME/bin" "$HOME/dtlab/tools"
 # shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
 printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+cp "$REPO/tools/scrub_profile.py" "$HOME/dtlab/tools/" 2>/dev/null || true
 cat > "$HOME/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 for a in "$@"; do
@@ -669,6 +680,7 @@ printf '#!/usr/bin/env bash\nexit 7\n' > "$HOME/bin/curl"       # CDP dead
 # shellcheck disable=SC2016  # $HOME must expand when the stub RUNS
 printf '#!/usr/bin/env bash\ntouch "$HOME/hermes_ran"\n' > "$HOME/bin/hermes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/dtlab/tools/dtlab_browser.sh"
+cp "$REPO/tools/scrub_profile.py" "$HOME/dtlab/tools/" 2>/dev/null || true
 chmod +x "$HOME/bin/curl" "$HOME/bin/hermes" \
          "$HOME/dtlab/tools/dtlab_browser.sh"
 printf 'P_FIRST\neconomy\ny\ny\n\n' | env PATH="$HOME/bin:$PATH" \
@@ -765,12 +777,51 @@ check "$(cat "$HOME/dtlab/runs/bootstrap/model_id.txt")" "claude-eco-test-1" \
 [ -f "$HOME/dtlab/quarantine/persona_hold/persona_survey.md" ] \
   && [ ! -f "$HOME/dtlab/workspace/persona_survey.md" ]
 check $? 0 "persona held in quarantine during bootstrap (questionnaire-blind)"
+# Give the freeze step a valid pseudonym without using real participant
+# data. The bootstrap launch moved this CSV into persona_hold above.
+printf 'student_id,answer\nDT2026-999,synthetic\n' \
+  > "$HOME/dtlab/quarantine/persona_hold/persona_survey.csv"
 # the bootstrap agent writes the profile + its PROTOCOL-opened log
-printf 'PROTOCOL | soul=bootstrap-v1\nprofile written\n' \
+printf 'PROTOCOL | soul=bootstrap-v1\nAddress: 17 Example Road, Sampleton 411001\nContact: Avery Example, avery@example.invalid, 98765 00000\nprofile written\n' \
   > "$HOME/dtlab/workspace/decision_log.md"
-printf '# Purchase profile\n- top categories: y\n' \
+printf '# Purchase Profile: Avery Example\n- Deliver to Avery Example\n- Address: 17 Example Road, Sampleton 411001\n- Contact: avery@example.invalid, 98765 00000\n- top categories: y\n' \
   > "$HOME/dtlab/workspace/purchase_profile.md"
-rc=$(run 'P_FIRST\ny\ny\n\n')
+# A real captured-order file makes validation authoritative. Stub the
+# validator here because this state-machine case tests the launcher's
+# response to its exit status; validate_profile.py has focused unit tests.
+mkdir -p "$HOME/dtlab/tools" "$HOME/dtlab/quarantine/human"
+printf '{"items":[{"asin":"B012345678"}]}\n' \
+  > "$HOME/dtlab/quarantine/human/purchase_orders.json"
+printf 'raise SystemExit(1)\n' \
+  > "$HOME/dtlab/tools/validate_profile.py"
+rc=$(run 'Avery Example\nP_FIRST\ny\ny\n\n')
+check "$rc" 1 "failed profile validation blocks the freeze"
+grep -q "profile was NOT" "$HOME/last_out.txt"
+check $? 0 "validation refusal says the profile was not frozen"
+[ ! -f "$HOME/dtlab/.bootstrap_done" ] \
+  && [ ! -f "$HOME/dtlab/purchase_profile.sha256" ] \
+  && [ ! -d "$HOME/dtlab/runs/run1" ]
+check $? 0 "failed validation leaves no freeze marker, hash, or run 1"
+[ -f "$HOME/dtlab/workspace/decision_log.md" ]
+check $? 0 "failed validation leaves the bootstrap log in the workspace"
+grep -q '^# Purchase Profile: participant DT2026-999$' \
+  "$HOME/dtlab/workspace/purchase_profile.md"
+check $? 0 "profile is pseudonym-attributed before validation"
+grep -q '\[REDACTED-ADDRESS\]' \
+  "$HOME/dtlab/workspace/purchase_profile.md" \
+  && grep -q '\[REDACTED-ADDRESS\]' \
+       "$HOME/dtlab/workspace/decision_log.md"
+check $? 0 "profile and bootstrap log have labelled addresses scrubbed"
+! grep -Eqi 'Avery|Example|Sampleton|411001|avery@example\.invalid|98765 00000' \
+    "$HOME/dtlab/workspace/purchase_profile.md" \
+    "$HOME/dtlab/workspace/decision_log.md"
+check $? 0 "synthetic name, address, email, and phone do not survive"
+head -n 1 "$HOME/dtlab/workspace/decision_log.md" \
+  | grep -q '^PROTOCOL | soul=bootstrap-v1$'
+check $? 0 "scrubbing preserves the bootstrap log PROTOCOL header"
+printf 'raise SystemExit(0)\n' \
+  > "$HOME/dtlab/tools/validate_profile.py"
+rc=$(run 'Avery Example\nP_FIRST\ny\ny\n\n')
 check "$rc" 0 "second dtlab-start freezes the profile and starts run 1"
 grep -q "purchase profile frozen" "$HOME/last_out.txt"
 check $? 0 "freeze announced"
@@ -784,6 +835,9 @@ check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
 [ -f "$HOME/dtlab/runs/bootstrap/decision_log.md" ] \
   && [ ! -f "$HOME/dtlab/workspace/decision_log.md" ]
 check $? 0 "bootstrap log parked under runs/bootstrap/ (run 1 starts clean)"
+! grep -Eqi 'Avery|Example|Sampleton|411001|avery@example\.invalid|98765 00000' \
+    "$HOME/dtlab/runs/bootstrap/decision_log.md"
+check $? 0 "archived bootstrap log contains no synthetic PII"
 [ -f "$HOME/dtlab/runs/run1/purchase_profile.md" ]
 check $? 0 "per-run profile snapshot recorded at launch"
 finish_run
@@ -868,8 +922,19 @@ check "$rc" 0 "second start does not re-ask (one-time gate)"
 check $? 0 "no spend-limit prompt once recorded"
 
 echo "[30] C2.15: reproducibility pins + kit-commit freeze check"
-grep -q 'devcontainers/python@sha256:' "$REPO/.devcontainer/devcontainer.json"
+# The digest lives in .devcontainer/Dockerfile since 2026-08-04 (the
+# Dockerfile also strips the base image's stale Yarn APT source). The
+# audit-8.1 guarantee is unchanged and checked in two directions: the
+# build input is pinned by digest, and nothing reintroduces a floating
+# tag that would let a rebuild resolve to different bytes.
+grep -q 'devcontainers/python@sha256:' "$REPO/.devcontainer/Dockerfile"
 check $? 0 "devcontainer base image pinned by digest"
+# comments are stripped first: both files legitimately NAME the tag the
+# digest was resolved from, which is provenance, not a floating pin.
+! { grep -hvE '^[[:space:]]*(#|//)' "$REPO/.devcontainer/Dockerfile" \
+      "$REPO/.devcontainer/devcontainer.json" \
+    | grep -qE 'devcontainers/python:'; }
+check $? 0 "no floating base-image tag in the devcontainer build"
 grep -q 'desktop-lite:1\.' "$REPO/.devcontainer/devcontainer.json"
 check $? 0 "desktop-lite feature version pinned explicitly"
 grep -q 'actions/checkout@[0-9a-f]\{40\}' "$REPO/.github/workflows/ci.yml" \
@@ -878,6 +943,50 @@ check $? 0 "GitHub actions pinned by commit SHA"
 grep -q 'PLAYWRIGHT_PIN is empty' "$REPO/.devcontainer/setup.sh" \
   && grep -q 'PLAYWRIGHT_PIN is empty' "$REPO/provisioning/provision.sh"
 check $? 0 "empty PLAYWRIGHT_PIN fails both builds (unpinned-gate style)"
+grep -Fq 'PLAYWRIGHT_PIN="==1.62.0"' "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'PLAYWRIGHT_PIN="==1.62.0"' "$REPO/provisioning/provision.sh"
+check $? 0 "Playwright is frozen identically in both provisioners"
+grep -Fq 'ANTHROPIC_PIN="==0.122.0"' "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'ANTHROPIC_PIN="==0.122.0"' "$REPO/provisioning/provision.sh"
+check $? 0 "Anthropic SDK is frozen identically in both provisioners"
+grep -Fq 'HERMES_INSTALLER_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/v2026.8.3/scripts/install.sh"' \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'HERMES_INSTALLER_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/v2026.8.3/scripts/install.sh"' \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "Hermes installer comes from the same immutable release tag"
+grep -Fq 'HERMES_INSTALLER_SHA256="45f589461248c7a6ec3aecd7522a69dd49c5c8dbf4798ba1296af5c0c5e7ccd3"' \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'HERMES_INSTALLER_SHA256="45f589461248c7a6ec3aecd7522a69dd49c5c8dbf4798ba1296af5c0c5e7ccd3"' \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "Hermes installer checksum is frozen identically"
+grep -Fq 'HERMES_COMMIT="3c27eb6234bf91b8ceee9e9071591b31e9b148cb"' \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq 'HERMES_COMMIT="3c27eb6234bf91b8ceee9e9071591b31e9b148cb"' \
+  "$REPO/provisioning/provision.sh" \
+  && grep -Fq -- "--commit \"\$HERMES_COMMIT\" --force-commit" \
+  "$REPO/.devcontainer/setup.sh" \
+  && grep -Fq -- "--commit \"\$HERMES_COMMIT\" --force-commit" \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "Hermes checkout is frozen to the release commit in both routes"
+grep -Fq 'UV_INSTALLER_URL="https://astral.sh/uv/0.12.7/install.sh"' \
+  "$REPO/provisioning/provision.sh" \
+  && grep -Fq 'UV_INSTALLER_SHA256="92e8554321e2bde08c9b1445dae47a65360f885274f31df51cdc2f9faa84e001"' \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "VM uv installer is versioned and checksum-pinned"
+! grep -Eq '^[A-Z_]+.*="UNPINNED"' "$REPO/.devcontainer/setup.sh" \
+  "$REPO/provisioning/provision.sh"
+check $? 0 "no provisioner ships an unresolved installer checksum"
+grep -Fq -- '--window-size=1180,680' "$REPO/tools/dtlab_browser.sh" \
+  && grep -Fq '"--window-size=1180,680"' \
+  "$REPO/tools/log_human_session.py" \
+  && grep -Fq 'viewport={"width": 1100, "height": 600}' \
+  "$REPO/tools/log_human_session.py"
+check $? 0 "both browser routes fit inside the 1280x720 lab desktop"
+grep -Fq -- '--disable-session-crashed-bubble' \
+  "$REPO/tools/dtlab_browser.sh" \
+  && grep -Fq '"--disable-session-crashed-bubble"' \
+  "$REPO/tools/log_human_session.py"
+check $? 0 "both browser routes suppress the stale-session restore bubble"
 grep -q 'counterbalance.csv missing at the repo root' \
   "$REPO/.devcontainer/setup.sh" \
   && grep -q 'counterbalance.csv missing at the repo root' \
