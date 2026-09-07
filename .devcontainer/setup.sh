@@ -208,6 +208,44 @@ cat > "$HOME/.local/bin/dtlab-verdict" <<'EOF'
 # Guided verdict/rating/rationale capture after each day's runs.
 exec python3 "$HOME/dtlab/tools/capture_verdicts.py" "$@"
 EOF
+cat > "$HOME/.local/bin/dtlab-persona" <<'EOF'
+#!/usr/bin/env bash
+# Manual grounding switch, announced live in class before each run —
+# NOT the counterbalanced order file. When set, dtlab-start uses this
+# switch directly as the run's condition instead of computing one from
+# the counterbalance sheet. The model tier (economy/frontier) is
+# UNAFFECTED — this only ever touches grounding.
+set -euo pipefail
+SW="$HOME/dtlab/persona_switch.txt"
+case "${1:-status}" in
+  on)  echo persona > "$SW"; echo "Grounding switch: ON (persona) — next run uses your persona." ;;
+  off) echo ablated > "$SW"; echo "Grounding switch: OFF (ablated) — next run has no persona." ;;
+  clear) rm -f "$SW"; echo "Switch cleared — dtlab-start falls back to the counterbalance sheet." ;;
+  status)
+    if [ -f "$SW" ]; then echo "Grounding switch: $(cat "$SW") (set — overrides the counterbalance sheet)"
+    else echo "Grounding switch: not set (dtlab-start uses the counterbalance sheet as normal)"
+    fi ;;
+  *) echo "usage: dtlab-persona on|off|clear|status" >&2; exit 1 ;;
+esac
+EOF
+cat > "$HOME/.local/bin/dtlab-tier" <<'EOF'
+#!/usr/bin/env bash
+# Manual model-tier switch, same mechanism as dtlab-persona: announced
+# live in class, overrides the counterbalance sheet for students who
+# don't have a row yet. Only takes effect for a day that hasn't already
+# resolved a tier (existing tier_dayN.txt always wins).
+set -euo pipefail
+SW="$HOME/dtlab/tier_switch.txt"
+case "${1:-status}" in
+  economy|frontier) echo "$1" > "$SW"; echo "Tier switch: $1 — next unresolved day uses this tier." ;;
+  clear) rm -f "$SW"; echo "Switch cleared — dtlab-start falls back to the counterbalance sheet." ;;
+  status)
+    if [ -f "$SW" ]; then echo "Tier switch: $(cat "$SW") (set — overrides the counterbalance sheet)"
+    else echo "Tier switch: not set (dtlab-start uses the counterbalance sheet as normal)"
+    fi ;;
+  *) echo "usage: dtlab-tier economy|frontier|clear|status" >&2; exit 1 ;;
+esac
+EOF
 chmod +x "$HOME/.local/bin/"dtlab-*
 grep -q 'dtlab PATH' "$HOME/.bashrc" || cat >> "$HOME/.bashrc" <<'EOF'
 # dtlab PATH

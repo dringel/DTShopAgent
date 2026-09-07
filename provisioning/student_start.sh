@@ -753,8 +753,23 @@ with open(sys.argv[1], newline="", encoding="utf-8-sig") as f:
             break
 PY
   }
+  # Manual grounding switch (dtlab-persona), announced live in class
+  # before each run. When set, it REPLACES the counterbalance-sheet
+  # order entirely -- including the prompt below, which would otherwise
+  # ask a student for a P_FIRST/NP_FIRST value that no longer exists for
+  # them. Tier is NEVER touched by this switch, only grounding.
+  SWITCHFILE="$HOME/dtlab/persona_switch.txt"
+  SWITCH_ACTIVE=0
+  if [ "$BOOTSTRAP_RUN" = "0" ] && [ -f "$SWITCHFILE" ]; then
+    SWITCH_ACTIVE=1
+    PORDER=$(cat "$SWITCHFILE")
+    case "$PORDER" in
+      persona|ablated) ;;
+      *) bad "dtlab/persona_switch.txt has an invalid value ('$PORDER') — expected persona or ablated. Fix it or run: dtlab-persona clear"; exit 1 ;;
+    esac
+  fi
   ORDERFILE="$HOME/dtlab/persona_order_day$DAY.txt"
-  if [ ! -f "$ORDERFILE" ] && [ "$BOOTSTRAP_RUN" = "0" ]; then
+  if [ "$SWITCH_ACTIVE" = "0" ] && [ ! -f "$ORDERFILE" ] && [ "$BOOTSTRAP_RUN" = "0" ]; then
     ASSIGNED=$(cb_lookup "day${DAY}_order")
     if [ "$ASSIGNED" = "P_FIRST" ] || [ "$ASSIGNED" = "NP_FIRST" ]; then
       echo "  Your assigned DAY-$DAY grounding order (course counterbalance sheet): $ASSIGNED"
@@ -771,11 +786,23 @@ PY
       esac
     fi
   fi
-  [ "$BOOTSTRAP_RUN" = "0" ] && PORDER=$(cat "$ORDERFILE")
+  [ "$SWITCH_ACTIVE" = "0" ] && [ "$BOOTSTRAP_RUN" = "0" ] && PORDER=$(cat "$ORDERFILE")
   # ---- model tier for this day: counterbalanced ACROSS DAYS per
   # student (tier_day1/tier_day2 on the sheet). The tier is assigned,
   # never guessed: no sheet row + no valid typed entry = fail closed.
   TIERFILE="$HOME/dtlab/tier_day$DAY.txt"
+  # Manual tier switch (dtlab-tier), same mechanism and same reason as
+  # the grounding switch above: announced live in class, overrides the
+  # counterbalance sheet entirely for students who don't have a row yet.
+  TIER_SWITCHFILE="$HOME/dtlab/tier_switch.txt"
+  if [ ! -f "$TIERFILE" ] && [ -f "$TIER_SWITCHFILE" ]; then
+    SW_TIER=$(cat "$TIER_SWITCHFILE")
+    case "$SW_TIER" in
+      economy|frontier) echo "$SW_TIER" > "$TIERFILE"
+        note "tier switch active ($SW_TIER) — overriding the counterbalance order for this run" ;;
+      *) bad "dtlab/tier_switch.txt has an invalid value ('$SW_TIER') — expected economy or frontier. Fix it or run: dtlab-tier clear"; exit 1 ;;
+    esac
+  fi
   if [ ! -f "$TIERFILE" ]; then
     ASSIGNED_TIER=$(cb_lookup "tier_day$DAY")
     if [ "$ASSIGNED_TIER" = "economy" ] || [ "$ASSIGNED_TIER" = "frontier" ]; then
@@ -820,12 +847,21 @@ PY
     echo -e "     (read-only, hash-recorded) and starts run 1.${NC}"
     ok "bootstrap session prepared ($TIER tier writes the profile; tier recorded)"
   else
-  COND=$(run_cond "$RUN" "$PORDER")
+  if [ "$SWITCH_ACTIVE" = "1" ]; then
+    COND="$PORDER"   # already validated as persona|ablated above
+    note "grounding switch active ($COND) — overriding the counterbalance order for this run"
+  else
+    COND=$(run_cond "$RUN" "$PORDER")
+  fi
   # run-dir creation happens ONLY at launch (after every gate below has
   # passed) — a refused gate must never leave a phantom "started" run
   [ -d "$RUNSDIR/run$RUN" ] || FRESH_RUN=1
   if [ "$FRESH_RUN" = "1" ]; then
-    ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; day-$DAY order $PORDER)"
+    if [ "$SWITCH_ACTIVE" = "1" ]; then
+      ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; manual switch, not the counterbalance sheet)"
+    else
+      ok "starting agent run $RUN of 4 ($TIER tier, $COND grounding; day-$DAY order $PORDER)"
+    fi
   else
     ok "resuming agent run $RUN of 4 ($TIER tier, $COND grounding)"
   fi
