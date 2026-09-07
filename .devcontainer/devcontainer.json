@@ -47,6 +47,19 @@
       "visibility": "private"
     }
   },
+  // TEMPORARY (7 Sept 2026): the final roster and counterbalance.csv do
+  // not exist yet, and setup.sh's counterbalance gate blocks the WHOLE
+  // Codespace build on that file's mere presence -- before a student
+  // ever reaches the questionnaire, let alone a counterbalanced run.
+  // This override only relaxes THAT gate, for setup only. It does NOT
+  // set DTLAB_ALLOW_UNPINNED -- the Hermes installer checksum is real
+  // and stays fully enforced. REMOVE this block the moment
+  // counterbalance.csv is generated from the final roster
+  // (tools/make_counterbalance.py) and committed -- a real run must
+  // never proceed without genuine, randomized per-student assignment.
+  "containerEnv": {
+    "DTLAB_ALLOW_NO_COUNTERBALANCE": "1"
+  },
   "onCreateCommand": "bash .devcontainer/setup.sh onCreate",
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "remoteUser": "vscode",
