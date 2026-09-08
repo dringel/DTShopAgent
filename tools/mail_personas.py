@@ -64,7 +64,7 @@ def norm_section(raw):
     """'Section A (Morning)' / 'A' / 'section a' -> 'A'. Returns '' when
     the answer names no recognisable section."""
     m = re.search(r"\bsection\s*([ab])\b|^\s*([ab])\s*$", (raw or "").strip(),
-                  re.I)
+                  re.IGNORECASE)
     return (m.group(1) or m.group(2)).upper() if m else ""
 
 
