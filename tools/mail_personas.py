@@ -60,10 +60,18 @@ Digital Twin Lab teaching team
 """
 
 
+def norm_section(raw):
+    """'Section A (Morning)' / 'A' / 'section a' -> 'A'. Returns '' when
+    the answer names no recognisable section."""
+    m = re.search(r"\bsection\s*([ab])\b|^\s*([ab])\s*$", (raw or "").strip(),
+                  re.I)
+    return (m.group(1) or m.group(2)).upper() if m else ""
+
+
 def load_roster(path):
-    """ID -> email, from the ID-confirmation form export. Columns are
-    matched by content, not position, since Forms exports carry the full
-    question text as the header."""
+    """ID -> (email, section), from the ID-confirmation form export.
+    Columns are matched by content, not position, since Forms exports
+    carry the full question text as the header."""
     id_to_email, problems = {}, []
     with open(path, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
@@ -74,12 +82,14 @@ def load_roster(path):
                    or "participant id" in h.lower()
                    or "dt2026" in h.lower()), None)
     mail_col = next((h for h in headers if "email" in h.lower()), None)
+    sect_col = next((h for h in headers if "section" in h.lower()), None)
     if not id_col or not mail_col:
         sys.exit(f"could not find an ID column and an email column in {path} "
                  f"(headers: {list(headers)[:6]}...)")
     for i, r in enumerate(rows, start=2):
         m = ID_RE.search((r.get(id_col) or "").strip().upper())
         email = (r.get(mail_col) or "").strip().lower()
+        section = norm_section(r.get(sect_col)) if sect_col else ""
         if not m:
             problems.append(f"row {i}: no valid DT id in {id_col!r}")
             continue
@@ -87,11 +97,12 @@ def load_roster(path):
             problems.append(f"row {i}: {m.group(0)} has no usable email")
             continue
         sid = m.group(0)
-        if sid in id_to_email and id_to_email[sid] != email:
+        if sid in id_to_email and id_to_email[sid][0] != email:
             problems.append(f"row {i}: {sid} claimed by two emails "
-                            f"({id_to_email[sid]}, {email}) — resolve by hand")
+                            f"({id_to_email[sid][0]}, {email}) — "
+                            "resolve by hand")
             continue
-        id_to_email[sid] = email
+        id_to_email[sid] = (email, section)
     return id_to_email, problems
 
 
@@ -104,6 +115,11 @@ def main():
     ap.add_argument("--from", dest="sender", required=True)
     ap.add_argument("--smtp", default="smtp.gmail.com")
     ap.add_argument("--port", type=int, default=465)
+    ap.add_argument("--section", default=None, metavar="A|B",
+                    help="only mail this section (from the ID form's section "
+                         "question). Section A meets before Section B, so "
+                         "you can mail A as soon as A has responded and "
+                         "re-run for B later. Omit to mail everyone.")
     ap.add_argument("--send", action="store_true",
                     help="actually send (default is a dry run)")
     ap.add_argument("--delay", type=float, default=1.0,
@@ -116,22 +132,45 @@ def main():
                  "make_all_personas.py --zip first")
     id_to_email, problems = load_roster(args.roster)
 
-    planned, unmatched = [], []
+    want = (args.section or "").strip().upper()
+    planned, unmatched, other_section, no_section = [], [], [], []
     for z in zips:
         sid = z.stem
-        email = id_to_email.get(sid)
-        (planned if email else unmatched).append((sid, email, z))
+        entry = id_to_email.get(sid)
+        if not entry:
+            unmatched.append((sid, None, z))
+            continue
+        email, section = entry
+        if want:
+            if section == want:
+                planned.append((sid, email, z))
+            elif section:
+                other_section.append(sid)
+            else:
+                no_section.append(sid)
+        else:
+            planned.append((sid, email, z))
 
     for p in problems:
         print(f"  [roster] {p}")
     for sid, _, _ in unmatched:
         print(f"  [skip] {sid}: no email on file — this student gets nothing")
-    unsent = sorted(set(id_to_email) - {s for s, _, _ in planned})
-    for sid in unsent:
+    for sid in no_section:
+        print(f"  [skip] {sid}: no section on their form row — send by hand "
+              "or re-run without --section")
+    matched_ids = {s for s, _, _ in planned} | set(other_section) \
+        | set(no_section)
+    for sid in sorted(set(id_to_email) - matched_ids):
+        if want and id_to_email[sid][1] != want:
+            continue          # other section's chase list, not this run's
         print(f"  [note] {sid} filled the ID form but has no persona zip")
 
-    print(f"\n{len(planned)} to send, {len(unmatched)} skipped, "
+    scope = f" in Section {want}" if want else ""
+    print(f"\n{len(planned)} to send{scope}, {len(unmatched)} skipped, "
           f"{len(problems)} roster problem(s).")
+    if other_section:
+        print(f"{len(other_section)} held back (other section) — re-run with "
+              "the other --section when they're ready.")
     if not args.send:
         for sid, email, _ in planned[:5]:
             print(f"  would send {sid}.zip -> {email}")
