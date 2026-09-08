@@ -144,10 +144,17 @@ def order_name(o):
 # diverging blue↔gray↔red for verdict polarity; fixed assignment, no
 # cycling; each agent type keeps its own hue even when mixed cohorts
 # appear in one chart
-C_COND = {"persona": "#2a78d6", "ablated": "#eb6834", "single": "#1baf7a"}
+C_COND = {"persona": "#2a78d6", "ablated": "#eb6834", "single": "#1baf7a",
+          "nohistory": "#9b5de5"}
 C_VERDICT = {"better": "#2a78d6", "identical": "#86b6ef",
              "equivalent": "#c3c2b7", "inferior": "#e34948"}
-C_HTH = {"persona": "#2a78d6", "ablated": "#eb6834", "tie": "#c3c2b7"}
+C_HTH = {"persona": "#2a78d6", "ablated": "#eb6834", "tie": "#c3c2b7",
+         "nohistory": "#9b5de5"}
+# The two grounding sources are ablated independently: 'ablated' drops the
+# questionnaire and keeps the purchase history, 'nohistory' does the
+# reverse. 'persona' has both. So persona−ablated isolates the
+# questionnaire and persona−nohistory isolates the history.
+GROUNDING_CONDS = ("persona", "ablated", "nohistory")
 # tier reads as a capability gradient of the same hue (not a new hue pair)
 C_TIER = {"economy": "#86b6ef", "frontier": "#2a78d6"}
 C_MODELW = {"frontier": "#2a78d6", "economy": "#86b6ef",
@@ -1062,7 +1069,7 @@ def main():
     # four-run 2x2 cohort (grounding x tier)? Mixed cohorts degrade
     # gracefully: 2x2 charts appear when any 2x2 pack is present.
     four_run = "2x2" in set(sdf["design"])
-    conds = [c for c in ("persona", "ablated", "single")
+    conds = [c for c in ("persona", "ablated", "nohistory", "single")
              if c in set(df["condition"])]
     tiers_present = [t for t in ("economy", "frontier")
                      if t in set(df["tier"].dropna())]
@@ -1662,6 +1669,54 @@ def main():
                      f"with {len(darr)} students contributing pairs "
                      "(2.80 x sd of the per-student Δ / √n) — report "
                      "MDE, never post-hoc power")
+    # H1b — the history effect, the mirror of H1. Same paired machinery,
+    # the other grounding source: persona (both) minus nohistory
+    # (questionnaire only) isolates what the purchase profile contributed.
+    # Reported separately rather than folded into H1, because the two
+    # contrasts answer different questions and share only one arm.
+    if ablation and {"persona", "nohistory"} <= set(conds):
+        hpair = vd_[vd_["condition"].isin(["persona", "nohistory"])]
+        hpiv_all = hpair.pivot_table(index=["student", "task", "tier"],
+                                     columns="condition",
+                                     values="acceptable", aggfunc="first")
+        hpiv = hpiv_all.dropna()
+        pair_cov.append(
+            f"H1b history: {len(hpiv)}/{len(hpiv_all)} task-cell pairs "
+            "complete (a pair drops when either run's verdict is missing)")
+        if len(hpiv):
+            hby_s = (hpiv.reset_index().groupby("student")
+                     [["persona", "nohistory"]].mean())
+            hdarr = (hby_s["persona"] - hby_s["nohistory"]).to_numpy(float)
+            hdlo, hdhi = cboot(lambda ix: hdarr[ix].mean(), len(hdarr))
+            hb = int(((hpiv["persona"] == 1)
+                      & (hpiv["nohistory"] == 0)).sum())
+            hc = int(((hpiv["persona"] == 0)
+                      & (hpiv["nohistory"] == 1)).sum())
+            # EXPLORATORY, deliberately: the confirmatory family {H1, H2,
+            # H3} is pre-registered in research_protocol §1, and the
+            # history factor was added after it was written. Reporting
+            # this as confirmatory would extend a pre-registration after
+            # the fact. Promote it only by amending the protocol first.
+            srow("Purchase-history effect (EXPLORATORY, not pre-registered): "
+                 "persona − nohistory acceptable-pick rate (paired within "
+                 "student)",
+                 f"Δ = {100 * hdarr.mean():+.1f} pp; 95% CI "
+                 f"{fmt_ci(hdlo, hdhi)}; {len(hpiv)} task-cell pairs from "
+                 f"{len(hby_s)} students; discordant tasks {hb} vs {hc} "
+                 "(descriptive); Cohen's h = "
+                 f"{cohens_h(float(hpiv['persona'].mean()), float(hpiv['nohistory'].mean())):.2f}",
+                 p=signflip_p(hdarr))
+            if len(hdarr) > 1:
+                hsd = float(np.std(hdarr, ddof=1))
+                if hsd > 0:
+                    srow("Minimum detectable purchase-history effect "
+                         "(80% power, α=.05, paired design)",
+                         f"≈ {100 * 2.80 * hsd / math.sqrt(len(hdarr)):.0f}"
+                         f" pp with {len(hdarr)} students contributing "
+                         "pairs (2.80 x sd of the per-student Δ / √n) — "
+                         "report MDE, never post-hoc power")
+
+    if ablation and {"persona", "ablated"} <= set(conds):
         hh = df.dropna(subset=["hth_winner"]).drop_duplicates(
             ["student", "task", "tier"] if four_run
             else ["student", "task"])
