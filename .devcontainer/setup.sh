@@ -260,10 +260,16 @@ git remote get-url upstream >/dev/null 2>&1 || git remote add upstream "$UPSTREA
 echo "Fetching course updates..."
 git fetch --quiet upstream
 if git merge --ff-only upstream/main 2>/dev/null; then
-  echo "Repo updated."
+  echo "Repo updated (fast-forward)."
 else
-  echo "Could not fast-forward (your copy has diverged) — tell a TA." >&2
-  exit 1
+  # "Use this template" copies start from a fresh initial commit and
+  # share NO history with the course repo, so a merge is impossible by
+  # construction. Take upstream's files instead — the lab never asks a
+  # student to edit repo files, so there is nothing of theirs to lose.
+  echo "No shared history (template copy) — taking the course files."
+  git checkout upstream/main -- . || {
+    echo "Could not apply the course files — tell a TA." >&2; exit 1; }
+  echo "Repo files updated."
 fi
 echo "Re-provisioning ~/dtlab ..."
 bash "$KIT/.devcontainer/setup.sh" >/dev/null
