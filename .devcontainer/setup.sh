@@ -269,6 +269,11 @@ else
   echo "No shared history (template copy) — taking the course files."
   git checkout upstream/main -- . || {
     echo "Could not apply the course files — tell a TA." >&2; exit 1; }
+  # checkout writes the files AND stages them, which would trip the
+  # dirty-tree guard above on the NEXT run — the update would lock
+  # itself out after succeeding once. Commit so the tree ends clean.
+  git -c user.email=lab@dtlab -c user.name="DT Lab" \
+      commit -qm "course update" >/dev/null 2>&1 || true
   echo "Repo files updated."
 fi
 echo "Re-provisioning ~/dtlab ..."
