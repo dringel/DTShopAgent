@@ -229,6 +229,46 @@ case "${1:-status}" in
   *) echo "usage: dtlab-persona on|off|clear|status" >&2; exit 1 ;;
 esac
 EOF
+cat > "$HOME/.local/bin/dtlab-update" <<'EOF'
+#!/usr/bin/env bash
+# Pull course fixes into an ALREADY-RUNNING codespace.
+#
+# Two things have to happen and only the first is obvious. "Use this
+# template" copies have NO git link back to the course repo, so an
+# upstream remote is added on first use. And ~/dtlab (the SOULs, config
+# and dtlab-* commands the lab actually reads) is provisioned ONCE when
+# the codespace is created — so after merging we re-run setup.sh, or the
+# new files sit in the repo and never reach the runtime.
+#
+# Your own data is untouched: runs/, quarantine/, the persona files and
+# the frozen purchase profile are never rewritten by setup.sh.
+set -euo pipefail
+UPSTREAM="https://github.com/dringel/DTShopAgent.git"
+KIT=$(ls -d /workspaces/*/.devcontainer 2>/dev/null | head -1 | xargs -r dirname)
+if [ -z "$KIT" ] || [ ! -d "$KIT/.git" ]; then
+  echo "Could not find the lab repo under /workspaces — tell a TA." >&2
+  exit 1
+fi
+cd "$KIT"
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "You have uncommitted edits in $KIT."
+  echo "The lab never asks you to edit repo files — if you did not do this"
+  echo "deliberately, tell a TA rather than continuing."
+  exit 1
+fi
+git remote get-url upstream >/dev/null 2>&1 || git remote add upstream "$UPSTREAM"
+echo "Fetching course updates..."
+git fetch --quiet upstream
+if git merge --ff-only upstream/main 2>/dev/null; then
+  echo "Repo updated."
+else
+  echo "Could not fast-forward (your copy has diverged) — tell a TA." >&2
+  exit 1
+fi
+echo "Re-provisioning ~/dtlab ..."
+bash "$KIT/.devcontainer/setup.sh" >/dev/null
+echo "Done. Your runs, personas and shopping session were not touched."
+EOF
 cat > "$HOME/.local/bin/dtlab-history" <<'EOF'
 #!/usr/bin/env bash
 # Manual purchase-history switch, announced live in class like
