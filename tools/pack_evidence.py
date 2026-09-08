@@ -104,7 +104,7 @@ def load_config():
 CFG = load_config()
 ID_RE = re.compile(CFG.get("DTLAB_ID_PATTERN", r"DT[0-9]{4}-[0-9]{3}"))
 ASIN_RE = re.compile(r"[A-Z0-9]{10}")
-CONDITIONS = ("persona", "ablated")
+CONDITIONS = ("persona", "ablated", "nohistory")
 TIERS = ("economy", "frontier")
 
 
@@ -139,7 +139,8 @@ def derived_task_order(student_id, task_ids):
 # "PROTOCOL | soul=<token>" — the per-variant token proves the agent
 # loaded the intended instructions, machine-checked per run.
 PROTO_RE = re.compile(r"(?m)^\s*PROTOCOL\s*\|\s*soul=([\w.-]+)")
-SOUL_TOKENS = {"persona": "persona-v4", "ablated": "ablated-v4"}
+SOUL_TOKENS = {"persona": "persona-v4", "ablated": "ablated-v4",
+               "nohistory": "nohistory-v4"}
 BOOTSTRAP_TOKEN = "bootstrap-v1"
 
 # ---- bootstrap transcripts (P0.1 decision, 2 Sep 2026): the
@@ -1045,7 +1046,8 @@ def main():
             sdir = staging / rn
             sdir.mkdir(exist_ok=True)
             for f in ("decision_log.md", "agent_picks.csv",
-                      "condition.txt", "tier.txt", "started_at.txt",
+                      "condition.txt", "history.txt",
+                      "tier.txt", "started_at.txt",
                       "ist_date.txt", "soul_sha256.txt",
                       "config_sha256.txt", "model_id.txt",
                       "purchase_profile.md", "token_usage.json"):

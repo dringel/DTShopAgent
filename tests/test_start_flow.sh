@@ -40,6 +40,7 @@ cp "$REPO/tasks_config.csv" "$HOME/dtlab/"
 cp "$REPO/provisioning/hermes_config.template.yaml" "$HOME/dtlab/"
 printf '# MARK-STANDARD\n' >  "$HOME/dtlab/soul/SOUL.md"
 printf '# MARK-ABLATED\n'  >  "$HOME/dtlab/soul/SOUL_ablated.md"
+printf '# MARK-NOHISTORY\n' > "$HOME/dtlab/soul/SOUL_nohistory.md"
 printf '# MARK-SANDBOX\n'  >  "$HOME/dtlab/soul/SOUL_sandbox.md"
 printf '# MARK-BOOTSTRAP\n' >  "$HOME/dtlab/soul/SOUL_bootstrap.md"
 cp "$HOME/dtlab/soul/SOUL.md" "$HOME/dtlab/workspace/SOUL.md"
@@ -1015,6 +1016,65 @@ grep -q "kit commit matches" "$HOME/last_out.txt"
 check $? 0 "match is confirmed"
 
 guard
+
+echo "[31] purchase-history factor (dtlab-history)"
+mkenv 1
+echo persona > "$HOME/dtlab/persona_switch.txt"
+echo off     > "$HOME/dtlab/history_switch.txt"
+rc=$(run 'economy\ny\ny\n\n')
+check "$rc" 0 "history off: exit 0"
+check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "nohistory" \
+      "condition recorded as nohistory"
+check "$(cat "$HOME/dtlab/runs/run1/history.txt")" "off" \
+      "history.txt records the factor"
+grep -q 'MARK-NOHISTORY' "$HOME/dtlab/workspace/SOUL.md"
+check $? 0 "no-history SOUL swapped into the workspace"
+[ ! -f "$HOME/dtlab/workspace/purchase_profile.md" ]
+check $? 0 "frozen profile REMOVED from the workspace (boundary, not just instructions)"
+[ -f "$HOME/dtlab/quarantine/persona_hold/purchase_profile.md" ]
+check $? 0 "profile parked in quarantine, not deleted"
+[ -f "$HOME/dtlab/workspace/persona_survey.md" ]
+check $? 0 "questionnaire still present (only history was ablated)"
+
+echo "[32] a profile parked by an earlier no-history run is restored, and"
+echo "     the frozen-hash check still passes (fresh env, profile in hold)"
+mkenv 1
+echo persona > "$HOME/dtlab/persona_switch.txt"
+mkdir -p "$HOME/dtlab/quarantine/persona_hold"
+mv "$HOME/dtlab/workspace/purchase_profile.md" \
+   "$HOME/dtlab/quarantine/persona_hold/purchase_profile.md"
+[ ! -f "$HOME/dtlab/workspace/purchase_profile.md" ]
+check $? 0 "precondition: profile really is parked, not in the workspace"
+rc=$(run 'economy\ny\ny\n\n')
+check "$rc" 0 "history on with a parked profile: exit 0"
+[ -f "$HOME/dtlab/workspace/purchase_profile.md" ]
+check $? 0 "profile restored to the workspace before the freeze check"
+grep -q "purchase profile verified against the freeze record" "$HOME/last_out.txt"
+check $? 0 "freeze verification passes on the restored file"
+check "$(cat "$HOME/dtlab/runs/run1/condition.txt")" "persona" \
+      "condition back to persona"
+check "$(cat "$HOME/dtlab/runs/run1/history.txt")" "on" "history.txt = on"
+grep -q 'MARK-STANDARD' "$HOME/dtlab/workspace/SOUL.md"
+check $? 0 "standard SOUL restored"
+
+echo "[33] both factors off is refused (no grounding left)"
+mkenv 1
+echo ablated > "$HOME/dtlab/persona_switch.txt"
+echo off     > "$HOME/dtlab/history_switch.txt"
+rc=$(run 'economy\ny\ny\n\n')
+check "$rc" 1 "refused with exit 1"
+grep -q "Both grounding sources are off" "$HOME/last_out.txt"
+check $? 0 "explains why, and names both switches"
+
+echo "[34] invalid history switch value fails closed"
+mkenv 1
+echo persona > "$HOME/dtlab/persona_switch.txt"
+echo maybe   > "$HOME/dtlab/history_switch.txt"
+rc=$(run 'economy\ny\ny\n\n')
+check "$rc" 1 "refused with exit 1"
+grep -q "history_switch.txt has an invalid value" "$HOME/last_out.txt"
+check $? 0 "names the offending file"
+
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"
 exit $FAIL

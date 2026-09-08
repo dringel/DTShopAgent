@@ -865,6 +865,30 @@ PY
   else
     ok "resuming agent run $RUN of 4 ($TIER tier, $COND grounding)"
   fi
+  # ---- purchase-history factor (dtlab-history), announced live in class
+  # like the grounding switch. Default ON: no switch file means the
+  # profile is present, which is the pre-existing behaviour.
+  HIST=on
+  HISTFILE="$HOME/dtlab/history_switch.txt"
+  if [ -f "$HISTFILE" ]; then
+    HIST=$(cat "$HISTFILE")
+    case "$HIST" in
+      on|off) ;;
+      *) bad "dtlab/history_switch.txt has an invalid value ('$HIST') — expected on or off. Fix it or run: dtlab-history clear"; exit 1 ;;
+    esac
+  fi
+  if [ "$HIST" = "off" ] && [ "$COND" != "persona" ]; then
+    echo ""
+    echo -e "${RED}Both grounding sources are off (questionnaire ablated AND"
+    echo -e "history off) — that leaves nothing to model this person from"
+    echo -e "and is not one of the lab's conditions. Turn one back on:"
+    echo -e "  dtlab-persona on   or   dtlab-history on${NC}"
+    exit 1
+  fi
+  # a previous no-history run parks the frozen profile in quarantine —
+  # restore it BEFORE the hash check, so verification sees the real file
+  [ -f "$HOLD/purchase_profile.md" ] && \
+    mv "$HOLD/purchase_profile.md" "$WS/purchase_profile.md"
   # frozen-profile verification, EVERY run (fail closed): the profile
   # all four runs read must be byte-identical to the frozen bootstrap
   # output
@@ -882,14 +906,26 @@ PY
     for f in persona_survey.md persona_survey.csv persona_meta.json; do
       [ -f "$HOLD/$f" ] && mv "$HOLD/$f" "$WS/$f"
     done
-    cp "$HOME/dtlab/soul/SOUL.md" "$WS/SOUL.md"
-    ok "ablation factor: run $RUN = PERSONA run (questionnaire present; use the standard prompt)"
   else
     for f in persona_survey.md persona_survey.csv persona_meta.json; do
       [ -f "$WS/$f" ] && mv "$WS/$f" "$HOLD/$f"
     done
+  fi
+  # Grounding = the two factors together. A history-off run REMOVES the
+  # frozen profile from the workspace, exactly as an ablated run removes
+  # the questionnaire: the SOUL variant alone is an instruction, not a
+  # boundary — the file has to be gone.
+  if [ "$HIST" = "off" ]; then
+    mv "$WS/purchase_profile.md" "$HOLD/purchase_profile.md"
+    COND="nohistory"
+    cp "$HOME/dtlab/soul/SOUL_nohistory.md" "$WS/SOUL.md"
+    ok "grounding: run $RUN = NO-HISTORY run (questionnaire present; purchase profile removed from the workspace)"
+  elif [ "$COND" = "persona" ]; then
+    cp "$HOME/dtlab/soul/SOUL.md" "$WS/SOUL.md"
+    ok "grounding: run $RUN = PERSONA run (questionnaire + purchase profile; use the standard prompt)"
+  else
     cp "$HOME/dtlab/soul/SOUL_ablated.md" "$WS/SOUL.md"
-    ok "ablation factor: run $RUN = ABLATED run (questionnaire removed from the workspace; use the ABLATED prompt from tasks.md)"
+    ok "grounding: run $RUN = ABLATED run (questionnaire removed from the workspace; use the ABLATED prompt from tasks.md)"
   fi
   # swap in the ablation comparison template while the standard one is
   # still unfilled (never clobber student writing; .bak just in case).
@@ -1158,8 +1194,11 @@ if [ "$BOOTSTRAP_RUN" = "1" ]; then
   verify_hermes_config "$RUN_HOME" "${DTLAB_PROVIDER:-anthropic}" \
     "$MODEL_ID" || config_mismatch_abort
 elif [ -n "$RUN" ]; then
-  if [ "$COND" = "persona" ]; then SOUL_SRC="$HOME/dtlab/soul/SOUL.md"
-  else SOUL_SRC="$HOME/dtlab/soul/SOUL_ablated.md"; fi
+  case "$COND" in
+    persona)   SOUL_SRC="$HOME/dtlab/soul/SOUL.md" ;;
+    nohistory) SOUL_SRC="$HOME/dtlab/soul/SOUL_nohistory.md" ;;
+    *)         SOUL_SRC="$HOME/dtlab/soul/SOUL_ablated.md" ;;
+  esac
   RUN_HOME="$RUNSDIR/run$RUN/hermes_home"
   if [ -d "$RUN_HOME" ]; then
     # crash-resume: refresh SOUL + config in place, keep the transcripts
@@ -1193,6 +1232,7 @@ fi
 if [ -n "$RUN" ]; then
   mkdir -p "$RUNSDIR/run$RUN"
   echo "$COND" > "$RUNSDIR/run$RUN/condition.txt"
+  echo "${HIST:-on}" > "$RUNSDIR/run$RUN/history.txt"
   echo "$TIER" > "$RUNSDIR/run$RUN/tier.txt"
   [ -f "$RUNSDIR/run$RUN/started_at.txt" ] || \
     date -u +%FT%TZ > "$RUNSDIR/run$RUN/started_at.txt"

@@ -102,6 +102,7 @@ cp -v "$KIT/agent/SOUL.md"                 "$HOME/dtlab/workspace/SOUL.md"
 # swaps the workspace SOUL.md per condition when the factor is enabled)
 mkdir -p "$HOME/dtlab/soul"
 cp -v "$KIT/agent/SOUL.md" "$KIT/agent/SOUL_ablated.md" \
+      "$KIT/agent/SOUL_nohistory.md" \
       "$KIT/agent/SOUL_sandbox.md" "$KIT/agent/SOUL_bootstrap.md" \
       "$HOME/dtlab/soul/"
 cp -v "$KIT/templates/comparison_ablation.md" \
@@ -226,6 +227,26 @@ case "${1:-status}" in
     else echo "Grounding switch: not set (dtlab-start uses the counterbalance sheet as normal)"
     fi ;;
   *) echo "usage: dtlab-persona on|off|clear|status" >&2; exit 1 ;;
+esac
+EOF
+cat > "$HOME/.local/bin/dtlab-history" <<'EOF'
+#!/usr/bin/env bash
+# Manual purchase-history switch, announced live in class like
+# dtlab-persona. OFF removes the frozen purchase_profile.md from the
+# workspace for that run (the agent gets the questionnaire only). The
+# questionnaire factor and the model tier are UNAFFECTED. Both factors
+# off at once is refused by dtlab-start — that leaves no grounding.
+set -euo pipefail
+SW="$HOME/dtlab/history_switch.txt"
+case "${1:-status}" in
+  on)  echo on  > "$SW"; echo "History switch: ON — next run reads your purchase profile." ;;
+  off) echo off > "$SW"; echo "History switch: OFF — next run has no purchase history (questionnaire only)." ;;
+  clear) rm -f "$SW"; echo "Switch cleared — history defaults to ON." ;;
+  status)
+    if [ -f "$SW" ]; then echo "History switch: $(cat "$SW") (set)"
+    else echo "History switch: not set (defaults to ON — purchase profile is read)"
+    fi ;;
+  *) echo "usage: dtlab-history on|off|clear|status" >&2; exit 1 ;;
 esac
 EOF
 cat > "$HOME/.local/bin/dtlab-tier" <<'EOF'

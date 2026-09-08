@@ -174,7 +174,7 @@ def load_runs(student_id):
             if (d / "tier.txt").exists() else ""
         if not tier:
             tier = tier_from_sheet(student_id, i) or ""
-        if cond in ("persona", "ablated"):
+        if cond in ("persona", "ablated", "nohistory"):
             if not tier:
                 sys.exit(f"run{i} has no tier.txt and the counterbalance "
                          "sheet cannot resolve this student's tier for "
@@ -261,11 +261,20 @@ def contrast_families(cells):
     Each entry: (family, cell_hi, cell_lo, tie_word) where the winner
     vocabulary is the two cells' differing dimension + tie_word."""
     fams = []
+    conds_all = ("persona", "ablated", "nohistory")
     for tier in ("economy", "frontier"):
-        if {("persona", tier), ("ablated", tier)} <= cells:
-            fams.append((f"grounding_{tier}", ("persona", tier),
-                         ("ablated", tier), "tie"))
-    for cond in ("persona", "ablated"):
+        # every grounding pair that actually ran. The persona/ablated
+        # pair keeps its original family name so earlier data and the
+        # cohort report still match; the pairs involving nohistory are
+        # named explicitly.
+        for i, a in enumerate(conds_all):
+            for b in conds_all[i + 1:]:
+                if {(a, tier), (b, tier)} <= cells:
+                    fam = (f"grounding_{tier}"
+                           if {a, b} == {"persona", "ablated"}
+                           else f"grounding_{a}_vs_{b}_{tier}")
+                    fams.append((fam, (a, tier), (b, tier), "tie"))
+    for cond in conds_all:
         if {(cond, "economy"), (cond, "frontier")} <= cells:
             fams.append((f"tier_{cond}", (cond, "frontier"),
                          (cond, "economy"), "same"))
