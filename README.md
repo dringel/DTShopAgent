@@ -78,20 +78,31 @@ computer with one click.
 | `dtlab-shop` | Records your own shopping pick per task, before the agent runs |
 | `dtlab-start` | Runs the agent for one condition — pre-flight checks, then launches |
 | `dtlab-persona on` / `off` | Set **before every run** — the TA announces this live in class |
+| `dtlab-history on` / `off` | Set **before every run** — whether the agent gets your order history |
 | `dtlab-tier economy` / `frontier` | Set **once per lab day** — the TA announces this too |
+| `dtlab-runs` | Lists every run you have done, including ones you redid |
 | `dtlab-cart` | Screenshots and verifies the cart right after each run, then empty it (Delete, never "Save for later") |
 | `dtlab-verdict` | After all your runs: blind rating of every agent pick against your own |
 | `dtlab-pack` | Builds the one file you submit — `DT2026-###_evidence.zip` — cleaned and validated automatically |
 
-Run `dtlab-persona status` or `dtlab-tier status` any time you're not
-sure what's currently set — never guess. Full detail on every step is
-in [Student experience](#student-experience-the-whole-thing-from-their-side)
+Run `dtlab-persona status`, `dtlab-history status` or `dtlab-tier status`
+any time you're not sure what's currently set — never guess. Full detail
+on every step is in
+[Student experience](#student-experience-the-whole-thing-from-their-side)
 further down this page.
 
+**Doing a run again.** You can repeat any condition as many times as you
+like, and you can redo your own `dtlab-shop` session too. Nothing is
+overwritten: the run you replace is moved to `~/dtlab/runs_history/`
+and stays there, and both commands ask before they archive anything.
+`dtlab-runs` shows you everything you have done. Your evidence pack
+records how many attempts each run took, so a redo is something you
+can just do — not something to hide or work around.
+
 **If something breaks:** read what the terminal printed, tell a TA,
-say what you already tried. Don't rerun to make a failure look clean
-and don't edit any files by hand — a recorded problem is useful data;
-a silently patched one isn't.
+say what you already tried. Don't edit any files by hand, and when you
+redo a run say what went wrong — a recorded problem is useful data; a
+silently patched one isn't.
 
 ## How this actually runs (read this first if you're new to GitHub)
 

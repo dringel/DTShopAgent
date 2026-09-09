@@ -58,6 +58,10 @@ EV = HOME / "dtlab" / "evidence"
 MARKER = HOME / "dtlab" / ".run_started"   # touched at FIRST agent-run start
 SANDBOX_MARKER = HOME / "dtlab" / "sandbox.txt"   # smoke test / fallback run
 RUNS = HOME / "dtlab" / "runs"
+# Superseded agent runs (a student redoing a condition). The dirs stay on
+# the codespace; the INDEX rides along in every pack so a redo is visible
+# in the research data instead of looking like a single clean run.
+RUNS_HISTORY = HOME / "dtlab" / "runs_history"
 # quarantine root: human picks, verdicts, and held persona files live
 # under ~/dtlab/quarantine/ (every agent path is barred from it); packs
 # from before the move fall back to the legacy locations
@@ -1120,15 +1124,45 @@ def main():
                 reset_lines.append(json.loads(ln))
             except json.JSONDecodeError:
                 reset_lines.append({"raw": ln})
+    # ---- agent-run redos: how many attempts each slot really took ----
+    agent_attempts = None
+    if RUNS_HISTORY.is_dir():
+        hist_lines = []
+        hjsonl = RUNS_HISTORY / "history.jsonl"
+        if hjsonl.exists():
+            for ln in hjsonl.read_text(encoding="utf-8").splitlines():
+                if not ln.strip():
+                    continue
+                try:
+                    hist_lines.append(json.loads(ln))
+                except json.JSONDecodeError:
+                    hist_lines.append({"raw": ln})
+        archived = sorted(d.name for d in RUNS_HISTORY.iterdir()
+                          if d.is_dir())
+        if hist_lines or archived:
+            by_run = {}
+            for rec in hist_lines:
+                key = f"run{rec.get('run')}"
+                by_run[key] = by_run.get(key, 0) + 1
+            agent_attempts = {
+                # 1 live run + however many were superseded
+                "superseded_by_run": by_run,
+                "archived_dirs": archived,
+                "records": hist_lines,
+            }
+            warn(f"{len(archived)} superseded agent run(s) archived on "
+                 "this codespace — the live runs are the ones packed; "
+                 "attempt counts are recorded in the manifest")
+
     human_attempts = None
     if committed_m:
         human_attempts = {"committed": len(committed_m),
                           "resets": reset_lines}
         need(len(committed_m) <= len(reset_lines) + 1,
              f"{len(committed_m)} committed human-session attempts but "
-             f"only {len(reset_lines)} TA reset record(s) — the session "
-             "happens ONCE; tell a TA (dtlab-shop --reset-attempt is "
-             "the only re-run path)")
+             f"only {len(reset_lines)} archive record(s) — every redo "
+             "archives the attempt it replaces, so a missing record "
+             "means files were moved by hand; tell a TA")
     # the sid the human session was LOGGED under must be the sid this
     # pack belongs to — a typo'd --student-id would silently
     # desynchronize the human task order from every agent run
@@ -2208,6 +2242,7 @@ def main():
         "checkout_attempts": checkout_attempts,
         "interventions_by_run": interventions_by_run,
         "human_attempts": human_attempts,
+        "agent_attempts": agent_attempts,
         "demographic_citations_by_run": demographic_citations,
         # the typed pre-run acknowledgment (consent capture layer 2 of 3,
         # research_protocol §3) — recorded by dtlab-start, audited here

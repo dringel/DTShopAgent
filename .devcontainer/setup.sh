@@ -209,6 +209,43 @@ cat > "$HOME/.local/bin/dtlab-verdict" <<'EOF'
 # Guided verdict/rating/rationale capture after each day's runs.
 exec python3 "$HOME/dtlab/tools/capture_verdicts.py" "$@"
 EOF
+cat > "$HOME/.local/bin/dtlab-runs" <<'EOF'
+#!/usr/bin/env bash
+# Show every agent run on this codespace: the four live slots, plus
+# every attempt that a redo superseded. Nothing here is ever deleted.
+set -euo pipefail
+RUNSDIR="$HOME/dtlab/runs"
+HISTDIR="$HOME/dtlab/runs_history"
+echo "CURRENT RUNS  ($RUNSDIR)"
+found=0
+for d in "$RUNSDIR"/run[0-9]*; do
+  [ -d "$d" ] || continue
+  found=1
+  printf '  %-6s %-10s history=%-4s %-9s started %s\n' \
+    "$(basename "$d")" \
+    "$(cat "$d/condition.txt" 2>/dev/null || echo '?')" \
+    "$(cat "$d/history.txt"   2>/dev/null || echo '?')" \
+    "$(cat "$d/tier.txt"      2>/dev/null || echo '?')" \
+    "$(cat "$d/started_at.txt" 2>/dev/null || echo 'not started')"
+done
+[ "$found" = 1 ] || echo "  (none yet — run dtlab-start)"
+echo ""
+echo "SUPERSEDED RUNS  ($HISTDIR)"
+if [ -d "$HISTDIR" ] && [ -n "$(ls -A "$HISTDIR" 2>/dev/null)" ]; then
+  for d in "$HISTDIR"/run*_attempt*; do
+    [ -d "$d" ] || continue
+    printf '  %-34s %-10s history=%-4s %s\n' \
+      "$(basename "$d")" \
+      "$(cat "$d/condition.txt" 2>/dev/null || echo '?')" \
+      "$(cat "$d/history.txt"   2>/dev/null || echo '?')" \
+      "$(cat "$d/tier.txt"      2>/dev/null || echo '?')"
+  done
+  echo ""
+  echo "  Full table: $HISTDIR/HISTORY.md"
+else
+  echo "  (none — you have not redone a run yet)"
+fi
+EOF
 cat > "$HOME/.local/bin/dtlab-persona" <<'EOF'
 #!/usr/bin/env bash
 # Manual grounding switch, announced live in class before each run —
@@ -526,5 +563,5 @@ echo "Setup complete. Open the 'Lab Desktop' forwarded port (6080) in your"
 echo "browser — password printed above (or 'dtlab' if rotation failed)."
 echo "KEEP THE PORT PRIVATE. Then use the VS Code terminal for:"
 echo "  dtlab-shop | dtlab-start | dtlab-cart | dtlab-tokens |"
-echo "  dtlab-verdict |"
+echo "  dtlab-verdict | dtlab-runs (your run history) |"
 echo "  dtlab-record (optional) | dtlab-pack"

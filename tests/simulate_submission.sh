@@ -1621,6 +1621,29 @@ assert ha['committed']==2 and len(ha['resets'])==1
 assert ha['resets'][0]['reason']=='recorder crashed mid-session'
 "; check $? 0 "manifest records attempt count + reset audit trail"
 
+echo "[53b] a redone AGENT run is recorded in the manifest, not hidden"
+# the redo path keeps every superseded run on the codespace; the pack
+# must carry the count, or a student who re-ran until they liked the
+# result would look identical to one who ran once
+AD="$HOME/dtlab/runs_history/run2_attempt1_20260924T090000Z"
+mkdir -p "$AD"
+printf 'ablated\n' > "$AD/condition.txt"
+printf 'on\n'      > "$AD/history.txt"
+printf 'economy\n' > "$AD/tier.txt"
+printf '{"archived_at_utc":"2026-09-24T09:00:00Z","run":2,"attempt":1,"condition":"ablated","history":"on","tier":"economy","dir":"run2_attempt1_20260924T090000Z"}\n' \
+  > "$HOME/dtlab/runs_history/history.jsonl"
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "pack with a superseded run exits 0"
+python3 -c "
+import json,zipfile,os
+z=zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m=json.loads(z.read('DT2026-999/manifest.json'))
+aa=m['agent_attempts']
+assert aa['superseded_by_run']=={'run2':1}, aa['superseded_by_run']
+assert aa['archived_dirs']==['run2_attempt1_20260924T090000Z'], aa
+assert aa['records'][0]['condition']=='ablated', aa['records']
+"; check $? 0 "manifest counts the superseded run and keeps its condition"
+rm -rf "$HOME/dtlab/runs_history"
 mkenv                                      # >1 attempt, NO reset record
 printf 'x DT2026-999\n' > "$HOME/dtlab/quarantine/human/.attempt_1_committed"
 printf 'y DT2026-999\n' > "$HOME/dtlab/quarantine/human/.attempt_2_committed"

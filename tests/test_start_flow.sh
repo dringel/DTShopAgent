@@ -210,13 +210,82 @@ grep -q 'MARK-STANDARD' "$HOME/dtlab/runs/run4/hermes_home/SOUL.md" \
   && grep -q 'claude-fro-test-1' "$HOME/dtlab/runs/run4/hermes_home/config.yaml"
 check $? 0 "run-4 hermes home: standard SOUL + frontier model"
 
-echo "[9] all four runs done: refusing resume points at the next steps"
+echo "[9] all four runs done: quitting points at the next steps"
 finish_run
-rc=$(run 'n\n')
-check "$rc" 1 "exit 1"
+rc=$(run 'q\n')
+check "$rc" 0 "quitting is a normal exit, not an error"
 grep -q "dtlab-verdict" "$HOME/last_out.txt" \
   && grep -q "dtlab-pack" "$HOME/last_out.txt"
 check $? 0 "clear next-step message (dtlab-verdict, dtlab-pack)"
+grep -q "nothing archived" "$HOME/last_out.txt"
+check $? 0 "quitting archives nothing"
+[ ! -d "$HOME/dtlab/runs_history" ] || [ -z "$(ls -A "$HOME/dtlab/runs_history" 2>/dev/null)" ]
+check $? 0 "run history untouched when the student quits"
+
+echo "[9b] redo: any run slot can be re-run, and the old one is KEPT"
+# the whole point of the change: a student may repeat a condition as
+# often as they like, and every superseded attempt survives on disk
+PREV_COND=$(cat "$HOME/dtlab/runs/run2/condition.txt")
+rc=$(run '2\ny\ny\n\n')
+check "$rc" 0 "redoing run 2 exits 0"
+ARCH=$(find "$HOME/dtlab/runs_history" -maxdepth 1 -type d -name 'run2_attempt1_*' | head -1)
+[ -n "$ARCH" ]
+check $? 0 "the replaced run 2 is archived, not deleted"
+[ -f "$ARCH/condition.txt" ] && [ "$(cat "$ARCH/condition.txt")" = "$PREV_COND" ]
+check $? 0 "the archived attempt keeps its own condition"
+grep -q '"run":2' "$HOME/dtlab/runs_history/history.jsonl"
+check $? 0 "the redo is recorded append-only in history.jsonl"
+[ -f "$HOME/dtlab/runs_history/HISTORY.md" ]
+check $? 0 "a readable HISTORY.md is written for the student"
+[ -d "$HOME/dtlab/runs/run2" ] && [ -f "$HOME/dtlab/runs/run2/started_at.txt" ]
+check $? 0 "run 2 is live again as a fresh attempt"
+
+echo "[9d] a redo honours the CURRENT switches, whatever the run was before"
+# the three lab conditions are two switches, not three: persona = both on,
+# ablated = persona off, nohistory = history off. A redo must pick up
+# whatever is set NOW, not repeat the condition the slot used to hold.
+echo persona > "$HOME/dtlab/persona_switch.txt"
+echo off     > "$HOME/dtlab/history_switch.txt"
+finish_run
+rc=$(run '3\ny\ny\n\n')
+check "$rc" 0 "redo of run 3 under persona-on/history-off exits 0"
+check "$(cat "$HOME/dtlab/runs/run3/condition.txt")" "nohistory" \
+      "redone run 3 is a NOHISTORY run (questionnaire only)"
+[ ! -f "$HOME/dtlab/workspace/purchase_profile.md" ]
+check $? 0 "purchase profile really removed on the redone run"
+
+echo ablated > "$HOME/dtlab/persona_switch.txt"
+echo on      > "$HOME/dtlab/history_switch.txt"
+finish_run
+rc=$(run '3\ny\ny\n\n')
+check "$rc" 0 "redo of run 3 under persona-off/history-on exits 0"
+check "$(cat "$HOME/dtlab/runs/run3/condition.txt")" "ablated" \
+      "redone run 3 is an ABLATED run (history only)"
+[ ! -f "$HOME/dtlab/workspace/persona_survey.md" ]
+check $? 0 "questionnaire really removed on the redone run"
+
+echo persona > "$HOME/dtlab/persona_switch.txt"
+echo on      > "$HOME/dtlab/history_switch.txt"
+finish_run
+rc=$(run '3\ny\ny\n\n')
+check "$rc" 0 "redo of run 3 under both-on exits 0"
+check "$(cat "$HOME/dtlab/runs/run3/condition.txt")" "persona" \
+      "redone run 3 is a PERSONA run (questionnaire + history)"
+[ -f "$HOME/dtlab/workspace/persona_survey.md" ] \
+  && [ -f "$HOME/dtlab/workspace/purchase_profile.md" ]
+check $? 0 "both grounding sources restored on the redone run"
+
+N3=$(find "$HOME/dtlab/runs_history" -maxdepth 1 -type d -name 'run3_attempt*' | wc -l)
+[ "$N3" -eq 3 ]
+check $? 0 "all three superseded attempts of run 3 are on file (got $N3)"
+
+echo "[9c] redo again: attempt numbering keeps counting, nothing overwritten"
+finish_run
+rc=$(run '2\ny\ny\n\n')
+check "$rc" 0 "second redo of run 2 exits 0"
+N=$(find "$HOME/dtlab/runs_history" -maxdepth 1 -type d -name 'run2_attempt*' | wc -l)
+[ "$N" -eq 2 ]
+check $? 0 "both superseded attempts of run 2 are on file (got $N)"
 
 echo "[10] sandbox mode: soft gates, sandbox SOUL, marker hygiene"
 mkenv 0
