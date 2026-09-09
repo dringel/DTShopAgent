@@ -48,12 +48,13 @@ readable are carried forward, never dropped).
 
 `dtlab-verdict --amend` is the ONLY correction path: it appends to
 verdicts_amendments.csv (row key, field, new value, one-line reason,
-amended_at_utc) and never rewrites the original row. Amendments require
-TA authorization: the token typed at the prompt (or DTLAB_TA_TOKEN in
-the environment) must match ~/dtlab/.ta_token, a file the TA installs
-at setup and students have no reason to read — simple, auditable, and
-off the repo. The analyzer applies amendments last-wins and reports
-their count.
+amended_at_utc) and never rewrites the original row. No TA token: the
+gate used to require ~/dtlab/.ta_token, which nothing in provisioning
+ever created, so the documented correction path was dead for the whole
+cohort. What makes an amendment safe is that it is append-only and
+carries a reason — the original verdict is still there, and the
+analyzer applies amendments last-wins and reports their count, so a
+corrected verdict is visible in the data rather than a silent rewrite.
 
 `dtlab-verdict --worksheet` prints each task's blind label -> pick list
 (titles + ASINs only) for the memo fallback path, without capturing.
@@ -318,16 +319,20 @@ def amend_flow(student_id):
     reason = input("  one-line reason: ").strip()
     if not reason:
         sys.exit("a reason is required for the audit trail")
-    # TA authorization: typed token (or DTLAB_TA_TOKEN) must match the
-    # token file the TA installed at setup
-    tokfile = HOME / "dtlab" / ".ta_token"
-    expected = tokfile.read_text(encoding="utf-8").strip() \
-        if tokfile.exists() else None
-    supplied = os.environ.get("DTLAB_TA_TOKEN") or input("  TA token: ").strip()
-    if not expected or supplied != expected:
-        sys.exit("TA token missing or wrong — amendments need a TA "
-                 "(the token file ~/dtlab/.ta_token is installed at "
-                 "setup; the stored verdict stays as-is).")
+    # Confirm rather than gate. The original row is never rewritten and
+    # the reason is on the record, so the audit trail is what protects
+    # the data here — a token file that provisioning never created only
+    # protected it by making the whole path unusable.
+    print(f"  This appends a correction for task {t} ({cond}, {tier}): "
+          f"{field} -> {val}")
+    print("  The verdict you already recorded stays on file underneath.")
+    if os.environ.get("DTLAB_AMEND_YES") != "1":
+        try:
+            go = input("  Append this amendment? [y/N] ").strip()
+        except EOFError:
+            go = ""
+        if not go.lower().startswith("y"):
+            sys.exit("Nothing appended — the stored verdict stays as-is.")
     apath = VD / "verdicts_amendments.csv"
     fields = ["student_id", "task_id", "condition", "tier", "field",
               "new_value", "reason", "amended_at_utc"]

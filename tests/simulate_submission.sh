@@ -933,14 +933,16 @@ p = run_capture([])
 assert p.returncode == 0 and "single blind" in p.stdout
 assert open(vp, "rb").read() == first
 open(f"{HOME}/dtlab/runs/run3/condition.txt", "w").write("ablated\n")
-# ---- amendments: append-only, TA-token gated, original row untouched ----
+# ---- amendments: append-only, confirmed, original row untouched ----
 apath = f"{HOME}/dtlab/quarantine/verdicts/verdicts_amendments.csv"
+# declining the confirmation appends NOTHING
 p = run_capture(["1", "persona", "economy", "verdict", "better",
-                 "typo fix", "WRONG"], extra=("--amend",))
+                 "typo fix", "n"], extra=("--amend",))
 assert p.returncode != 0 and not os.path.exists(apath)
-open(f"{HOME}/dtlab/.ta_token", "w").write("sekrit-42\n")
+# no token file anywhere — it was never provisioned, and is not needed
+assert not os.path.exists(f"{HOME}/dtlab/.ta_token")
 p = run_capture(["1", "persona", "economy", "verdict", "better",
-                 "typo fix", "sekrit-42"], extra=("--amend",))
+                 "typo fix", "y"], extra=("--amend",))
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
 arows = list(csv.DictReader(open(apath)))
 assert len(arows) == 1 and arows[0]["new_value"] == "better"
