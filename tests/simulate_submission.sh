@@ -1575,22 +1575,27 @@ replace "$HOME/dtlab/quarantine/human/human_session.jsonl" "B07GYLZ1ZN" "SBX0001
 python3 "$PACK" >/dev/null 2>&1
 check $? 0 "sandbox packs stay exempt from the consent-ack gate"
 
-echo "[53] C2.14: human session is ONE committed attempt (TA resets only)"
+echo "[53] C2.14: a committed session is ARCHIVED on redo, never overwritten"
 mkenv
 SHOP="$REPO/tools/log_human_session.py"
 printf '2026-09-24T10:00:00+00:00 DT2026-999\n' \
   > "$HOME/dtlab/quarantine/human/.attempt_1_committed"
-OUT53="$(cd "$HOME" && python3 "$SHOP" 2>&1)"; RC53=$?
-check "$([ "$RC53" -ne 0 ]; echo $?)" 0 "re-run with a committed attempt refuses"
-echo "$OUT53" | grep -q -- "--reset-attempt"
-check $? 0 "refusal names the TA reset path"
-(cd "$HOME" && DTLAB_TA_TOKEN=WRONG python3 "$SHOP" --reset-attempt >/dev/null 2>&1 <<< "why"); RC53B=$?
-check "$([ "$RC53B" -ne 0 ]; echo $?)" 0 "reset with a wrong token refuses"
-[ -f "$HOME/dtlab/quarantine/human/human_picks.csv" ]
-check $? 0 "nothing archived on a refused reset"
-printf 'sekrit-53\n' > "$HOME/dtlab/.ta_token"
-(cd "$HOME" && DTLAB_TA_TOKEN=sekrit-53 python3 "$SHOP" --reset-attempt >/dev/null 2>&1 <<< "recorder crashed mid-session"); RC53C=$?
-check "$RC53C" 0 "TA-token reset succeeds"
+# declining the offer leaves the committed session exactly as it was:
+# the redo is student-driven, so "no" must archive NOTHING
+OUT53="$(cd "$HOME" && python3 "$SHOP" <<< "n" 2>&1)"; RC53=$?
+check "$([ "$RC53" -ne 0 ]; echo $?)" 0 "declining the redo refuses to start"
+echo "$OUT53" | grep -q "untouched"
+check $? 0 "refusal says the committed session is untouched"
+[ -f "$HOME/dtlab/quarantine/human/human_picks.csv" ] \
+  && [ ! -d "$HOME/dtlab/quarantine/human/attempt_1" ]
+check $? 0 "nothing archived on a declined redo"
+# no TA token exists anywhere (it never was provisioned) — the student
+# archives their own attempt and goes again
+[ ! -f "$HOME/dtlab/.ta_token" ]
+check $? 0 "redo needs no TA token"
+(cd "$HOME" && python3 "$SHOP" --reset-attempt >/dev/null 2>&1 <<< "y
+recorder crashed mid-session"); RC53C=$?
+check "$RC53C" 0 "student-confirmed redo succeeds"
 [ -f "$HOME/dtlab/quarantine/human/attempt_1/human_picks.csv" ] \
   && [ -f "$HOME/dtlab/quarantine/human/attempt_1/human_session.jsonl" ] \
   && [ ! -f "$HOME/dtlab/quarantine/human/human_picks.csv" ]
@@ -1615,6 +1620,7 @@ ha=m['human_attempts']
 assert ha['committed']==2 and len(ha['resets'])==1
 assert ha['resets'][0]['reason']=='recorder crashed mid-session'
 "; check $? 0 "manifest records attempt count + reset audit trail"
+
 mkenv                                      # >1 attempt, NO reset record
 printf 'x DT2026-999\n' > "$HOME/dtlab/quarantine/human/.attempt_1_committed"
 printf 'y DT2026-999\n' > "$HOME/dtlab/quarantine/human/.attempt_2_committed"

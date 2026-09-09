@@ -392,25 +392,55 @@ def reset_records():
     return out
 
 
-def reset_attempt(sid):
-    """TA-authorized reset (audit 5.9): archives the committed attempt's
-    files into attempt_N/ (append-only, never overwritten) and records
-    the reset; the next dtlab-shop run becomes attempt N+1."""
+def _confirm_redo(n_committed):
+    """Ask before archiving. DTLAB_REDO_YES=1 answers yes for scripted
+    runs (tests, TA batch fixes). No answer available at all (closed
+    stdin) declines: never archive a session nobody asked us to."""
+    if os.environ.get("DTLAB_REDO_YES") == "1":
+        return True
+    print(f"\nYour shopping session (attempt {n_committed}) is already "
+          "committed.")
+    print("Starting over ARCHIVES it — every attempt is kept on file, "
+          "never deleted — and begins a fresh one.")
+    try:
+        ans = input("Archive it and start a new session? [y/N] ").strip()
+    except EOFError:
+        return False
+    return ans.lower().startswith("y")
+
+
+def _ask_reason():
+    """One line for the audit trail. Optional on purpose: a student
+    blocked by a required free-text field just types junk, which is
+    worse for the record than a default that says what happened."""
+    try:
+        r = input("One line on why, for the record (Enter to skip): ")
+    except EOFError:
+        r = ""
+    return r.strip() or os.environ.get("DTLAB_REDO_REASON",
+                                       "").strip() or "student redo"
+
+
+def reset_attempt(sid, confirmed=False):
+    """Archive the committed attempt into attempt_N/ (append-only, never
+    overwritten), record it, and let the student shop again — the next
+    dtlab-shop run becomes attempt N+1.
+
+    No TA token (revises audit 5.9): a student redoing their OWN session
+    is a student-facing action, and the token this used to require was
+    never provisioned anywhere, so the path was dead for the whole
+    cohort. What keeps a redo honest is the audit trail, not a gate:
+    every attempt is kept on disk and counted into the pack manifest
+    (`human_attempts`), so a redo is VISIBLE in the research data rather
+    than a silent overwrite.
+    """
     n_committed = len(committed_attempts())
     if n_committed <= len(reset_records()):
         sys.exit("no committed attempt to reset — just run dtlab-shop")
-    tokfile = Path.home() / "dtlab" / ".ta_token"
-    expected = tokfile.read_text(encoding="utf-8").strip() \
-        if tokfile.exists() else None
-    supplied = os.environ.get("DTLAB_TA_TOKEN") \
-        or input("TA token: ").strip()
-    if not expected or supplied != expected:
-        sys.exit("TA token missing or wrong — attempt resets require a "
-                 "TA (~/dtlab/.ta_token, installed at setup); the "
-                 "committed session stays as-is.")
-    reason = input("One-line reason for the reset: ").strip()
-    if not reason:
-        sys.exit("a reason is required for the audit trail")
+    if not confirmed and not _confirm_redo(n_committed):
+        print("Left as-is — nothing was archived.")
+        return 1
+    reason = _ask_reason()
     arch = HUMAN_DIR / f"attempt_{n_committed}"
     arch.mkdir(parents=True, exist_ok=True)
     for name in ("human_session.jsonl", "human_picks.csv"):
@@ -423,8 +453,9 @@ def reset_attempt(sid):
             "reset_at_utc": datetime.now(timezone.utc).isoformat(),
             "student_id": sid, "reason": reason,
             "from_attempt": n_committed}) + "\n")
-    print(f"Attempt {n_committed} archived to {arch} (append-only). "
-          f"Re-run dtlab-shop for attempt {n_committed + 1}.")
+    print(f"Attempt {n_committed} archived to {arch} (kept on file, "
+          f"never deleted). Run dtlab-shop again for attempt "
+          f"{n_committed + 1}.")
     return 0
 
 
@@ -457,24 +488,26 @@ def main():
                     help="course pseudonym; defaults to the one in "
                          "persona_survey.csv")
     ap.add_argument("--reset-attempt", action="store_true",
-                    help="TA-ONLY: archive the committed session "
-                         "(append-only) and allow a re-run; requires the "
-                         "TA token and a one-line reason")
+                    help="archive the committed session (kept on file, "
+                         "never overwritten) and start a new attempt; "
+                         "plain dtlab-shop now offers this too")
     args = ap.parse_args()
     sid = resolve_student_id(args.student_id)
     args.student_id = sid
     HUMAN_DIR.mkdir(parents=True, exist_ok=True)
     if args.reset_attempt:
         return reset_attempt(sid)
-    # ONE committed attempt (audit 5.9): the session is un-redoable
-    # evidence — a second run without a recorded TA reset never starts
+    # A committed session is never overwritten — but the student can
+    # start a new attempt whenever they want, and the old one is
+    # archived rather than lost. Offer that here instead of failing with
+    # the name of a flag: the dead-end error is what students hit, and
+    # "run dtlab-shop again" is what they actually mean to do.
     n_committed = len(committed_attempts())
     if n_committed > len(reset_records()):
-        sys.exit("Your own shopping session is already committed "
-                 f"(attempt {n_committed}) — it happens ONCE. If a "
-                 "re-run is genuinely needed, a TA can authorize it: "
-                 "dtlab-shop --reset-attempt (TA token required; the "
-                 "committed attempt is archived, never overwritten).")
+        if reset_attempt(sid) != 0:
+            sys.exit("Your committed session (attempt "
+                     f"{n_committed}) is untouched.")
+        n_committed = len(committed_attempts())
     attempt_id = n_committed + 1
     if sync_playwright is None:
         sys.exit("playwright missing — run this via the dtlab-shop alias "
