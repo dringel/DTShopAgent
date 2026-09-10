@@ -1207,26 +1207,39 @@ case "$PM" in
   [yY]*) ok "no saved payment methods in the lab browser profile" ;;
   *) echo -e "${RED}Remove them now (amazon.in > Your Account > Payment options; also check the browser's own autofill), then re-run dtlab-start. The agent never touches checkout, but a clean profile is the belt to that suspender.${NC}"; exit 1 ;;
 esac
-# Calendar guard: runs 3-4 are DAY-2 runs; burning all four on day 1
-# breaks the tier-by-day design. Soft gate — a TA-approved early run
-# passes with a typed EARLY (remembered for the rest of the day pair).
+# Calendar guard. This exists for exactly ONE reason: to stop a student
+# burning the day-2 runs on day 1 when day 2 runs a DIFFERENT model
+# tier, which is what the tier-by-day counterbalance depends on.
+#
+# It is therefore conditioned on the tier actually differing, not on the
+# run number. Under the three-condition design every run is the same
+# fixed tier, so there is no second tier to protect — and a run-number
+# gate there does nothing but stop a student finishing legitimate work
+# in one sitting, which is what it did to the first cohort that tried.
+# Same day AND same tier as run 1 = nothing to guard, so say nothing.
+D1TIER="$(cat "$RUNSDIR/run1/tier.txt" 2>/dev/null || true)"
 if [ -n "$RUN" ] && [ "$RUN" -ge 3 ] \
-   && [ ! -f "$HOME/dtlab/.day2_early_ok" ]; then
+   && [ ! -f "$HOME/dtlab/.day2_early_ok" ] \
+   && [ -n "$D1TIER" ] && [ "$TIER" != "$D1TIER" ]; then
   TODAY_IST="$(TZ=Asia/Kolkata date +%F)"
   D1DATE="$(cat "$RUNSDIR/run1/ist_date.txt" 2>/dev/null || true)"
   if [ -n "$D1DATE" ] && [ "$TODAY_IST" = "$D1DATE" ]; then
-    echo -e "${YEL}Runs 3-4 are DAY-2 (frontier) runs, but today is still"
-    echo -e "day 1's calendar date in IST ($D1DATE). All four runs on one"
-    echo -e "day would break the tier-by-day design. Type EARLY only if a"
-    echo -e "TA approved running day-2 early; anything else aborts.${NC}"
+    echo -e "${YEL}Run $RUN would run the $TIER tier, but run 1 ran"
+    echo -e "$D1TIER and today is still day 1's calendar date in IST"
+    echo -e "($D1DATE). Both tiers on one day breaks the tier-by-day"
+    echo -e "counterbalance. Type EARLY only if a TA approved running"
+    echo -e "day-2 early; anything else aborts.${NC}"
     read -rp "> " OK3
-    if [ "$OK3" = "EARLY" ]; then
-      echo EARLY > "$HOME/dtlab/.day2_early_ok"
-      note "TA-approved early day-2 start recorded"
-    else
-      echo -e "${RED}Come back on lab day 2 for runs 3-4.${NC}"
-      exit 1
-    fi
+    # accepted in any case: a student who types "Early" has given the
+    # same answer, and losing a run to the shift key helps nobody
+    case "$OK3" in
+      [eE][aA][rR][lL][yY])
+        echo EARLY > "$HOME/dtlab/.day2_early_ok"
+        note "TA-approved early day-2 start recorded" ;;
+      *)
+        echo -e "${RED}Come back on lab day 2 for runs 3-4.${NC}"
+        exit 1 ;;
+    esac
   fi
 fi
 if [ -n "$COND" ]; then

@@ -1144,6 +1144,50 @@ check "$rc" 1 "refused with exit 1"
 grep -q "history_switch.txt has an invalid value" "$HOME/last_out.txt"
 check $? 0 "names the offending file"
 
+echo "[7b] fixed tier: run 3 on day 1 is NOT gated (three-condition design)"
+# The calendar gate protects the tier-by-day counterbalance. When every
+# run is the same tier there is nothing to protect, and gating on the
+# run NUMBER just stops a student finishing all three conditions in one
+# sitting - which is exactly what happened to the first cohort.
+mkenv 1
+echo persona > "$HOME/dtlab/persona_switch.txt"
+echo economy > "$HOME/dtlab/tier_switch.txt"
+rc=$(run 'y\ny\n\n'); check "$rc" 0 "run 1 (persona, economy) exits 0"
+finish_run
+echo ablated > "$HOME/dtlab/persona_switch.txt"
+rc=$(run 'y\ny\ny\n\n'); check "$rc" 0 "run 2 (ablated, economy) exits 0"
+finish_run
+# the third condition, same day, same tier: must NOT ask for EARLY
+echo persona > "$HOME/dtlab/persona_switch.txt"
+echo off     > "$HOME/dtlab/history_switch.txt"
+rc=$(run 'y\ny\ny\n\n')
+check "$rc" 0 "run 3 same-day, same-tier exits 0 without an EARLY override"
+if grep -q "EARLY" "$HOME/last_out.txt"; then GATED=1; else GATED=0; fi
+check "$GATED" 0 "the calendar gate never fires on a fixed tier"
+check "$(cat "$HOME/dtlab/runs/run3/condition.txt")" "nohistory" \
+      "run 3 is the third condition (nohistory)"
+check "$(cat "$HOME/dtlab/runs/run3/tier.txt")" "economy" \
+      "run 3 stayed on the fixed tier, not frontier"
+[ ! -f "$HOME/dtlab/.day2_early_ok" ]
+check $? 0 "no early-override marker written when the gate never fired"
+
+echo "[7c] a lowercase 'early' is accepted (losing a run to the shift key helps nobody)"
+# a REAL tier change (economy day 1 -> frontier day 2) so the gate fires
+mkenv 1
+echo persona  > "$HOME/dtlab/persona_switch.txt"
+echo economy  > "$HOME/dtlab/tier_day1.txt"
+rc=$(run 'y\ny\n\n');       check "$rc" 0 "run 1 (economy) exits 0"
+finish_run
+rc=$(run 'y\ny\ny\n\n');    check "$rc" 0 "run 2 exits 0"
+finish_run
+echo frontier > "$HOME/dtlab/tier_day2.txt"
+rc=$(run 'y\ny\ny\nearly\n\n')
+check "$rc" 0 "lowercase 'early' passes the gate"
+[ -f "$HOME/dtlab/.day2_early_ok" ]
+check $? 0 "override recorded from the lowercase answer"
+check "$(cat "$HOME/dtlab/runs/run3/tier.txt")" "frontier" \
+      "the gate still fires and still runs day 2's real tier"
+
 rm -rf "$SANDBOX_HOME"
 echo ""; echo "Results: $PASS passed, $FAIL failed"
 exit $FAIL
