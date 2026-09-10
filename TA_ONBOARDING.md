@@ -429,6 +429,36 @@ section are the only things you hand back up.
    actual data flow · a multi-account end-to-end pilot completes all
    four cells without manual repair.
 
+## Design and analysis of record (10 September 2026) — read before touching the analysis
+
+Full statement in `research_protocol.md` §1a. The short version a TA
+needs:
+
+- **Three twins, one tier.** `persona` (questionnaire + history),
+  `ablated` (history only), `nohistory` (questionnaire only). All on
+  Haiku class. The 2x2's model-tier factor is retired. Packs record
+  `design: "3cond"`.
+- **The history effect is deliberately NOT pre-registered** (Ringel,
+  10 Sept). H1b stays exploratory and must be reported that way.
+- **That is a reporting rule, not a data rule.** `nohistory` runs are
+  collected, packed and exported exactly like the other two. If you
+  ever find the third twin missing from an export or a chart, that is a
+  bug — it has been one twice already (`analyze_cohort` charts on
+  9 Sept, the runs export on 10 Sept), both times by a condition
+  allowlist that silently omitted it.
+- **The across-student outcome is a 5 x 3 grid of ordinal
+  distributions** — 15 category x twin cells, four verdict levels each,
+  as counts. Base counts first; significance testing is a separate step
+  on top of them.
+
+```
+python3 tools/analyze_cohort.py --zips <dir> --export-cells cells.csv
+```
+
+The one thing that cannot be recovered later: **if a student does not
+run `dtlab-verdict`, that student has no outcome measure at all.** The
+ratings are the dependent variable. Chase them in class, not after.
+
 ## Instructor decisions & sign-offs (Daniel) — not delegable
 
 The TA runs the machine; these calls stay with the instructor:

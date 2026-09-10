@@ -151,6 +151,66 @@ conflicts and how the agent resolved them; and citation-fidelity analysis
 (are the agent's cited profile facts real or confabulated — connect to your
 GenAI quality-assurance metascience agenda).
 
+## 1a. Design and analysis decisions of record (10 September 2026)
+
+Recorded here because the code implements them and later readers will
+otherwise infer the wrong intent from §1, which still describes the
+retired 2x2 as the plan of record.
+
+**The design is THREE grounding conditions on one fixed tier.** Every
+run is Claude Haiku class. The three twins are `persona` (questionnaire
++ purchase history), `ablated` (purchase history only, questionnaire
+removed from the workspace), and `nohistory` (questionnaire only,
+frozen purchase profile removed from the workspace). Both factors off
+is refused. The model-tier factor of the 2x2 is retired; the frontier
+tier survives only as an optional extra run and is not part of any
+contrast. `pack_evidence.py` records this as `design: "3cond"`.
+
+**The history effect is NOT pre-registered — instructor decision
+(Ringel, 10 Sept).** The confirmatory family stays as it was; the
+history contrast (persona − nohistory, reported as H1b) is EXPLORATORY
+by choice, not by oversight, and must be reported as such. This is a
+deliberate decision taken BEFORE the data was seen, and it is recorded
+here with its date for exactly that reason.
+
+**What this does NOT mean:** `nohistory` runs are collected, packed,
+exported and charted like any other condition. Pre-registration status
+governs how a contrast is REPORTED, never whether its rows reach the
+dataset. Dropping the third twin from an export would delete a third of
+the design; `analyze_cohort.py` includes all three grounding conditions
+in `dtlab-runs-v1` and `dtlab-cells-v1`.
+
+### The across-student outcome table (Ringel, 10 September)
+
+The primary across-student result is a grid of **category x twin**
+cells: 5 product categories x 3 twins = **15 cells**. Within each cell
+sits one distribution over the four-level ordinal scale the student
+gave — `better`, `identical`, `equivalent`, `inferior` — as counts. A
+bar chart per cell; 15 charts.
+
+Worked shape (illustrative numbers): for backpacks, the persona twin
+might be 70 better / 30 identical / 30 equivalent / 21 worse. The same
+category under a different twin gives a different distribution, and the
+same twin across categories gives another.
+
+**These are BASE COUNTS, and they are the deliverable of this step.**
+Significance testing — differences in distributions or shares between
+twins within a category, or across categories — is a SEPARATE second
+step performed on this table. It is deliberately not folded into the
+export, so the counts can be inspected and agreed before any test is
+chosen.
+
+Produced by:
+
+```
+python3 tools/analyze_cohort.py --zips <dir> --export-cells cells.csv
+```
+
+`dtlab-cells-v1` columns: `task_id, category_class, twin, verdict, n,
+n_students, share`. The grid is zero-filled — an unobserved verdict
+level is a row with `n = 0`, never a missing row, so no cell can
+silently understate its denominator.
+
 ## 2. Pseudonymization
 
 - Each student receives a course-issued ID: `DT2026-###`. The ID ↔ name

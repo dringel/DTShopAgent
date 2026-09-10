@@ -290,8 +290,17 @@ def read_submission(path):
     ab = man.get("ablation") or {}
     ablation = bool(ab.get("enabled"))
     run_tiers = ab.get("run_tiers") or {}
-    four_run = ablation and (ab.get("design") == "2x2" or bool(run_tiers))
-    design = "2x2" if four_run else ("2run" if ablation else "single")
+    # THREE-CONDITION design: three grounding conditions on one fixed
+    # tier. It records run_tiers like the 2x2 does, so it must be
+    # identified from the packer's own design field FIRST — otherwise
+    # bool(run_tiers) alone reads it as a 2x2 and the tier contrast is
+    # attempted on a single-tier dataset.
+    three_cond = ablation and ab.get("design") == "3cond"
+    four_run = (not three_cond) and ablation and (
+        ab.get("design") == "2x2" or bool(run_tiers))
+    design = ("3cond" if three_cond
+              else "2x2" if four_run
+              else ("2run" if ablation else "single"))
     verdicts = man.get("verdicts") or {}
     ratings = man.get("ratings") or {}
     rationales = man.get("rationales") or {}
@@ -872,6 +881,13 @@ def main():
                     help="write the dtlab-runs-v1 run-level research "
                          "export (one record per participant x task x "
                          "run, confirmatory set only)")
+    ap.add_argument("--export-cells", metavar="cells.csv",
+                    help="write the category x twin x verdict BASE COUNTS "
+                         "(dtlab-cells-v1): one row per product category x "
+                         "grounding condition x verdict level, zero-filled "
+                         "so the full grid is present. This is the input to "
+                         "the across-student analysis, not the analysis "
+                         "itself")
     ap.add_argument("--export-hth", default=None, metavar="hth.csv",
                     help="write the dtlab-hth-v1 head-to-head export")
     ap.add_argument("--allow-mixed", action="store_true",
@@ -2580,14 +2596,19 @@ Sandbox packs are excluded.</p>
     # ---- run-level research export (audit 2.6; research_protocol §6):
     # dtlab-runs-v1, one record per participant x task x run,
     # confirmatory set only, amendments already applied last-wins ----
-    if args.export_runs or args.export_hth:
+    if args.export_runs or args.export_hth or args.export_cells:
         gens = sorted(set(sdf["design"]))
         if len(gens) > 1 and not args.allow_mixed:
             sys.exit(f"mixed schema generations {gens} in the "
                      "confirmatory set — pass --allow-mixed to export "
                      "anyway")
     if args.export_runs:
-        exp = df[df["condition"].isin(["persona", "ablated", "single"])
+        # nohistory belongs in the export whatever its pre-registration
+        # status: it is one of the three twins, and leaving it out drops
+        # a third of the design from the dataset entirely. Whether the
+        # history contrast is confirmatory or exploratory is decided in
+        # the ANALYSIS, not by withholding the rows.
+        exp = df[df["condition"].isin(list(GROUNDING_CONDS) + ["single"])
                  & df["run"].notna()].copy()
         mmap = sdf.set_index("student")
 
@@ -2633,6 +2654,45 @@ Sandbox packs are excluded.</p>
         runs_out.to_csv(args.export_runs, index=False)
         print(f"Runs export (dtlab-runs-v1) -> {args.export_runs} "
               f"({len(runs_out)} records)")
+    if args.export_cells:
+        # The across-student outcome table (Ringel, 10 Sept): for every
+        # product category, how did each of the three twins do? One
+        # distribution over the ordinal scale per (category, twin) cell —
+        # 5 categories x 3 twins = 15 cells, 4 verdict levels each. These
+        # are BASE COUNTS; the significance testing is a separate step on
+        # top of them, deliberately not folded in here.
+        cdf = df[df["condition"].isin(GROUNDING_CONDS)
+                 & df["verdict"].notna()]
+        counts = (cdf.groupby(["task", "condition", "verdict"])
+                     .size().rename("n").reset_index())
+        # students contributing to each cell (a cell's n sums verdicts
+        # across students, so the denominator has to be stated too)
+        denom = (cdf.groupby(["task", "condition"])["student"]
+                    .nunique().rename("n_students").reset_index())
+        # zero-fill: an absent verdict level is a count of 0, not a
+        # missing row — a sparse table silently understates the grid
+        tasks_ = sorted(cdf["task"].dropna().unique(), key=str)
+        grid = pd.MultiIndex.from_product(
+            [tasks_, list(GROUNDING_CONDS), VERDICT_ORDER],
+            names=["task", "condition", "verdict"]).to_frame(index=False)
+        cells = (grid.merge(counts, on=["task", "condition", "verdict"],
+                            how="left")
+                     .merge(denom, on=["task", "condition"], how="left"))
+        cells["n"] = cells["n"].fillna(0).astype(int)
+        cells["n_students"] = cells["n_students"].fillna(0).astype(int)
+        # share within the cell, so categories with different response
+        # counts are still comparable at a glance
+        tot = cells.groupby(["task", "condition"])["n"].transform("sum")
+        cells["share"] = (cells["n"] / tot.where(tot > 0)).round(4)
+        cat = (cdf.dropna(subset=["category_class"])
+                  .groupby("task")["category_class"].first())
+        cells.insert(1, "category_class", cells["task"].map(cat))
+        cells = cells.rename(columns={"task": "task_id",
+                                      "condition": "twin"})
+        cells.to_csv(args.export_cells, index=False)
+        ncells = cells.groupby(["task_id", "twin"]).ngroups
+        print(f"Cell counts (dtlab-cells-v1) -> {args.export_cells} "
+              f"({ncells} category x twin cells, {len(cells)} rows)")
     if args.export_hth:
         hth_out = [r for m in metas if m["student"] in conf_sids
                    for r in m.get("hth_rows", [])]

@@ -433,12 +433,14 @@ def test_quarantine_and_export():
         out = td / "report.html"
         runs_csv = td / "runs.csv"
         hth_csv = td / "hth.csv"
+        cells_csv = td / "cells.csv"
         r = subprocess.run(
             [sys.executable, str(REPO / "tools" / "analyze_cohort.py"),
              "--zips", str(td), "--out", str(out),
              "--decisions", str(dec),
              "--export-runs", str(runs_csv),
-             "--export-hth", str(hth_csv)],
+             "--export-hth", str(hth_csv),
+             "--export-cells", str(cells_csv)],
             capture_output=True, text=True, check=False)
         assert r.returncode == 0, r.stderr
         html = out.read_text(encoding="utf-8")
@@ -455,8 +457,30 @@ def test_quarantine_and_export():
         # class copy stays pseudonym-free even with quarantine tables
         assert not _re.search(r"DT\d{4}-\d{3}", html)
         assert "anon-" in html
-        # ---- dtlab-runs-v1 export round-trip ----
+        # ---- dtlab-cells-v1: the across-student base counts ----
+        # one distribution over the ordinal scale per (category, twin),
+        # zero-filled, with the significance testing left to a later step
         import csv as _csv
+        with open(cells_csv, newline="", encoding="utf-8") as f:
+            crows = list(_csv.DictReader(f))
+        cells_seen = {(r["task_id"], r["twin"]) for r in crows}
+        verdicts_seen = {r["verdict"] for r in crows}
+        assert verdicts_seen == {"better", "identical", "equivalent",
+                                 "inferior"}, verdicts_seen
+        # every cell carries all four levels, zero-filled where unobserved
+        for cell in cells_seen:
+            lv = {r["verdict"] for r in crows
+                  if (r["task_id"], r["twin"]) == cell}
+            assert lv == verdicts_seen, (cell, lv)
+        assert len(crows) == len(cells_seen) * 4, (len(crows), len(cells_seen))
+        # nohistory is a twin like any other and must be present
+        assert "nohistory" in {r["twin"] for r in crows}, \
+            "the third twin is missing from the base counts"
+        assert all(r["n"].isdigit() for r in crows)
+        print(f"PASS: cell counts export — {len(cells_seen)} category x twin "
+              f"cells, all four verdict levels present in each")
+
+        # ---- dtlab-runs-v1 export round-trip ----
         with open(runs_csv, newline="", encoding="utf-8") as f:
             rrows = list(_csv.DictReader(f))
         assert len(rrows) == 10 * 5 * 4, len(rrows)   # students x tasks x runs
