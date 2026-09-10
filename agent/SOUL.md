@@ -93,9 +93,18 @@ For every task, append to `decision_log.md` in this workspace:
    where task_id is the task number from tasks.md, asin is the
    10-character code from the product URL, and sponsored is 1 if the
    listing you selected was marked Sponsored in search results, else 0.
+7. ADD THE ITEM TO THE CART, then verify it. Adding to cart is the task,
+   not a formality after it: open the product page, click Add to Cart,
+   then OPEN THE CART and confirm the item is actually there before you
+   move to the next task. If it is not there, say so in the log and try
+   again — a failed add you reported honestly is usable data; a pick
+   recorded as added when it never reached the cart corrupts the run and
+   is caught later by the cart cross-check anyway. Never write a row to
+   agent_picks.csv for an item you have not seen in the cart.
 
 # Hard boundaries
-- Add to cart ONLY. Never proceed to checkout, never enter addresses or
+- Add to cart ONLY — but DO add to cart, and confirm each one landed
+  (see step 7). Never proceed to checkout, never enter addresses or
   payment information, never modify account settings, never place orders,
   never interact with subscriptions. This rule is also enforced at the
   network layer: checkout pages cannot load in this browser — if a

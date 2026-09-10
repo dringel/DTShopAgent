@@ -71,6 +71,51 @@ if ! unshare --user --net true 2>/dev/null; then
 fi
 
 mkdir -p "$PROFILE"
+
+# ---- profile contention: the real reason "the browser won't connect" --
+# Chromium allows ONE process per --user-data-dir. Launch a second one
+# and it hands the URL to the first and exits immediately, so the CDP
+# port never opens and dtlab-start reports a dead browser 30s later --
+# while a perfectly good window sits on screen. A crashed Chromium is
+# worse: it leaves SingletonLock behind and every later launch fails
+# with nothing running at all. Both look identical to a student, and
+# both end with a logged-out or missing browser at /browser connect.
+#
+# So: reuse a browser that is already serving automation, refuse
+# clearly when one holds the profile WITHOUT automation, and clear the
+# lock only when nothing is actually holding it.
+profile_held() {
+  command -v pgrep >/dev/null 2>&1 || return 1   # cannot tell; assume free
+  pgrep -f -- "--user-data-dir=$PROFILE" >/dev/null 2>&1
+}
+
+if curl -fsS "http://127.0.0.1:${PORT}/json/version" >/dev/null 2>&1; then
+  echo "NOTICE: a lab browser is already open with automation on port" >&2
+  echo "$PORT, so this one reuses it rather than starting a second copy" >&2
+  echo "(Chromium allows one process per profile). Close every lab" >&2
+  echo "browser window first if you wanted a fresh one." >&2
+  exit 0
+fi
+
+if profile_held; then
+  echo "ERROR: a browser is already using the lab profile, but it is not" >&2
+  echo "exposing the automation port -- most likely one you started" >&2
+  echo "yourself, or a leftover shopping-session window. The agent" >&2
+  echo "cannot attach to it." >&2
+  echo "" >&2
+  echo "Close EVERY lab browser window (check the Lab Desktop on port" >&2
+  echo "6080 too), then run dtlab-start again." >&2
+  exit 1
+fi
+
+# nothing is holding the profile, so any lock left here is stale
+for _stale in SingletonLock SingletonSocket SingletonCookie; do
+  if [ -e "$PROFILE/$_stale" ]; then
+    rm -f "$PROFILE/$_stale"
+    echo "NOTICE: cleared a stale $_stale from a previous crash." >&2
+  fi
+done
+
 exec "$BIN" \
   --user-data-dir="$PROFILE" \
   "${SANDBOX_ARGS[@]}" \
