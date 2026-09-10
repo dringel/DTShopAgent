@@ -81,9 +81,10 @@ computer with one click.
 | `dtlab-history on` / `off` | Set **before every run** — whether the agent gets your order history |
 | `dtlab-tier economy` / `frontier` | Set **once per lab day** — the TA announces this too |
 | `dtlab-runs` | Lists every run you have done, including ones you redid |
+| `dtlab-results` | Shows where every file from every run is saved, and puts that folder in the VS Code explorer |
 | `dtlab-cart` | Screenshots and verifies the cart right after each run, then empty it (Delete, never "Save for later") |
 | `dtlab-verdict` | After all your runs: blind rating of every agent pick against your own |
-| `dtlab-pack` | Builds the one file you submit — `DT2026-###_evidence.zip` — cleaned and validated automatically |
+| `dtlab-pack` | Builds the one file you submit — `DT2026-###_evidence.zip` — cleaned and validated automatically. It is written to `~/dtlab/`, which is outside your repo folder; run `dtlab-results` to put that folder in the explorer |
 
 Run `dtlab-persona status`, `dtlab-history status` or `dtlab-tier status`
 any time you're not sure what's currently set — never guess. Full detail
@@ -95,7 +96,10 @@ further down this page.
 like, and you can redo your own `dtlab-shop` session too. Nothing is
 overwritten: the run you replace is moved to `~/dtlab/runs_history/`
 and stays there, and both commands ask before they archive anything.
-`dtlab-runs` shows you everything you have done. Your evidence pack
+`dtlab-runs` shows you everything you have done, and `dtlab-results`
+shows you where each run's files are saved and adds that folder to the
+VS Code explorer (your lab files live in `~/dtlab/`, outside the repo
+folder, which is why they are not visible there by default). Your evidence pack
 records how many attempts each run took, so a redo is something you
 can just do — not something to hide or work around.
 

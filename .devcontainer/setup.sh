@@ -209,6 +209,84 @@ cat > "$HOME/.local/bin/dtlab-verdict" <<'EOF'
 # Guided verdict/rating/rationale capture after each day's runs.
 exec python3 "$HOME/dtlab/tools/capture_verdicts.py" "$@"
 EOF
+cat > "$HOME/.local/bin/dtlab-results" <<'EOF'
+#!/usr/bin/env bash
+# Show the student where every file from every run actually lives, and
+# put ~/dtlab in the VS Code file explorer.
+#
+# ~/dtlab sits OUTSIDE the repo folder on purpose, which is also why it
+# never appears in the explorer by default. Adding it as a second
+# workspace root is an EDITOR setting only: it copies nothing, moves
+# nothing, and creates no new path. The agent's quarantine boundary is
+# enforced by filesystem path in every SOUL and re-checked at pack time,
+# so what the student can see here has no effect on what the agent can
+# read.
+set -euo pipefail
+D="$HOME/dtlab"
+SID=$(sed -n 's/^participant_id,//p' "$D/workspace/persona_survey.csv" 2>/dev/null | head -1)
+SID=${SID:-DT2026-XXX}
+
+echo ""
+echo "YOUR LAB FILES  ($D)"
+echo ""
+found=0
+for r in "$D"/runs/run[0-9]*; do
+  [ -d "$r" ] || continue
+  found=1
+  n=$(basename "$r")
+  printf '  %s  %s, history=%s, %s\n' "$n" \
+    "$(cat "$r/condition.txt" 2>/dev/null || echo '?')" \
+    "$(cat "$r/history.txt"   2>/dev/null || echo '?')" \
+    "$(cat "$r/tier.txt"      2>/dev/null || echo '?')"
+  printf '     what the agent decided   %s/decision_log.md\n' "$r"
+  printf '     what it put in the cart  %s/agent_picks.csv\n' "$r"
+  printf '     full terminal history    %s/hermes_home/\n' "$r"
+done
+[ "$found" = 1 ] || echo "  (no agent runs yet - run dtlab-start)"
+
+if [ -f "$D/workspace/decision_log.md" ]; then
+  echo ""
+  echo "  Your most recent run is still in progress or not yet filed:"
+  printf '     %s/workspace/decision_log.md\n' "$D"
+  echo "     It moves into the run folder when you start the next run."
+fi
+
+if [ -d "$D/runs_history" ] && [ -n "$(ls -A "$D/runs_history" 2>/dev/null)" ]; then
+  echo ""
+  echo "  Runs you redid (kept, never deleted)"
+  printf '     %s/runs_history/\n' "$D"
+fi
+
+echo ""
+echo "  Your own shopping session"
+printf '     your picks               %s/quarantine/human/human_picks.csv\n' "$D"
+printf '     full session log         %s/quarantine/human/human_session.jsonl\n' "$D"
+echo ""
+echo "  Your blind ratings"
+printf '     %s/quarantine/verdicts/verdicts.csv\n' "$D"
+echo ""
+echo "  Screenshots and recordings"
+printf '     %s/evidence/\n' "$D"
+echo ""
+echo "  Your submission zip (after dtlab-pack)"
+printf '     %s/%s_evidence.zip\n' "$D" "$SID"
+echo ""
+echo "Read any of them from the terminal, e.g.:"
+echo "  cat ~/dtlab/runs/run1/decision_log.md"
+echo ""
+if command -v code >/dev/null 2>&1; then
+  echo "Adding $D to the file explorer..."
+  if code --add "$D" >/dev/null 2>&1; then
+    echo "Done - look for a 'dtlab' folder in the explorer on the left."
+  else
+    echo "Could not add it automatically. In VS Code use"
+    echo "File > Add Folder to Workspace... and enter:  $D"
+  fi
+else
+  echo "To browse these in VS Code: File > Add Folder to Workspace..."
+  echo "then enter:  $D"
+fi
+EOF
 cat > "$HOME/.local/bin/dtlab-runs" <<'EOF'
 #!/usr/bin/env bash
 # Show every agent run on this codespace: the four live slots, plus
@@ -563,5 +641,5 @@ echo "Setup complete. Open the 'Lab Desktop' forwarded port (6080) in your"
 echo "browser — password printed above (or 'dtlab' if rotation failed)."
 echo "KEEP THE PORT PRIVATE. Then use the VS Code terminal for:"
 echo "  dtlab-shop | dtlab-start | dtlab-cart | dtlab-tokens |"
-echo "  dtlab-verdict | dtlab-runs (your run history) |"
+echo "  dtlab-verdict | dtlab-runs | dtlab-results (find your files) |"
 echo "  dtlab-record (optional) | dtlab-pack"
