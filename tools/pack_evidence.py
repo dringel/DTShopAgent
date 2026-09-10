@@ -937,13 +937,42 @@ def main():
              "validate normally")
     runs_present = [rn for rn in all_run_dirs if rn not in sandbox_runs]
     ablation = bool(runs_present)
+
+    # ---- which design is this pack? ------------------------------------
+    # Read the recorded conditions FIRST: the design has to be identified
+    # before any design-specific assertion runs, or a three-condition pack
+    # gets measured against the 2x2's rules and fails for missing a run
+    # that was never part of its design.
+    _conds_present = {}
+    _tiers_present = {}
+    for _rn in runs_present:
+        _cf = RUNS / _rn / "condition.txt"
+        _tf = RUNS / _rn / "tier.txt"
+        if _cf.exists():
+            _conds_present[_rn] = _cf.read_text(encoding="utf-8").strip()
+        if _tf.exists():
+            _tiers_present[_rn] = _tf.read_text(encoding="utf-8").strip()
+
+    # THREE-CONDITION design (the plan of record from 7 Sept): one run per
+    # grounding condition on a single fixed tier — persona (questionnaire
+    # + history), ablated (history only), nohistory (questionnaire only).
+    # There is no second tier and no day-2 pair, so the 2x2's run-count,
+    # day-pair and tier-counterbalance rules do not apply to it.
+    three_cond = (len(runs_present) == 3
+                  and sorted(_conds_present.values()) == sorted(CONDITIONS)
+                  and len(set(_tiers_present.values())) <= 1)
+
     # per-run tier files mark the four-run 2x2; their absence marks a
     # legacy two-run pack (backward compatibility)
-    four_run = ablation and any((RUNS / rn / "tier.txt").exists()
-                                for rn in runs_present)
-    expected_runs = tuple(
-        rn for rn in (RUN_NAMES if four_run else ("run1", "run2"))
-        if rn not in sandbox_runs)
+    four_run = (not three_cond) and ablation and any(
+        (RUNS / rn / "tier.txt").exists() for rn in runs_present)
+    if three_cond:
+        expected_runs = tuple(rn for rn in runs_present
+                              if rn not in sandbox_runs)
+    else:
+        expected_runs = tuple(
+            rn for rn in (RUN_NAMES if four_run else ("run1", "run2"))
+            if rn not in sandbox_runs)
     # per-run HERMES_HOME layout marker: any run carrying its own home
     # was launched with the per-run treatment delivery; packs without it
     # predate the layout and use the legacy global transcript pool
@@ -1046,11 +1075,12 @@ def main():
             need(cond in CONDITIONS,
                  f"ablation factor: {rn}/condition.txt missing or invalid")
             conds[rn] = cond
-            if four_run:
+            if four_run or three_cond:
                 tier = ((rdir / "tier.txt").read_text().strip()
                         if (rdir / "tier.txt").exists() else "")
                 need(tier in TIERS,
-                     f"2x2 design: {rn}/tier.txt missing or invalid")
+                     f"{'2x2' if four_run else 'three-condition'} design: "
+                     f"{rn}/tier.txt missing or invalid")
                 tiers[rn] = tier
             sdir = staging / rn
             sdir.mkdir(exist_ok=True)
@@ -1095,6 +1125,15 @@ def main():
                      "2x2 design: the two lab days must run DIFFERENT "
                      "tiers (tier order is counterbalanced across days; "
                      f"got {day_tier})")
+        elif three_cond:
+            need(sorted(conds.values()) == sorted(CONDITIONS),
+                 "three-condition design: the three runs must be one "
+                 "persona, one ablated and one nohistory run (got "
+                 f"{conds})")
+            _t = {t for t in tiers.values() if t}
+            need(len(_t) <= 1,
+                 "three-condition design: every run must share one model "
+                 f"tier (got {sorted(_t)})")
         elif len(conds) == 2:
             need(set(conds.values()) == set(PAIR_CONDITIONS),
                  f"ablation factor: the two runs must be one persona and "
@@ -1897,6 +1936,26 @@ def main():
                                               "persona_frontier"),
                     "within_ablated": overlap("ablated_economy",
                                               "ablated_frontier"),
+                },
+                "manipulation_check_cited_codes": cited_by_run,
+                "cart_verified": cart_verified,
+            }
+        elif three_cond:
+            ablation_meta = {
+                "enabled": True,
+                "design": "3cond",
+                "run_conditions": conds,
+                "run_tiers": tiers,
+                "run_started_at": started,
+                "head_to_head": head_to_head,
+                # every pairwise contrast the design supports: the
+                # questionnaire effect (persona vs ablated), the history
+                # effect (persona vs nohistory), and the two ablations
+                # against each other
+                "pick_overlap": {
+                    "persona_vs_ablated": overlap("persona", "ablated"),
+                    "persona_vs_nohistory": overlap("persona", "nohistory"),
+                    "ablated_vs_nohistory": overlap("ablated", "nohistory"),
                 },
                 "manipulation_check_cited_codes": cited_by_run,
                 "cart_verified": cart_verified,

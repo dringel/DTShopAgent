@@ -1793,6 +1793,57 @@ assert m['validation_issues'] == [], m['validation_issues']
 sys.exit(0)
 PY2
 
+echo "[57] three-condition design: the pack students actually produce"
+# The plan of record since 7 Sept is THREE grounding conditions on one
+# fixed tier, not the 2x2. Before this was supported, every student
+# running the real design failed dtlab-pack at submission time with
+# "run4 missing" and "the two lab days must run DIFFERENT tiers".
+mkenv_4run
+rm -rf "$HOME/dtlab/runs/run4"
+echo nohistory > "$HOME/dtlab/runs/run3/condition.txt"
+echo economy   > "$HOME/dtlab/runs/run3/tier.txt"
+rm -f "$HOME/dtlab/workspace/comparison.md"
+python3 - <<'PY'
+# verdicts derived from the real ASINs, so 'identical' is never claimed
+# for a different product (or withheld for the same one)
+import csv, json, os
+home = os.path.expanduser("~")
+def picks(path):
+    if not os.path.exists(path): return {}
+    with open(path) as f:
+        return {r["task_id"].strip(): r["asin"].strip()
+                for r in csv.DictReader(f)}
+human = picks(f"{home}/dtlab/quarantine/human/human_picks.csv")
+runs = {"persona": "run1", "ablated": "run2", "nohistory": "run3"}
+vd = f"{home}/dtlab/quarantine/verdicts"; os.makedirs(vd, exist_ok=True)
+with open(f"{vd}/verdicts.csv", "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["student_id","task_id","condition","tier","verdict",
+                "rating_self","rating_agent","rationale"])
+    for cond, rn in runs.items():
+        ap = picks(f"{home}/dtlab/runs/{rn}/agent_picks.csv")
+        for t, asin in ap.items():
+            v = "identical" if human.get(t) == asin else "better"
+            w.writerow(["DT2026-999", t, cond, "economy", v, "8", "5", "r"])
+json.dump({"single_session": True, "blind": True},
+          open(f"{vd}/capture_meta.json", "w"))
+PY
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "a three-condition pack validates (was: run4 missing)"
+python3 - <<'PY'; check $? 0 "manifest records design=3cond with all three conditions and one tier"
+import json, zipfile, os
+z = zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m = json.loads(z.read('DT2026-999/manifest.json'))
+ab = m['ablation']
+assert ab['design'] == '3cond', ab['design']
+assert sorted(ab['run_conditions'].values()) == ['ablated','nohistory','persona'], ab
+assert set(ab['run_tiers'].values()) == {'economy'}, ab['run_tiers']
+# the three pairwise contrasts the design supports
+assert set(ab['pick_overlap']) == {'persona_vs_ablated',
+                                   'persona_vs_nohistory',
+                                   'ablated_vs_nohistory'}, ab['pick_overlap']
+PY
+
 guard
 rm -rf "$SANDBOX"
 echo ""; echo "Results: $PASS passed, $FAIL failed"
