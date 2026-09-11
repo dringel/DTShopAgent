@@ -859,7 +859,7 @@ PY
 echo "[32] C1.4: single Friday session; immutable rows; --amend path"
 mkenv_4run
 guard; rm -rf "$HOME/dtlab/runs/run3" "$HOME/dtlab/runs/run4"
-python3 - "$REPO" <<'PY'; check $? 0 "<4-run gate; crash-safe; immutable re-run; TA-token amendments"
+python3 - "$REPO" <<'PY'; check $? 0 "run-set completeness gate; crash-safe; immutable re-run; amendments"
 import csv, hashlib, os, subprocess, sys
 REPO, HOME, SID = sys.argv[1], os.path.expanduser("~"), "DT2026-999"
 WS = f"{HOME}/dtlab/workspace"
@@ -869,10 +869,11 @@ def run_capture(lines, extra=()):
                           input="\n".join(lines) + "\n",
                           capture_output=True, text=True)
 vp = f"{HOME}/dtlab/quarantine/verdicts/verdicts.csv"
-# ---- fewer than four runs: schedule printed, NOTHING captured ----
+# ---- an INCOMPLETE run set: schedule printed, NOTHING captured ----
+# (the gate is "all of this design's runs are done", not a hard-coded 4)
 p = run_capture([])
 assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-assert "single blind" in p.stdout
+assert "Nothing was captured now" in p.stdout, p.stdout[-2000:]
 assert not os.path.exists(vp)
 # ---- runs 3-4 arrive; a crash mid-session leaves no partial store ----
 for i, cond, tier in ((3, "ablated", "frontier"), (4, "persona", "frontier")):
@@ -928,9 +929,11 @@ assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
 assert "final" in p.stdout
 assert open(vp, "rb").read() == first, "stored rows must never change"
 # ---- a corrupt run refuses the session and never touches the store ----
+# (run3 drops out, so the remaining set is incomplete for every design)
 open(f"{HOME}/dtlab/runs/run3/condition.txt", "w").write("garbage\n")
 p = run_capture([])
-assert p.returncode == 0 and "single blind" in p.stdout
+assert p.returncode == 0 and "Nothing was captured now" in p.stdout, \
+    p.stdout[-2000:]
 assert open(vp, "rb").read() == first
 open(f"{HOME}/dtlab/runs/run3/condition.txt", "w").write("ablated\n")
 # ---- amendments: append-only, confirmed, original row untouched ----
@@ -1843,6 +1846,47 @@ assert set(ab['pick_overlap']) == {'persona_vs_ablated',
                                    'persona_vs_nohistory',
                                    'ablated_vs_nohistory'}, ab['pick_overlap']
 PY
+
+echo "[58] dtlab-verdict captures the THREE-condition design"
+# The completeness gate used to be a literal len(runs) < 4 — the 2x2's
+# run count. Every three-condition student was told "3 of 4" and had
+# NOTHING captured, silently losing the dependent variable entirely.
+mkenv_4run
+rm -rf "$HOME/dtlab/runs/run4"
+echo nohistory > "$HOME/dtlab/runs/run3/condition.txt"
+echo economy   > "$HOME/dtlab/runs/run3/tier.txt"
+CAPV="$REPO/tools/capture_verdicts.py"
+OUT58="$(cd "$HOME" && printf '\n' | python3 "$CAPV" 2>&1)"
+if echo "$OUT58" | grep -q "Nothing was captured now"; then R58=1; else R58=0; fi
+check "$R58" 0 "three complete conditions are NOT refused as incomplete"
+echo "$OUT58" | grep -q "BLIND assessment"
+check $? 0 "the blind capture session actually starts"
+
+echo "[58a] a redo is explained, not silently hidden"
+# A redo parks the old attempt in runs_history/, so the student rates
+# three runs and not six. Left unexplained that looks like lost work.
+mkdir -p "$HOME/dtlab/runs_history/run2_attempt1_20260911T090000Z"
+OUT58A="$(cd "$HOME" && printf '\n' | python3 "$CAPV" 2>&1)"
+echo "$OUT58A" | grep -q "earlier attempt"
+check $? 0 "the session says earlier attempts were replaced"
+echo "$OUT58A" | grep -q "runs_history"
+check $? 0 "and says where they were archived to"
+# blindness is not sacrificed to say it: no condition name before the reveal
+PRE58A="${OUT58A%%Reveal*}"
+if echo "$PRE58A" | grep -qE "persona|ablated|nohistory|economy|frontier"; then
+  LEAK58=1; else LEAK58=0; fi
+check "$LEAK58" 0 "the redo notice leaks no condition before the reveal"
+rm -rf "$HOME/dtlab/runs_history"
+
+echo "[58b] an INCOMPLETE three-condition student is still refused"
+# 2 of 3 runs must not read as a complete legacy 2-run design, or the
+# student's verdicts are captured before their third twin exists
+rm -rf "$HOME/dtlab/runs/run3"
+OUT58B="$(cd "$HOME" && printf '\n' | python3 "$CAPV" 2>&1)"
+echo "$OUT58B" | grep -q "Nothing was captured now"
+check $? 0 "2-of-3 refuses rather than capturing a truncated set"
+echo "$OUT58B" | grep -q "nohistory"
+check $? 0 "the refusal names the condition still missing"
 
 guard
 rm -rf "$SANDBOX"

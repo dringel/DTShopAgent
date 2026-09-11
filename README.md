@@ -83,7 +83,7 @@ computer with one click.
 | `dtlab-runs` | Lists every run you have done, including ones you redid |
 | `dtlab-results` | Shows where every file from every run is saved, and puts that folder in the VS Code explorer |
 | `dtlab-cart` | Screenshots and verifies the cart right after each run, then empty it (Delete, never "Save for later") |
-| `dtlab-verdict` | After all your runs: blind rating of every agent pick against your own |
+| `dtlab-verdict` | **After all three runs:** blind rating of every agent pick against your own. This is the study's outcome measure — see below |
 | `dtlab-pack` | Builds the one file you submit — `DT2026-###_evidence.zip` — cleaned and validated automatically. It is written to `~/dtlab/`, which is outside your repo folder; run `dtlab-results` to put that folder in the explorer |
 
 Run `dtlab-persona status`, `dtlab-history status` or `dtlab-tier status`
@@ -91,6 +91,50 @@ any time you're not sure what's currently set — never guess. Full detail
 on every step is in
 [Student experience](#student-experience-the-whole-thing-from-their-side)
 further down this page.
+
+**Finishing: the ratings are the point.** Everything up to here produces
+the agent's choices. `dtlab-verdict` produces the *outcome* — your
+judgement of those choices — and it is the one thing that cannot be
+reconstructed afterwards. A submission without it has no result in it.
+
+Run it once, after all three of your runs are done:
+
+| Your three runs | `dtlab-persona` | `dtlab-history` |
+|---|---|---|
+| questionnaire **and** purchase history | `on` | `on` |
+| purchase history only | `off` | `on` |
+| questionnaire only | `on` | `off` |
+
+`dtlab-runs` shows how many you have done. `dtlab-verdict` will not
+start until all three exist — it refuses rather than capture a partial
+set, and tells you which condition is still missing.
+
+For each of your five categories you see your own pick beside one
+agent's pick, one at a time, and answer **better** / **identical** /
+**equivalent** / **worse** relative to your own — plus a 1–10
+satisfaction score and a one-line reason. Five categories across three
+runs is **fifteen ratings**. `identical` is checked against the product
+code, so the tool will correct you if you mark two different products
+as the same one.
+
+The three runs appear as **Run A, B and C in a random order that
+differs per category**, and you are not told which is which until the
+end. Judge each product on its own merits. Nothing is graded on the
+agent doing well — a run where it did worse than you is just as useful
+to the study.
+
+It is one sitting: answers are stored as you go and the session does
+not reopen.
+
+**Then submit.** `dtlab-pack` builds `DT2026-###_evidence.zip` and
+validates it. You want `All 7 deliverables present and valid`; a list
+of `[!!]` lines means something is missing, and the right move is to
+send a TA exactly what it printed. The zip lands in `~/dtlab/`, which
+is not the folder in the VS Code sidebar — run `dtlab-results` to add
+that folder to the explorer, then download the zip and upload it
+unchanged. Do not rename it, and do not unzip and re-zip it: the
+filename is how a submission is matched to its data, and the contents
+are checked on receipt.
 
 **Doing a run again.** You can repeat any condition as many times as you
 like, and you can redo your own `dtlab-shop` session too. Nothing is
