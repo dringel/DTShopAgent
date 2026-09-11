@@ -203,6 +203,17 @@ def picks_by_task(path):
             for r in read_csv_rows(path)}
 
 
+# The stored vocabulary is better/identical/equivalent/inferior, but the
+# level is described to students as "worse" — in class, in the LMS
+# announcements and in the help text right above. Someone briefed in
+# those words types "worse" and gets rejected for saying exactly what
+# they were told to say. Accept the synonyms; store the canonical value.
+# NOT "tie" -> equivalent: "tie" is already a real answer at the
+# head-to-head prompts, and quietly meaning something else at the
+# verdict prompt is how you record an answer nobody gave.
+SYNONYMS = {"worse": "inferior", "same": "identical"}
+
+
 def ask(prompt, valid, current=None, allow_empty=False):
     """Validated input; Enter keeps `current` when one exists."""
     suffix = f" [{current}]" if current else ""
@@ -215,6 +226,10 @@ def ask(prompt, valid, current=None, allow_empty=False):
                 return ""
         if raw in valid:
             return raw
+        alias = SYNONYMS.get(raw)
+        if alias and alias in valid:
+            print(f"    (recording that as '{alias}')")
+            return alias
         print(f"    one of: {' | '.join(sorted(valid))}")
 
 
