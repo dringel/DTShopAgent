@@ -7,10 +7,19 @@
 Course + experiment kit: 161 MBA students (two sections: 80 mornings,
 81 afternoons) each configure a Hermes agent (Claude API backend) as
 their consumer digital twin, shop a standardized task set themselves,
-then send the twin to shop it FOUR times in a within-student 2×2 —
-with/without the questionnaire × economy/frontier model — and compare
-(assessment-blinded), producing a paired human/agent
-choice-and-process dataset.
+then send the twin to shop it THREE times — once per grounding
+condition, on one fixed model tier — and compare (assessment-blinded),
+producing a paired human/agent choice-and-process dataset.
+
+The three conditions vary the two grounding sources independently:
+
+| Condition | Questionnaire | Purchase history |
+|---|---|---|
+| `persona` | yes | yes |
+| `ablated` | no | yes |
+| `nohistory` | yes | no |
+
+Both off is refused — that leaves nothing to model the person from.
 
 **Student in the course? Skip straight to [Getting Started](#getting-started-students) below — you do not need anything else on this page.**
 
@@ -26,10 +35,9 @@ with a research-grade data pipeline.
 
 > **START HERE for the 161-student lab week: `COURSE_PLAN_1WEEK.md`.**
 > It is the single authority on the plan: Sessions 6–10, picks committed
-> Wednesday, the four agent runs (2×2: persona/ablated ×
-> economy/frontier, tier order counterbalanced across days per student)
-> on Thursday and Friday, partner-blinded, all verdicts captured in one
-> blind Friday session, capstone
+> Wednesday, the three agent runs (one per grounding condition —
+> persona / ablated / nohistory — on one fixed tier), partner-blinded,
+> all verdicts captured in one blind session after the last run, capstone
 > white paper after. Standing simplifications: the agent writes the
 > purchase profile itself in a one-time questionnaire-blind bootstrap
 > session, then it is frozen for all four runs (`data-pipeline/` is an
@@ -79,15 +87,18 @@ computer with one click.
 | `dtlab-start` | Runs the agent for one condition — pre-flight checks, then launches |
 | `dtlab-persona on` / `off` | Set **before every run** — the TA announces this live in class |
 | `dtlab-history on` / `off` | Set **before every run** — whether the agent gets your order history |
-| `dtlab-tier economy` / `frontier` | Set **once per lab day** — the TA announces this too |
+| `dtlab-tier economy` / `frontier` | Legacy. The design runs one fixed tier; you should not need this |
 | `dtlab-runs` | Lists every run you have done, including ones you redid |
 | `dtlab-results` | Shows where every file from every run is saved, and puts that folder in the VS Code explorer |
 | `dtlab-cart` | Screenshots and verifies the cart right after each run, then empty it (Delete, never "Save for later") |
 | `dtlab-verdict` | **After all three runs:** blind rating of every agent pick against your own. This is the study's outcome measure — see below |
 | `dtlab-pack` | Builds the one file you submit — `DT2026-###_evidence.zip` — cleaned and validated automatically. It is written to `~/dtlab/`, which is outside your repo folder; run `dtlab-results` to put that folder in the explorer |
 
-Run `dtlab-persona status`, `dtlab-history status` or `dtlab-tier status`
-any time you're not sure what's currently set — never guess. Full detail
+Run `dtlab-persona status` or `dtlab-history status` any time you're not
+sure what's currently set — never guess. `dtlab-runs` lists what each
+run actually used, so you never have to remember. **Check it after you
+have rated, not before:** it tells you which run was which, and the
+rating session is deliberately blind. Full detail
 on every step is in
 [Student experience](#student-experience-the-whole-thing-from-their-side)
 further down this page.
@@ -274,7 +285,7 @@ dt-lab/
 ├── research_protocol.md               ← consent, pseudonyms, schemas, dataset assembly
 ├── agent/
 │   ├── SOUL.md                        ← agent identity + ECP decision-log protocol (CAND lines), hard boundaries, injection hardening
-│   ├── SOUL_ablated.md                ← questionnaire-free variant for the ablated runs of the 2×2 (purchase profile only)
+│   ├── SOUL_ablated.md                ← questionnaire-free variant for the ablated run (purchase profile only)
 │   ├── SOUL_bootstrap.md              ← the one-time questionnaire-blind bootstrap session (writes the frozen purchase profile; no shopping)
 │   └── SOUL_sandbox.md                ← practice-store variant (smoke test / flagged-account fallback)
 ├── questionnaire/
@@ -308,7 +319,7 @@ dt-lab/
 │   ├── tasks.md                       ← deliverable #3: the 5 category tasks (generated from tasks_config.csv; ordered per student at pre-flight)
 │   ├── human_picks.csv                ← deliverable #6: pre-registered student picks (structured)
 │   ├── comparison.md                  ← single-run fallback memo (machine-parsed; dtlab-verdict is primary)
-│   └── comparison_ablation.md         ← four-run 2x2 fallback memo (generated; dtlab-verdict is primary)
+│   └── comparison_ablation.md         ← multi-run fallback memo (generated; dtlab-verdict is primary)
 ├── tools/
 │   ├── pack_evidence.py               ← `dtlab-pack`: validates + redacts + bundles ALL 7 deliverables into one zip
 │   ├── log_human_session.py           ← `dtlab-shop`: instrumented human shopping session (quarantined output)
@@ -415,18 +426,18 @@ hard-coded anywhere.
   temperature or sampling overrides — agent runs are interactive tool-use
   sessions, not elicitation calls). Budget guidance: a full task-set run
   is typically well under $1–2 in Sonnet tokens and far less on Haiku;
-  the four-run 2×2 lands around $3–6 per student — the recommended
+  the three runs land around $3–5 per student — the recommended
   personal spend limit is **$20**. Hermes supports Anthropic prompt
   caching, which helps because the persona + history are re-read each run
   (cache reads are also exempt from per-account input-token rate limits).
-  The personal ~$20 spend limit is the cap: it covers all four runs of
-  the 2×2 with slack, and the student controls it end to end.
-- **Model tier is a within-student factor, counterbalanced across
-  days** (plan of record): each agent runs on the economy tier (Claude
-  Haiku class) on one lab day and the frontier tier (Claude Sonnet
-  class) on the other, in the order the counterbalance sheet assigns —
-  the course's live answer to "will a better model do better?",
-  identified separately from the day. The exact pinned model ID is
+  The personal ~$20 spend limit is the cap: it covers all three runs
+  with slack, and the student controls it end to end.
+- **Model tier is FIXED, not a factor** (plan of record, 7 Sept): every
+  run uses the economy tier (Claude Haiku class). The earlier design
+  crossed grounding with an economy/frontier tier factor over two lab
+  days; that was retired when the design moved to three grounding
+  conditions. The frontier tier survives only as an optional extra run
+  and is in no contrast. The exact pinned model ID is
   written into each run's own Hermes configuration by `dtlab-start`
   (which refuses to launch on any mismatch) and recorded per run in
   the manifest (research_protocol.md §1).
@@ -434,16 +445,18 @@ hard-coded anywhere.
   **dashboard** during the setup checklist; pre-flight asks for
   confirmation, and cost questions are answered from each student's own
   usage view.
-- **Questionnaire ablation is ON** (`DTLAB_PERSONA_FACTOR=1`): on each
-  lab day the agent runs the task set twice — persona run (questionnaire
-  + purchase profile) vs. ablated run (purchase profile only, persona
-  files quarantined away from the agent, ablated SOUL, fresh per-run
-  Hermes home) — in per-day counterbalanced
-  order, with blind verdicts for all runs captured once on Friday,
-  per-task head-to-heads, and the
-  pick-overlap measure in every manifest. Combined with the tier factor
-  this yields the four-run 2×2 (see COURSE_PLAN_1WEEK.md; `dtlab-start`
-  walks runs 1–4 and the packer validates per run).
+- **Both grounding sources are ablated independently**
+  (`DTLAB_PERSONA_FACTOR=1`): the agent runs the task set three times —
+  `persona` (questionnaire + purchase profile), `ablated` (purchase
+  profile only; persona files quarantined away from the agent and an
+  ablated SOUL swapped in), and `nohistory` (questionnaire only; the
+  frozen profile removed from the workspace the same way). Every run
+  gets a fresh per-run Hermes home, so no memory crosses runs. Blind
+  verdicts for all three are captured once after the last run, with
+  per-task head-to-heads and the pick-overlap measure in every
+  manifest. `persona − ablated` isolates the questionnaire;
+  `persona − nohistory` isolates the purchase history (exploratory by
+  instructor decision — research_protocol.md §1a).
 
 ## Student experience (the whole thing, from their side)
 
