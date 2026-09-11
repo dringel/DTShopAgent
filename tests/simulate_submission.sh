@@ -1862,6 +1862,34 @@ check "$R58" 0 "three complete conditions are NOT refused as incomplete"
 echo "$OUT58" | grep -q "BLIND assessment"
 check $? 0 "the blind capture session actually starts"
 
+echo "[58c] a repeated setup collapses to the latest run, not a collision"
+# Seen live: a student re-ran a condition into a NEW slot instead of
+# redoing the old one, ending up with run1 AND run2 both nohistory.
+# Verdicts are keyed (task, condition, tier), so two runs in one cell
+# collide - one silently overwrites the other, and four runs are shown
+# for three storable rows. The later run wins, as a redo would.
+mkenv_4run
+echo nohistory > "$HOME/dtlab/runs/run1/condition.txt"
+echo off       > "$HOME/dtlab/runs/run1/history.txt"
+echo economy   > "$HOME/dtlab/runs/run1/tier.txt"
+echo nohistory > "$HOME/dtlab/runs/run2/condition.txt"
+echo off       > "$HOME/dtlab/runs/run2/history.txt"
+echo economy   > "$HOME/dtlab/runs/run2/tier.txt"
+echo ablated   > "$HOME/dtlab/runs/run3/condition.txt"
+echo economy   > "$HOME/dtlab/runs/run3/tier.txt"
+echo persona   > "$HOME/dtlab/runs/run4/condition.txt"
+echo economy   > "$HOME/dtlab/runs/run4/tier.txt"
+OUT58C="$(cd "$HOME" && python3 "$CAPV" --worksheet 2>&1)"
+echo "$OUT58C" | grep -q "3 runs on file"
+check $? 0 "four runs with a repeated setup collapse to three"
+echo "$OUT58C" | grep -q "run1 repeated a setup"
+check $? 0 "and the student is told which one was superseded"
+# the LATER run of the repeated pair is the one carried forward
+echo "$OUT58C" | grep -q "Run A\|Run B\|Run C"
+check $? 0 "three blind labels, not four"
+if echo "$OUT58C" | grep -q "Run D"; then R58C=1; else R58C=0; fi
+check "$R58C" 0 "no fourth label for a three-cell design"
+
 echo "[58a] a redo is explained, not silently hidden"
 # A redo parks the old attempt in runs_history/, so the student rates
 # three runs and not six. Left unexplained that looks like lost work.

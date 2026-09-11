@@ -195,7 +195,28 @@ def load_runs(student_id):
                          "that day — the tier labels every verdict row "
                          "and cannot be guessed; tell a TA.")
             runs.append((f"run{i}", cond, tier))
-    return runs
+    # Collapse repeats of the same (condition, tier) to the LATEST run.
+    #
+    # A student who re-ran a condition into a NEW slot instead of redoing
+    # the old one ends up with, say, run1 and run2 both nohistory. Every
+    # verdict row is keyed (task, condition, tier), so two runs sharing a
+    # cell collide on that key: one silently overwrites the other, and
+    # the student is asked to rate four runs that can only store three.
+    # Higher run number = later attempt, so the newest wins — the same
+    # rule a redo already follows.
+    latest = {}
+    for rn, cond, tier in runs:
+        latest[(cond, tier)] = (rn, cond, tier)
+    deduped = [latest[k] for k in latest]
+    deduped.sort(key=lambda r: int(r[0][3:]))
+    if len(deduped) < len(runs):
+        dropped = [rn for rn, c, t in runs
+                   if latest[(c, t)][0] != rn]
+        print(f"\nNote: {', '.join(dropped)} repeated a setup you ran "
+              "again later.")
+        print("Rating the most recent run of each setup, so nothing is")
+        print("counted twice. The earlier ones are still on file.")
+    return deduped
 
 
 def picks_by_task(path):
