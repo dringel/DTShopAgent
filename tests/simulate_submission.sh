@@ -1847,6 +1847,59 @@ assert set(ab['pick_overlap']) == {'persona_vs_ablated',
                                    'ablated_vs_nohistory'}, ab['pick_overlap']
 PY
 
+echo "[57b] a repeated condition still packs (latest run of each cell wins)"
+# Seen live and repeatedly: a student re-runs a condition into a NEW
+# slot instead of redoing the old one, so run1 and run2 are both
+# nohistory. Four runs / three conditions matched no design, so the
+# pack was measured against the 2x2's rules and REFUSED at submission —
+# for a student whose three conditions were all present and correct.
+mkenv_4run
+rm -f "$HOME/dtlab/workspace/comparison.md"
+for r in 1 2; do
+  echo nohistory > "$HOME/dtlab/runs/run$r/condition.txt"
+  echo economy   > "$HOME/dtlab/runs/run$r/tier.txt"
+done
+echo ablated > "$HOME/dtlab/runs/run3/condition.txt"
+echo economy > "$HOME/dtlab/runs/run3/tier.txt"
+echo persona > "$HOME/dtlab/runs/run4/condition.txt"
+echo economy > "$HOME/dtlab/runs/run4/tier.txt"
+python3 - <<'PY'
+import csv, json, os
+home = os.path.expanduser("~")
+def picks(p):
+    if not os.path.exists(p): return {}
+    return {r["task_id"].strip(): r["asin"].strip() for r in csv.DictReader(open(p))}
+human = picks(f"{home}/dtlab/quarantine/human/human_picks.csv")
+for rn in ("run4",):
+    if not os.path.exists(f"{home}/dtlab/runs/{rn}/agent_picks.csv"):
+        os.replace(f"{home}/dtlab/workspace/agent_picks.csv",
+                   f"{home}/dtlab/runs/{rn}/agent_picks.csv")
+        os.replace(f"{home}/dtlab/workspace/decision_log.md",
+                   f"{home}/dtlab/runs/{rn}/decision_log.md")
+vd = f"{home}/dtlab/quarantine/verdicts"; os.makedirs(vd, exist_ok=True)
+with open(f"{vd}/verdicts.csv","w",newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["student_id","task_id","condition","tier","verdict",
+                "rating_self","rating_agent","rationale"])
+    for cond, rn in (("nohistory","run2"),("ablated","run3"),("persona","run4")):
+        for t,a in picks(f"{home}/dtlab/runs/{rn}/agent_picks.csv").items():
+            w.writerow(["DT2026-999",t,cond,"economy",
+                        "identical" if human.get(t)==a else "better","8","5","r"])
+json.dump({"single_session":True,"blind":True}, open(f"{vd}/capture_meta.json","w"))
+PY
+python3 "$PACK" >/dev/null 2>&1
+check $? 0 "a repeated condition no longer fails the pack"
+python3 - <<'PY'; check $? 0 "design=3cond from the latest run of each cell; the repeat is warned, not packed"
+import json, zipfile, os
+z = zipfile.ZipFile(os.path.expanduser('~/dtlab/DT2026-999_evidence.zip'))
+m = json.loads(z.read('DT2026-999/manifest.json'))
+ab = m['ablation']
+assert ab['design'] == '3cond', ab['design']
+assert sorted(ab['run_conditions'].values()) == ['ablated','nohistory','persona'], ab
+assert 'run1' not in ab['run_conditions'], "the superseded repeat must not be a cell"
+assert any('repeated a condition' in w for w in m.get('warnings', [])), m.get('warnings')
+PY
+
 echo "[58] dtlab-verdict captures the THREE-condition design"
 # The completeness gate used to be a literal len(runs) < 4 — the 2x2's
 # run count. Every three-condition student was told "3 of 4" and had

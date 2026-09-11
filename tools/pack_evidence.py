@@ -958,6 +958,31 @@ def main():
     # + history), ablated (history only), nohistory (questionnaire only).
     # There is no second tier and no day-2 pair, so the 2x2's run-count,
     # day-pair and tier-counterbalance rules do not apply to it.
+    # Repeats of the same (condition, tier) collapse to the LATEST run,
+    # exactly as dtlab-verdict does. A student who re-ran a condition
+    # into a NEW slot rather than redoing the old one ends up with, say,
+    # run1 and run2 both nohistory. Counting both means the design never
+    # matches (four runs, three conditions), and the pack is measured
+    # against the 2x2's rules and refused at submission — for a student
+    # whose three conditions are all present and correct.
+    _superseded = []
+    if _conds_present and len(_conds_present) == len(runs_present):
+        _latest = {}
+        for _rn in runs_present:
+            _latest[(_conds_present[_rn], _tiers_present.get(_rn, ""))] = _rn
+        _keep = set(_latest.values())
+        _superseded = [rn for rn in runs_present if rn not in _keep]
+        if _superseded:
+            runs_present = [rn for rn in runs_present if rn in _keep]
+            for _rn in _superseded:
+                warn(f"{_rn} repeated a condition/tier that was run again "
+                     f"later; the latest run of each cell is the evidence, "
+                     f"so {_rn} is recorded but not packed as a cell")
+            _conds_present = {k: v for k, v in _conds_present.items()
+                              if k in _keep}
+            _tiers_present = {k: v for k, v in _tiers_present.items()
+                              if k in _keep}
+
     three_cond = (len(runs_present) == 3
                   and sorted(_conds_present.values()) == sorted(CONDITIONS)
                   and len(set(_tiers_present.values())) <= 1)
